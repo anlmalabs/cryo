@@ -5,16 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>snowtrooper — clip preview</title>
     <style>
-        html, body { margin: 0; height: 100%; background: #10141a; overflow: hidden; }
+        :root {
+            /* Preview palette. Matches the values the 3D scene uses directly
+               (see the scene.background / fog colours in the script). */
+            --bg:        #10141a;
+            --panel:     #1c2530;
+            --border:    #3a4657;
+            --fg:        #cfd8e3;
+            --accent:    #2f6fed;
+            --accent-fg: #fff;
+        }
+        html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
         #clips {
             position: fixed; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap;
             font: 13px/1 system-ui, sans-serif;
         }
         #clips button {
-            padding: 8px 14px; border: 1px solid #3a4657; border-radius: 6px;
-            background: #1c2530; color: #cfd8e3; cursor: pointer;
+            padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px;
+            background: var(--panel); color: var(--fg); cursor: pointer;
         }
-        #clips button.on { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+        #clips button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
     </style>
 </head>
 <body>
