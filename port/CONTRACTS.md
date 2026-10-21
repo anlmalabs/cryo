@@ -1,30 +1,30 @@
-# SNOWFLOW Three.js port — BINDING CONTRACTS
+# SNOWFLOW Three.js port: BINDING CONTRACTS
 
 Every implementation agent must follow this document exactly. Parallel agents implement
-subsystems **without seeing each other's code**; anything cross-cutting is pinned here.
+subsystems without seeing each other's code; anything cross-cutting is pinned here.
 If a subsystem spec in `port/specs/` conflicts with this document on a cross-cutting matter
-(conventions, names, formats, ordering), **this document wins**; for subsystem-internal
+(conventions, names, formats, ordering), this document wins; for subsystem-internal
 behavior the spec wins. Source of truth for constants is always the original code at
-`/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo` — copy numbers verbatim,
+`/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo`, so copy numbers verbatim,
 never re-derive.
 
 ## 0. Ground rules
 
-- **G1 — Stub tolerance.** Every module must be import-safe and no-op gracefully during
+- **G1 (stub tolerance).** Every module must be import-safe and no-op gracefully during
   bring-up: constructors must not throw when a peer texture/material handle is `null` or a
   callback is absent; `update`/`sync` must early-out on missing resources; a material whose
   peer sampler is missing binds `gfx.blackTex` / `gfx.whiteTex` (§9.6). Never let a missing
   peer crash boot.
-- **G2 — Zero per-frame allocation.** Module-scope scratch vectors/arrays, pre-sized staging
+- **G2 (zero per-frame allocation).** Module-scope scratch vectors/arrays, pre-sized staging
   buffers, mutate uniform `.value` objects in place. Never re-create Vector3/Matrix4/arrays in
   `update`/`sync`.
-- **G3 — Verbatim numbers.** Every tuned constant (biases, envelopes, colors, rates) is copied
+- **G3 (verbatim numbers).** Every tuned constant (biases, envelopes, colors, rates) is copied
   digit-for-digit from the source. Do not simplify, do not normalize, do not fix documented
   oddities.
-- **G4 — Names are contracts.** Module paths, class names, method names, uniform names,
+- **G4 (names are contracts).** Module paths, class names, method names, uniform names,
   attribute names, texture names, settings keys: exactly as listed here. Consumers bind by
   name without seeing the provider's code.
-- **G5 — WGSL→GLSL mechanical rules** (apply everywhere): `select(f, t, cond)` → `cond ? t : f`
+- **G5 (WGSL→GLSL mechanical rules)** (apply everywhere): `select(f, t, cond)` → `cond ? t : f`
   (operand order reverses!); `textureLoad(t, vec2i(x,y), 0)` → `texelFetch(t, ivec2(x,y), 0)`;
   `textureSampleLevel` → `textureLod`; `textureSampleGrad` → `textureGrad`;
   `dpdx/dpdy` → `dFdx/dFdy`; `inverseSqrt` → `inversesqrt`; `vec2f/vec3f/vec4f/mat3x3f/mat4x4f`
@@ -34,7 +34,7 @@ never re-derive.
   (`uniforms.` prefix, `vertexInputs/vertexOutputs/fragmentInputs/fragmentOutputs`,
   `#include<...>` store) → plain GLSL `in/out/uniform` + registry includes (§6);
   `fragmentInputs.position.xy` → `gl_FragCoord.xy`; WGSL `v * m` translates **verbatim** to
-  GLSL `v * m` (both row-vector×matrix) — never rewrite to `m * v`.
+  GLSL `v * m` (both row-vector×matrix), never a rewrite to `m * v`.
 
 ---
 
@@ -49,12 +49,12 @@ Three.js is used as a rasterizer only.** No Three transform math feeds any shade
   (`matrixAutoUpdate = false`, `frustumCulled = false`); vertex shaders output world space
   directly (skinning textures / procedural placement), there is **no model matrix anywhere**.
 - **1.2 Matrix storage.** Column-major flat `Float32Array(16)`, translation at elements
-  12–14 — Babylon's GPU layout, GLSL `mat4` layout, and `THREE.Matrix4.elements` layout are
-  all identical. GPU-side `M * v` works unchanged.
+  12–14. Babylon's GPU layout, GLSL `mat4` layout, and `THREE.Matrix4.elements` layout are
+  all identical, so GPU-side `M * v` works unchanged.
 - **1.3 Matrix builders.** `core/mat4.js` provides (§9.3) `lookAtLH`, `perspectiveFovLH`,
-  `orthoOffCenterLH` — LH view/projection with **GL clip z ∈ [−1, +1]** (NOT WebGPU's [0,1]).
-  All cameras (main + shadow) are built with these. `Babylon A.multiplyToRef(B, out)` in
-  source code = `mulMat4(out, B, A)` here (i.e. `view.multiplyToRef(proj)` →
+  `orthoOffCenterLH`, all LH view/projection with **GL clip z ∈ [−1, +1]** (NOT WebGPU's
+  [0,1]). All cameras (main + shadow) are built with these. `Babylon A.multiplyToRef(B, out)`
+  in source code = `mulMat4(out, B, A)` here (i.e. `view.multiplyToRef(proj)` →
   `mulMat4(viewProj, proj, view)`).
 - **1.4 NDC / winding.** Because LH view+proj reproduce Babylon's clip x,y exactly (WebGPU NDC
   is y-up like GL), screen-space winding matches the source. Rule: **index buffers are copied
@@ -63,7 +63,7 @@ Three.js is used as a rasterizer only.** No Three transform math feeds any shade
   `backFaceCulling = false` use `THREE.DoubleSide`.** Babylon's LH default is
   `sideOrientation` CCW + cull back, which is exactly Three's `FrontSide`
   (`gl.frontFace(CCW)` + cull back); `BackSide` flips the front face to CW and draws
-  precisely the faces Babylon culled — never use it for default-orientation Babylon
+  precisely the faces Babylon culled, so never use it for default-orientation Babylon
   meshes. (An earlier revision of this rule was inverted, seeded by a stale
   "clockwise is front-facing" comment in the original clipmapMesh.js; it made the
   terrain render see-through.) When in doubt during bring-up, `DoubleSide` is the
@@ -78,7 +78,7 @@ Three.js is used as a rasterizer only.** No Three transform math feeds any shade
     compare depth `d = ndc.z * 0.5 + 0.5` against the stored map (with the source's
     receiver-plane + bias math, bias divided by `cascadeParams[c].x` depthRange metres,
     unchanged).
-  - **Shadow UV: `uv = ndc.xy * 0.5 + vec2(0.5)` — NO Y flip.** The source's
+  - **Shadow UV: `uv = ndc.xy * 0.5 + vec2(0.5)`, with NO Y flip.** The source's
     `0.5 + ndc.y*0.5` line compensated a Babylon RTT flip that WebGL FBOs do not have; here
     the unflipped mapping is correct in both axes. render-post must validate once via CPU
     readback of cascade 0 (terrain `debugView: "shadowMap"` exists for this).
@@ -148,10 +148,10 @@ available in this browser.")` (jet.html/index.html `#nogpu` copy updated accordi
 
 ## 4. Frame graph
 
-### 4.1 Boot order (mirrors source `main.js` exactly — preserve every side effect)
+### 4.1 Boot order (mirrors source `main.js` exactly, preserve every side effect)
 
 1. Grab `#view` canvas; WebGL2/EXT gate (§3).
-2. Coarse-pointer check → `applyPreset("balanced")`, `S.resolutionScale = 0.7` — **before any
+2. Coarse-pointer check → `applyPreset("balanced")`, `S.resolutionScale = 0.7`, **before any
    construction** (`deformResolution` is read once by DeformationField's constructor).
 3. Kick `audio.load()`, `loadWalkerAsset("models/walker")`; latch `const FLYING = S.speeder
    === true`; if FLYING also `loadWalkerAsset("models/speeder")`. None awaited here.
@@ -177,7 +177,7 @@ available in this browser.")` (jet.html/index.html `#nogpu` copy updated accordi
 13. `new SnowContact(character, terrain.deform, figure.figure, spray)`.
 14. `new SurfWake(gfx, sky, shadows, character, spray, terrain)`; onChange showWake;
     `wake.registerPrepass(depthPass)`.
-15. If FLYING: `S.showSpells = false; S.showWake = false` (**plain writes, not `set()`** — no
+15. If FLYING: `S.showSpells = false; S.showWake = false` (**plain writes, not `set()`**, no
     listeners fire).
 16. `new SpellSystem(gfx, sky, shadows, terrain, character, figure.figure, rig, spray)`;
     `spells.addConsumers(terrain.material, figure.bodyMat, figure.clothMat, wake.material,
@@ -231,23 +231,23 @@ renderFrame();                                        // §4.3
 post.endFrame();
 mark(...) ×7; endFrameDraws(); stats.triangles = <sum per source>;
 sample(dtMs); checkSpike(dtMs); overlay.update(dtMs, gfx); fpsMeter.update(dtMs);
-endFrame();                                           // input accumulators — DEAD LAST
+endFrame();                                           // input accumulators, DEAD LAST
 ```
 
 ### 4.3 Render pass order (`renderFrame()` in main.js, using `gfx.runPass`)
 
 1. *(already done inside `terrain.update`: deform sim fullscreen pass, ping-pong)*
-2. **Shadow cascades** — `shadows.render(gfx)`: for c in 0..2: bind `cascadeRT[c]`, clear
+2. **Shadow cascades**, i.e. `shadows.render(gfx)`: for c in 0..2, bind `cascadeRT[c]`, clear
    color (1,1,1,1) + depth, draw every registered caster whose cascade range includes c with
    its per-cascade material (each material's `lightViewProjection` was set in
    `shadows.update`).
-3. **Depth prepass** — `depthPass.render(gfx)`: bind `scenePrepass`, clear color
+3. **Depth prepass**, i.e. `depthPass.render(gfx)`: bind `scenePrepass`, clear color
    (9000, 0, 0, 1) + depth, draw registered casters with their prepass materials (jittered
    `viewProjection`).
 4. **Beauty** into `sceneColor`: clear color (§2.6) + depth once, then render layer SKY, then
    layer OPAQUE, then layer BLEND with `renderer.autoClear = false` (depth persists across
    all three).
-5. **Post chain** — `post.render(gfx)`: ssr → taa (→ history[k]) → shafts(¼) → bloomA(¼) →
+5. **Post chain**, i.e. `post.render(gfx)`: ssr → taa (→ history[k]) → shafts(¼) → bloomA(¼) →
    bloomB(1/16) → bloomC(1/16) → dof → composite → sharpen → canvas.
 
 ### 4.4 Layers & renderOrder (fixed table)
@@ -266,7 +266,7 @@ opaque within the same render call):
 | bolts | BLEND | 41 | additive |
 | spray | BLEND | 50 | always last |
 
-Shadow/prepass passes do not use layers for selection — they iterate explicit caster lists.
+Shadow/prepass passes do not use layers for selection; they iterate explicit caster lists.
 
 ### 4.5 Pass runner / material-swap contract
 
@@ -313,28 +313,31 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
 
 ## 6. Shader conventions
 
-- **6.1 Language.** GLSL ES 3.0 via `RawShaderMaterial` with `glslVersion: THREE.GLSL3`
-  (Three injects `#version 300 es`; **shader files must not contain a `#version` line**).
-  Every fragment shader starts (after includes are resolved — put it in the file, before any
-  `#include`): `precision highp float; precision highp int; precision highp sampler2D;`
-  plus `precision highp sampler2DArray;` where used — sampler declarations default to
-  `lowp` in GLSL ES 3.0, which quantizes float-texture reads (height/deform) on some
-  drivers. Vertex shaders: same precision block. Fragment output:
-  `layout(location = 0) out vec4 fragColor;` — name it exactly `fragColor`.
-- **6.2 Files.** One `.glsl` file per source `.wgsl`, same basename, under `src/shaders/`
-  (e.g. `snow.vertex.glsl`, `deformSim.fragment.glsl`) and `src/shaders/lib/*.glsl` for the
-  15 include chunks: `noise, terrain, shading, shadowLookup, atmosphere, clipmap, deform,
-  charSkin, walkerSkin, wake, spellLights, water, crystal, postCommon, ridge`.
-- **6.3 Registry.** `src/shaders/registry.js`:
+- **6.1 Language.** GLSL ES 3.0 is used via `RawShaderMaterial` with `glslVersion:
+  THREE.GLSL3`. Three injects `#version 300 es`, so shader files must not contain a
+  `#version` line. Every fragment shader opens with the precision block, placed in the file
+  after includes are resolved and before any `#include`: `precision highp float; precision
+  highp int; precision highp sampler2D;`, plus `precision highp sampler2DArray;` wherever a
+  2D array sampler is used. Sampler declarations default to `lowp` in GLSL ES 3.0, which
+  quantizes float-texture reads (height/deform) on some drivers. Vertex shaders carry the
+  same precision block. The fragment output is declared as
+  `layout(location = 0) out vec4 fragColor;` and the name must be exactly `fragColor`.
+- **6.2 Files.** One `.glsl` file exists per source `.wgsl`, with the same basename, under
+  `src/shaders/` (for example `snow.vertex.glsl`, `deformSim.fragment.glsl`), and
+  `src/shaders/lib/*.glsl` holds the 15 include chunks: `noise, terrain, shading,
+  shadowLookup, atmosphere, clipmap, deform, charSkin, walkerSkin, wake, spellLights, water,
+  crystal, postCommon, ridge`.
+- **6.3 Registry.** `src/shaders/registry.js` provides:
   ```js
   export function registerShaders()            // idempotent; loads all *.glsl via import.meta.glob(..., { as: "raw", eager: true })
   export function getShader(name)              // "snowVertexShader"/"snowPixelShader" naming preserved: <base>VertexShader / <base>PixelShader
   export function composeShader(source)        // recursively resolves #include<name> (names: snowNoise, snowTerrain, ... as in source registry.js)
   ```
-  Include syntax in GLSL files: `#include<snowNoise>` (regex `#include\s*<(\w+)>`), resolved
-  by textual substitution **before** compile; each chunk substituted at most once per compile
-  unit (dedupe by name). Never use Three's `ShaderChunk`. The include mapping is exactly the
-  source's: `snowNoise→lib/noise.glsl`, `snowTerrain→lib/terrain.glsl`, `snowShading→
+  GLSL files write includes as `#include<snowNoise>` (regex `#include\s*<(\w+)>`), resolved
+  by textual substitution **before** compile; each chunk is substituted at most once per
+  compile unit, deduped by name. Three's `ShaderChunk` is never used. The include mapping is
+  exactly the source's:
+  `snowNoise→lib/noise.glsl`, `snowTerrain→lib/terrain.glsl`, `snowShading→
   lib/shading.glsl`, `snowShadowLookup→lib/shadowLookup.glsl`, `snowAtmosphere→
   lib/atmosphere.glsl`, `snowClipmap→lib/clipmap.glsl`, `snowDeform→lib/deform.glsl`,
   `snowCharSkin→lib/charSkin.glsl`, `snowWalkerSkin→lib/walkerSkin.glsl`, `snowWake→
@@ -342,37 +345,39 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
   `snowCrystal→lib/crystal.glsl`, `snowPostCommon→lib/postCommon.glsl`, `snowRidge→
   lib/ridge.glsl`.
 - **6.4 Material helper.** `core/gpuUtil.js` exports
-  `makeMaterial({ name, vertex, fragment, uniforms, ...flags })` → `RawShaderMaterial` with
-  includes resolved via `composeShader`, `glslVersion: GLSL3`. `name` used in warm-up
-  diagnostics.
-- **6.5 Chunk ownership** (who writes which lib file — disjoint):
-  terrain task: `noise, terrain, clipmap, deform, ridge`; render-post task: `shading,
-  shadowLookup, atmosphere, postCommon`; character: `charSkin`; walkers: `walkerSkin`;
-  vfx: `wake`; spells: `water, crystal, spellLights`. A chunk's **function signatures are
-  contracts** — they match the WGSL originals translated per G5 (e.g.
-  `float noise2(vec2 p)`, `vec3 noised(vec2 p)`, `float ign(vec2 px)`,
-  `vec3 shIrradiance(vec3 n, vec4 shR[9])` → in GLSL pass the global uniform: declare
-  `vec3 shIrradiance(vec3 n)` reading the `shR` uniform directly if the WGSL did — follow
-  each spec's stated signatures; when a chunk reads uniforms, the **including shader must
-  declare them before the `#include` line** with the exact names of §7).
-- **6.6 Attribute names** (BufferGeometry attributes, exact): `position`, `normal`, `uv`,
-  `aux` (vec2), `boneIdx` (vec4 float), `boneWt` (vec4 float). Indices Uint16/Uint32 as
-  sourced. Attributes are declared `in` in vertex shaders with matching types.
-- **6.7 Fullscreen passes.** `FullscreenPass` (§9.4) draws a single fullscreen triangle with
-  `in vec2 position` (clip-space −1..3 triangle) and provides `vUV` varying in [0,1],
-  v = 0 at the **bottom** (GL convention). Bake shaders (`heightBake`, `auxBake`,
-  `detailBake`, `skyBake`, `deformSim`, all `post/*`) consume `vUV` with this orientation.
-  The sky SH CPU projection must index readback rows to match (`readRenderTargetPixels` row 0
-  = bottom row = v=0): render-post must keep `latLongToDir`'s zenith-at-v convention and the
-  CPU loop consistent — validate `_irradianceUp()` after first bake per its spec.
+  `makeMaterial({ name, vertex, fragment, uniforms, ...flags })`, which returns a
+  `RawShaderMaterial` with includes resolved via `composeShader` and `glslVersion: GLSL3`.
+  The `name` argument feeds the warm-up diagnostics.
+- **6.5 Chunk ownership.** Each lib file has exactly one owner, and the sets are disjoint:
+  `noise, terrain, clipmap, deform, ridge` belong to the terrain task; `shading,
+  shadowLookup, atmosphere, postCommon` to render-post; `charSkin` to character;
+  `walkerSkin` to walkers; `wake` to vfx; and `water, crystal, spellLights` to spells.
+  A chunk's function signatures are contracts, matching the WGSL originals translated per G5
+  (for example `float noise2(vec2 p)`, `vec3 noised(vec2 p)`, `float ign(vec2 px)`).
+  Where the WGSL took `vec4 shR[9]` as a parameter, the GLSL version declares
+  `vec3 shIrradiance(vec3 n)` and reads the `shR` uniform directly, as the WGSL did. Each
+  spec states its own signatures; follow those. When a chunk reads uniforms, the including
+  shader must declare them before the `#include` line, using the exact names of §7.
+- **6.6 Attribute names.** BufferGeometry attributes are exactly `position`, `normal`, `uv`,
+  `aux` (vec2), `boneIdx` (vec4 float) and `boneWt` (vec4 float). Indices stay Uint16/Uint32
+  as sourced, and vertex shaders declare them `in` with matching types.
+- **6.7 Fullscreen passes.** `FullscreenPass` (§9.4) draws one fullscreen triangle with
+  `in vec2 position` (a clip-space −1..3 triangle) and provides a `vUV` varying in [0,1]
+  with v = 0 at the bottom (GL convention). The bake shaders (`heightBake`, `auxBake`,
+  `detailBake`, `skyBake`, `deformSim` and all `post/*`) consume `vUV` with this
+  orientation. The sky SH CPU projection must index readback rows to match
+  (`readRenderTargetPixels` row 0 is the bottom row, v=0), so render-post has to keep
+  `latLongToDir`'s zenith-at-v convention and the CPU loop consistent; validate
+  `_irradianceUp()` after the first bake, per its spec.
 
 ## 7. Shared uniform contracts (exact names & upload idioms)
 
 - **7.1 Per-frame camera:** every vertex shader that projects declares
   `uniform mat4 viewProjection; uniform vec3 cameraPos;`. Values: bind the shared jittered
-  `rig.camera.viewProjection` — idiom: `uniforms.viewProjection = { value:
-  rig.camera.viewProjection }` (a `THREE.Matrix4` mutated in place by rig/post; Three
-  re-uploads each draw). `cameraPos` from a shared Vector3 mutated in place.
+  `rig.camera.viewProjection`, using the idiom
+  `uniforms.viewProjection = { value: rig.camera.viewProjection }`, where the `Matrix4` is
+  mutated in place by rig/post and Three re-uploads each draw. `cameraPos` comes from a
+  shared Vector3 mutated in place.
 - **7.2 Shadow receiver block** (declared by every shadow-receiving material, before
   `#include<snowShadowLookup>`):
   ```
@@ -381,42 +386,43 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
   uniform float shadowBias; uniform sampler2D cascade0; uniform sampler2D cascade1;
   uniform sampler2D cascade2;
   ```
-  Values: `cascadeMatrices.value = shadows.matrixValues` (array of 3 `Matrix4` whose
-  `.elements` are `Float32Array` subarray views of `shadows.matrixData` — zero copy);
-  `cascadeParams.value = shadows.paramData` (flat Float32Array(12) — Three accepts flat
-  arrays for vec-array uniforms); `cascadeSplits.value = shadows.splitsVec4` (shared Vector4);
-  `shadowTexel = 1/2048`. Splits are `[26, 95, 330, 330]`. Cascades are **three separate
-  sampler2D uniforms — never an array**. Per-material tuning (verbatim): terrain
+  Values: `cascadeMatrices.value = shadows.matrixValues`, an array of 3 `Matrix4` whose
+  `.elements` are `Float32Array` subarray views of `shadows.matrixData` (zero copy);
+  `cascadeParams.value = shadows.paramData`, a flat Float32Array(12), which Three accepts
+  for vec-array uniforms; `cascadeSplits.value = shadows.splitsVec4` (a shared Vector4);
+  `shadowTexel = 1/2048`. Splits are `[26, 95, 330, 330]`. Cascades use **three separate
+  sampler2D uniforms, never an array**. Per-material tuning (verbatim): terrain
   softness/bias per source; character 1.4/0.012; walker 1.4/0.06; speeder 1.4/0.11; wake
   1.5/0.018; spray 1.6/0.05; water 1.4/0.03; crystal 1.3/0.012.
 - **7.3 Sky/lighting block:** `uniform vec3 sunDir; uniform vec3 sunRadiance;
   uniform vec4 shR[9]; uniform sampler2D skyLUT; uniform float ambientIntensity;`.
-  `shR.value = sky.sh` (flat Float32Array(36), zero copy — sky mutates in place).
+  `shR.value = sky.sh`, a flat Float32Array(36) with zero copy, because sky mutates it in
+  place.
 - **7.4 Fog/aerial block:** `uniform float fogDensity, fogHeightFalloff, fogStart,
-  aerialStrength;` — values read from `S` every `sync`.
+  aerialStrength;`. Values are read from `S` on every `sync`.
 - **7.5 Spell lights** (`SPELL_LIGHT_UNIFORMS = ["spellLightPos","spellLightCol",
   "spellLightCount"]`): `uniform vec4 spellLightPos[4]; uniform vec4 spellLightCol[4];
   uniform float spellLightCount;`. `SpellLights.apply(material)` writes
   `material.uniforms.spellLightPos.value = this.pos` (flat 16-float arrays, zero copy) and
   `spellLightCount.value = this.count`. Every consumer material **must declare all three**
   even if lights never hit it. MAX_SPELL_LIGHTS = 4.
-- **7.6 matFactors:** `uniform vec4 matFactors[8]` in the walker fragment shader — slot
-  layout `(roughnessFactor, metallicFactor, occlusionStrength, albedoTint)`; **slot 7 is the
-  speeder side channel** `([7].x = flat fill, [7].y = sun desaturation)`; the walker
-  zero-fills slot 7. Flat Float32Array(32) upload.
+- **7.6 matFactors:** `uniform vec4 matFactors[8]` in the walker fragment shader. Slot layout
+  is `(roughnessFactor, metallicFactor, occlusionStrength, albedoTint)`, and slot 7 is the
+  speeder side channel `([7].x = flat fill, [7].y = sun desaturation)`; the walker zero-fills
+  slot 7. Upload is a flat Float32Array(32).
 - **7.7 Skinning:** `uniform sampler2D walkerTex; uniform float boneRow;` (walker/speeder,
-  cast `int(boneRow)` in shader); `uniform sampler2D charTex;` (character). Layout contracts
-  per §5 + subsystem specs.
-- **7.8 Shadow caster materials** declare `uniform mat4 lightViewProjection;` — set by
+  cast `int(boneRow)` in the shader) and `uniform sampler2D charTex;` (character). Layout
+  contracts are per §5 plus the subsystem specs.
+- **7.8 Shadow caster materials** declare `uniform mat4 lightViewProjection;`, set by
   `ShadowSystem.update` every frame per cascade instance.
 - **7.9 Prepass materials** declare `viewProjection` (jittered) and output through the shared
-  `prepass.fragment.glsl` (`fragColor = vec4(vViewZ, vMask, 0.0, 1.0)`); varyings named
-  exactly `vViewZ`, `vMask`.
+  `prepass.fragment.glsl` (`fragColor = vec4(vViewZ, vMask, 0.0, 1.0)`); varyings are named
+  exactly `vViewZ` and `vMask`.
 
-## 8. Settings — key list preserved verbatim
+## 8. Settings, key list preserved verbatim
 
 `src/core/settings.js` is **copied from the source file verbatim** (S, SCHEMA, PRESETS,
-onChange, set, applyPreset — same code, same comments allowed to be trimmed but keys/defaults
+onChange, set, applyPreset, same code, same comments allowed to be trimmed but keys/defaults
 byte-identical). Keys for reference:
 
 - quality: `preset` "ultra", `resolutionScale` 1.0
@@ -434,7 +440,7 @@ byte-identical). Keys for reference:
   `jetDropY` 0.18, `jetBackZ` 0.35, `jetWidth` 1.0, `jetLength` 1.0, `jetFlare` 1.0,
   `boltR` 1.0, `boltG` 0.30, `boltB` 0.18, `boltWidth` 0.16, `boltLength` 9.0,
   `speederDebug` "off"
-  (resynced 2026-08-05 to the source working tree — the earlier list here was
+  (resynced 2026-08-05 to the source working tree, the earlier list here was
   transcribed from an intermediate source state; `S.jetWidth`/`S.jetLength`/`S.jetFlare`
   multiply the jet plume's base WIDTH/LENGTH/FLARE constants, and `S.overlayOpen` is set
   true by `jet.js` and read once in `main.js` after `loading.done()` to auto-open the
@@ -454,7 +460,7 @@ byte-identical). Keys for reference:
 PRESETS: `ultra:{}`, `high:{deformResolution:2048, resolutionScale:1.0, ssr:true, dof:true}`,
 `balanced:{deformResolution:1024, resolutionScale:0.85, ssr:false, dof:false}`.
 
-## 9. Core module APIs (`src/core/`) — provided by the scaffold task
+## 9. Core module APIs (`src/core/`), provided by the scaffold task
 
 ### 9.1 `settings.js`
 `export const S`, `export const SCHEMA`, `export const PRESETS`,
@@ -472,8 +478,8 @@ flying pins `surf=true` and maps held→`fire`.
 
 ### 9.3 `mat4.js`
 Flat Float32Array column-major helpers, all `(out, outOffset, ...)` style as source:
-`setFrame`, `setFrameFromDir`, `mul` (rigid), `invertRigid`, `xformPoint`, `xformDir` —
-ported verbatim — plus new full-4×4 helpers:
+`setFrame`, `setFrameFromDir`, `mul` (rigid), `invertRigid`, `xformPoint`, `xformDir`, all
+ported verbatim, plus new full-4×4 helpers:
 ```
 export function mulMat4(out, a, b)            // out = a * b, column-convention, plain arrays/.elements
 export function invertMat4(out, m)            // general inverse
@@ -496,7 +502,7 @@ export async function whenReady(gfx, materialOrPass, label, drawFn?)  // compile
 export async function bakeOnce(pass, target, label?)             // compile + single render
 export async function compileAll(gfx)                            // renderer.compileAsync(scene, threeCamera)
 ```
-`bindMatrixArray` is intentionally absent — use the aliased-`Matrix4` idiom of §7.2.
+`bindMatrixArray` is intentionally absent, so use the aliased-`Matrix4` idiom of §7.2.
 
 ### 9.5 `gfx.js` (the engine replacement)
 ```
@@ -605,7 +611,7 @@ export class ShadowSystem {
 export const DEPTH_FAR = 9000;
 export class DepthPass {
   constructor(gfx)                 // scenePrepass RT per §5, tracked screen-size
-  rtt;                             // { texture } — bound as depthTex by post
+  rtt;                             // { texture }, bound as depthTex by post
   size: Vector2;
   registerCaster(mesh, material);
   render(gfx);                     // §4.3 step 3
@@ -655,7 +661,7 @@ into a transient RGBA32F 4096² target, `readRenderTargetPixels` (stride derived
 `length/4096²` as source), 2×2 box downsample to 2048², dispose transient. Keep the −0.5
 sample-centre convention and identical B-spline weights. Deform relaxation time-banking
 (RELAX_STEP 0.4 s, dt=0 otherwise) verbatim. All three terrain vertex shaders share the
-`snowClipmap`/`snowDeform` chunks — bit-identical placement (spec risk #1).
+`snowClipmap`/`snowDeform` chunks, giving bit-identical placement (spec risk #1).
 
 ### `src/character/*`
 ```
@@ -738,8 +744,8 @@ crystals.js:    export const CRYSTAL_MAX=96, VERTS=13, RING=6, CRYSTAL_CASCADES=
   export class CrystalField { plant(...); update(dt, cameraPos); registerPrepass(depthPass);
     warmUp; finishWarmUp; liveCount; triangles; }
 bending.js:     clamp01, clampRange, smooth01, bell, expDamp, transport, groundRay, aimPoint.
-sweep/ribbon/bloom/crystallize/vortex.js: class per spell — constructor(ctx), update(dt),
-  cancel(), active; trigger signatures per spells spec §2.
+sweep/ribbon/bloom/crystallize/vortex.js: one class per spell, with constructor(ctx),
+  update(dt), cancel() and active; trigger signatures per spells spec §2.
 ```
 Crystals: LAYER.OPAQUE order 20 (transparent + depthWrite:true). Water: LAYER.BLEND order 30.
 Crystals are the **only** prepass caster writing mask = 1. Spell update ordering inside
@@ -767,9 +773,10 @@ Spray billboard basis from the LH view matrix: `camRight = (v[0], v[4], v[8])`,
 APIs exactly as audio-ui spec §2: `AudioEngine`/`LoopVoice`/`audio` singleton,
 `AUDIO_MANIFEST` (table verbatim incl. `needs:"speeder"` entries and the intentionally
 absent `walkerStep`), `Soundscape`, `Overlay`, `createFpsMeter`, `createSoundButton`,
-`createTouchControls`. Two renderer touch-points:
-- `Overlay.update(dtMs, gfx)` — "res" readout from `gfx.renderWidth/renderHeight`.
-- draw/tri stats come from `perf.js` (§9.9); gpuMs stays 0 → `—` dash.
+`createTouchControls`. Two renderer touch-points exist:
+- `Overlay.update(dtMs, gfx)`, which supplies the "res" readout from
+  `gfx.renderWidth/renderHeight`.
+- draw/tri stats come from `perf.js` (§9.9), and gpuMs stays 0 so the overlay shows its dash.
 Overlay/fpsMeter take **milliseconds**; Soundscape takes **seconds**; soundscape runs last in
 sim; unlock is synchronous-in-gesture (§4.1 step 20).
 
@@ -790,7 +797,7 @@ sim; unlock is synchronous-in-gesture (§4.1 step 20).
 
 `globalThis.SNOWFLOW = { gfx, scene: gfx.scene, rig, character, figure, walkers, speeder,
 contact, spray, wake, spells, overlay, touchControls, terrain, sky, shadows, post, depthPass,
-audio, soundscape, S, input, perfStats: stats, captureShot, speederTuning() }` —
+audio, soundscape, S, input, perfStats: stats, captureShot, speederTuning() }`, with
 `speederTuning()` verbatim from source. Keep every debug view: `S.debugView` (11 modes,
 float map identical to source), `S.speederDebug` (8 modes + `debugGain = 1/max(0.001,
 S.exposure)`), `wake.debug` (10 modes). These are the port's acceptance tooling.
