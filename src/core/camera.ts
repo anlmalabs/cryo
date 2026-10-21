@@ -25,6 +25,42 @@ import {
  setFrame, invertRigid, mulMat4, invertMat4, perspectiveFovLH,
 } from "./mat4.js";
 
+// ------------------------------------------------------- reduced motion
+/**
+ * The user's motion preference — read once here, kept live afterwards.
+ *
+ * This is the single point in the codebase that asks the question. The CSS
+ * `@media (prefers-reduced-motion: reduce)` block in index.html neutralises
+ * every stylesheet animation and transition, but it has no reach into the
+ * simulation, so the one piece of JS-driven motion left on screen was the
+ * camera's trauma shake below.
+ *
+ * Deliberately *not* an `S` key: the preference belongs to the user's
+ * machine rather than to this demo's tuning, and `settings.ts` owns both the
+ * key list and the overlay's widgets. Read as a media query instead, the same
+ * way `main.ts` reads `(pointer: coarse)`.
+ *
+ * A media query is a live subscription, not a snapshot — an OS-level setting
+ * can flip while the page is open, and `change` re-latches it without a
+ * reload. No settings write, no overlay row, nothing to get out of sync.
+ */
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const reducedMotionMQ = window.matchMedia?.(REDUCED_MOTION_QUERY) ?? null;
+
+/**
+ * The motion preference, live. True while the user has asked for less.
+ *
+ * A live binding rather than a constant so the `change` listener below can
+ * re-latch it in place: importers read the current value, and a media query
+ * is a subscription rather than a snapshot — an OS setting flipped while the
+ * page is open shows up on the very next frame.
+ */
+export let reducedMotion = reducedMotionMQ?.matches === true;
+
+reducedMotionMQ?.addEventListener("change", (e: MediaQueryListEvent) => {
+ reducedMotion = e.matches;
+});
+
 // ------------------------------------------------------- module-scope scratch
 const _pivot = new THREE.Vector3();
 const _desired = new THREE.Vector3();
@@ -101,6 +137,19 @@ const ROLL_PER_LEAN = 0.085;
 const ROLL_DAMP = 5.0;
 /** Trauma decay per second (trauma is squared before it is used). */
 const TRAUMA_DECAY = 1.15;
+/**
+ * How fast the reduced-motion gate on `shake` opens or closes, 1/second
+ * (exponential damping rate).
+ *
+ * Turning the shake off by multiplying by zero would step the camera by
+ * whatever offset the current trauma had built up — up to ~0.16 m at full
+ * trauma — which is itself a jolt, so the preference eases the multiplier
+ * instead. Roughly a third of a second to ring out from a standing shake,
+ * and the existing `SHAKE_EPSILON` retires the offsets entirely once the
+ * gate has rung out, so there is no residue left to carry.
+ */
+const SHAKE_GATE_DAMP = 9.0;
+
 // --- the ground-clearance probes -------------------------------------------
 /** Seconds of travel each probe looks ahead to predict oncoming snow. */
 const PREDICT_SECONDS = 0.12;
@@ -208,6 +257,12 @@ export class CameraRig {
  /** Trauma-based shake; `shake = trauma^2`. */
  trauma: number;
  shakeTime: number;
+ /**
+  * Multiplier on `shake`, eased between 0 and 1 by the reduced-motion
+  * preference. Exists so switching the preference eases the shake out
+  * instead of stepping it off mid-frame — see `update`'s shake block.
+  */
+ _shakeScale: number;
  /** Height sampler, injected once the terrain exists. */
  groundAt: ((x: number, z: number) => number) | null;
  /** Metres of snow the camera must keep beneath it. */
@@ -290,6 +345,7 @@ export class CameraRig {
   // falls off perceptually rather than linearly.
   this.trauma = 0;
   this.shakeTime = 0;
+  this._shakeScale = reducedMotion ? 0 : 1;
 
   /**
    * Height sampler, injected once the terrain exists.
@@ -411,9 +467,19 @@ export class CameraRig {
   this.roll = expDamp(this.roll, this.rollTarget, ROLL_DAMP, dt);
 
   // ------------------------------------------------------------ shake
+  // Trauma still accumulates and still decays at its normal rate while the
+  // user has asked for reduced motion — only the offsets it drives are
+  // suppressed, and eased out rather than cut. Halting the decay instead
+  // would leave a full trauma value banked against the moment the
+  // preference is switched back off, which would fire the whole stored
+  // shake at once: exactly the abrupt jump the preference asks to avoid,
+  // and the reason the multiplier ramps instead of snapping to zero.
+  this._shakeScale = expDamp(
+   this._shakeScale, reducedMotion ? 0 : 1, SHAKE_GATE_DAMP, dt
+  );
   this.trauma = Math.max(0, this.trauma - dt * TRAUMA_DECAY);
   this.shakeTime += dt;
-  const shake = this.trauma * this.trauma;
+  const shake = this.trauma * this.trauma * this._shakeScale;
 
   // ------------------------------------------------------ compose xform
   const cp = Math.cos(this.pitch);
