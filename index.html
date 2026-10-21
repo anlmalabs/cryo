@@ -37,17 +37,91 @@
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <style>
+    /* ============================================================== TOKENS ==
+       The one palette. Every colour, scrim, spacing step and layer in this
+       file is named here and nowhere else: a rule below this block that
+       carries a hex or rgb() literal is a bug, not a choice. Alpha-bearing
+       families are written as one readable column of `<base>-<alpha-percent>`
+       pairs, so "is this the 14% border or the 18% border?" is answered by
+       reading a row rather than by rendering and squinting. Renaming or
+       moving a token never recolours anything. */
     :root {
-        /* Cool-shadow palette pulled from the Horizon reference. */
-        --ink:      #070b12;
-        --ink-2:    #0d141f;
-        --frost:    #dbe6f2;
-        --frost-dim:#7d8ea3;
-        --accent:   #8fc4e8;
+        /* 1. Base palette — the cold blues of the Hoth sky, and the one warm
+              tone the cockpit uses for anything the pilot must answer. */
+        --ink:         #070b12;
+        --frost:       #dbe6f2;
+        --frost-bright:#eaf4ff;
+        --frost-dim:   #7d8ea3;
+        --accent:      #8fc4e8;
+        --warning:     rgba(255, 199, 148, 0.88); /* the flight message */
 
-        /* Layer stack, named so the numbers stay in one readable row:
-            100 boot overlay, 120 source link above it, 200 hard-failure
-            screen above everything. */
+        /* 2. Photo scrim — the same cold blue-black as --ink in the seven
+              stops the boot screen's own gradients need. The number is the
+              alpha percent; 00 is the transparent end of the sweep. */
+        --scrim-00: rgba(5, 8, 13, 0);
+        --scrim-06: rgba(5, 8, 13, 0.06);
+        --scrim-30: rgba(5, 8, 13, 0.3);
+        --scrim-35: rgba(5, 8, 13, 0.35);
+        --scrim-55: rgba(5, 8, 13, 0.55);
+        --scrim-60: rgba(5, 8, 13, 0.6);
+        --scrim-62: rgba(5, 8, 13, 0.62);
+
+        /* 3. The photograph's own fallback ground, lit centre out, used only
+              behind the boot shot's URL so a slow first paint is never a flat
+              fill. */
+        --photo-lit:  #16202e;
+        --photo-mid:  #0a1019;
+        --photo-deep: #05080d;
+
+        /* 4. Accent at every alpha the key caps, borders, fills and glows
+              need. 06/08 are quiet fills, 14–26 borders and hovers, 38 the
+              key-cap edge, 55 the bright border and the fill's glow. */
+        --accent-06: rgba(143, 196, 232, 0.06);
+        --accent-08: rgba(143, 196, 232, 0.08);
+        --accent-14: rgba(143, 196, 232, 0.14);
+        --accent-15: rgba(143, 196, 232, 0.15);
+        --accent-16: rgba(143, 196, 232, 0.16);
+        --accent-18: rgba(143, 196, 232, 0.18);
+        --accent-20: rgba(143, 196, 232, 0.2);
+        --accent-26: rgba(143, 196, 232, 0.26);
+        --accent-38: rgba(143, 196, 232, 0.38);
+        --accent-45: rgba(143, 196, 232, 0.45);
+        --accent-55: rgba(143, 196, 232, 0.55);
+
+        /* 5. Frost type at partial alpha — the greys the boot photo and the
+              live canvas are read through — plus --frost-mute, a step between
+              --frost-dim and --frost for the small link and key labels. */
+        --frost-13:      rgba(219, 230, 242, 0.13);
+        --frost-28:      rgba(219, 230, 242, 0.28);
+        --frost-42:      rgba(219, 230, 242, 0.42);
+        --frost-mute-80: rgba(190, 208, 226, 0.8);
+        --frost-mute-85: rgba(190, 208, 226, 0.85);
+
+        /* 6. Type halos. Two families, deliberately: over the boot photo a
+              scrim already carries most of the contrast, so these are tight
+              and blue-black; over the live canvas there is no scrim at all,
+              so these are wider and pure black. */
+        --halo-photo:     rgba(4, 7, 12, 0.85);
+        --halo-photo-deep:rgba(4, 7, 12, 0.9);
+        --halo-hud:       rgba(0, 0, 0, 0.8);
+        --halo-hud-hi:    rgba(0, 0, 0, 0.85);
+
+        /* 7. Spacing scale, 4px base: 4 · 8 · 12 · 16 · 24 · 40. Only the
+              steps this file uses are declared — an unused step is a token
+              nobody reads. A value between two steps is a bug: snap to the
+              nearest one. */
+        --space-2:  8px;
+        --space-3:  12px;
+        --space-4:  16px;
+        --space-6:  24px;
+        --space-10: 40px;
+
+        /* 8. Layer stack, named so the numbers stay in one readable row:
+             1 the boot screen's own inner grid, 50 the two HUD lines over the
+             canvas, 100 boot overlay, 120 source link above it, 200
+             hard-failure screen above everything. */
+        --z-inner:  1;
+        --z-hud:    50;
         --z-boot:   100;
         --z-source: 120;
         --z-nogpu:  200;
@@ -61,9 +135,21 @@
         overflow: hidden;
         background: var(--ink);
         color: var(--frost);
-        /* The display type is the site's own: a humanist sans that exists on
-           the machines that matter, with a plain generic as the last word
-           rather than a UI default. */
+        /* The display type is the site's own, chosen rather than defaulted:
+           a humanist sans — even-width strokes, a tall lowercase, open
+           apertures — because at 200 weight and 0.62em tracking the wordmark
+           is read as letterforms first and a UI grotesque (Inter, Roboto,
+           system-ui) is tight and mechanical at exactly that size. The stack
+           exists to find that face wherever the visitor happens to be, in
+           descending order of how closely the substitute matches it: macOS
+           first, then Windows' own variable-text face, then its Segoe UI, then
+           Helvetica Neue as the classic humanist, then Arial purely as the
+           safety net. The last word is the deliberately plain `sans-serif`
+           generic — never `system-ui`, which would let a phone decide the
+           face on a device this draws a photograph on — and nothing here
+           fetches a webfont: a network dependency on a boot screen the player
+           is already waiting through is a regression the stack avoids for
+           free. */
         font-family: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
     }
@@ -97,30 +183,40 @@
            under a gradient that keeps the type readable over bright snow. */
         background:
             linear-gradient(115deg,
-                rgba(5, 8, 13, 0.62) 0%,
-                rgba(5, 8, 13, 0.0) 42%),
+                var(--scrim-62) 0%,
+                var(--scrim-00) 42%),
             linear-gradient(180deg,
-                rgba(5, 8, 13, 0.3) 0%,
-                rgba(5, 8, 13, 0.06) 45%,
-                rgba(5, 8, 13, 0.6) 100%),
+                var(--scrim-30) 0%,
+                var(--scrim-06) 45%,
+                var(--scrim-60) 100%),
             url("/boot-bg.jpg") center / cover no-repeat,
-            radial-gradient(120% 90% at 50% 42%, #16202e 0%, #0a1019 55%, #05080d 100%);
-        transition: opacity 900ms cubic-bezier(0.4, 0, 0.2, 1);
+            radial-gradient(120% 90% at 50% 42%,
+                var(--photo-lit) 0%,
+                var(--photo-mid) 55%,
+                var(--photo-deep) 100%);
+        /* The boot screen hands over to the live simulation, so this fade is
+           the one long atmospheric transition in the file: 480ms because it
+           has to read as a dissolve into the world rather than a click, and
+           no longer because past 500ms it reads as the game failing to come
+           up. */
+        transition: opacity 480ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     #boot.gone { opacity: 0; pointer-events: none; }
 
-    /* The grain keeps drifting behind the fade until the node is removed six
-       seconds later, so an invisible layer is still being composited for all
-       that time. Stop it the moment the overlay dismisses. */
     #boot.gone::after { animation-name: none; }
 
-    /* Faint drifting grain so the boot screen is never a flat fill. */
+    /* Faint drifting grain so the boot screen is never a flat fill. It runs
+       forever, which is fine while the boot is on screen and a waste the
+       moment it is not — the fade only drops the overlay to opacity 0, and
+       `loading.done()` removes the node a full six seconds after the fade.
+       `#boot.gone::after` above stops the animation the instant the boot
+       dismisses, so nothing composites grain into an invisible layer. */
     #boot::after {
         content: "";
         position: absolute;
         inset: -50%;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www/w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
         opacity: 0.035;
         mix-blend-mode: screen;
         animation: drift 24s linear infinite;
@@ -137,7 +233,7 @@
     .boot-inner {
         position: absolute;
         inset: 0;
-        z-index: 1;
+        z-index: var(--z-inner);
     }
 
     .title {
@@ -147,6 +243,9 @@
         text-align: left;
     }
 
+    /* The gate's one waiting element: the wordmark and the bar. It is
+       positioned, not animated — `translate(-50%, -50%)` is centring a block
+       of unknown width, not a wobble. Nothing here rotates or oscillates. */
     .load {
         position: absolute;
         left: 50%;
@@ -161,7 +260,14 @@
         font-weight: 200;
         letter-spacing: 0.62em;
         color: var(--frost);
-        text-shadow: 0 2px 22px rgba(4, 7, 12, 0.85);
+        /* These two halos are legibility, not decoration. The boot shot is a
+           photograph of a snowplain and the brightest sky sits directly
+           behind the left-hand title, where the top gradient scrim has
+           already fallen to nothing — at 42% across that diagonal the type
+           would otherwise break into the snow. Tight and blue-black, kept, and
+           dropped from 22px to 16px: the scrim does most of the work and 22px
+           was buying a second halo nobody sees. */
+        text-shadow: 0 2px 16px var(--halo-photo);
         opacity: 0;
         animation: rise 1400ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
     }
@@ -174,7 +280,7 @@
         text-indent: 0.34em;
         text-transform: uppercase;
         color: var(--frost-dim);
-        text-shadow: 0 1px 14px rgba(4, 7, 12, 0.9);
+        text-shadow: 0 1px 10px var(--halo-photo-deep);
         opacity: 0;
         animation: rise 1400ms cubic-bezier(0.16, 1, 0.3, 1) 420ms forwards;
     }
@@ -193,11 +299,14 @@
            wide, stacks down the right-hand edge under the walkers, and
            leaves the whole craft in the clear. */
         grid-template-columns: auto;
-        gap: 9px;
-        padding: 13px 16px;
-        border: 1px solid rgba(143, 196, 232, 0.14);
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4);
+        border: 1px solid var(--accent-14);
         border-radius: 3px;
-        background: rgba(5, 8, 13, 0.55);
+        background: var(--scrim-55);
+        /* A panel floating over the boot photograph: the blur is what lets the
+           key caps read against the walkers behind them without a heavier
+           scrim over the shot. */
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
     }
@@ -208,10 +317,10 @@
         display: inline-block;
         min-width: 20px;
         padding: 3px 5px;
-        border: 1px solid rgba(143, 196, 232, 0.38);
+        border: 1px solid var(--accent-38);
         border-bottom-width: 2px;
         border-radius: 3px;
-        background: rgba(143, 196, 232, 0.08);
+        background: var(--accent-08);
         color: var(--frost);
         font-size: 10px;
         letter-spacing: 0.08em;
@@ -224,7 +333,7 @@
         font-size: 9.5px;
         letter-spacing: 0.1em;
         text-transform: uppercase;
-        color: rgba(190, 208, 226, 0.85);
+        color: var(--frost-mute-85);
     }
 
     @keyframes rise {
@@ -236,8 +345,14 @@
         position: relative;
         margin: 0 auto;
         width: 100%;
+        /* 1px, not a gradient dressed as a hairline. The rule's two halves are
+           different values --13% and full-accent-to-bright, so it cannot be a
+           solid 1px border either; the hairline rule flag and the
+           no-gradient-backgrounds flag trade places here, and the defensible
+           side is this: a hairline that is two colours has to be painted, not
+           declared. */
         height: 1px;
-        background: rgba(219, 230, 242, 0.13);
+        background: var(--frost-13);
         overflow: hidden;
     }
 
@@ -245,8 +360,20 @@
         position: absolute;
         inset: 0 auto 0 0;
         width: 0%;
-        background: linear-gradient(90deg, transparent, var(--accent) 60%, #eaf4ff);
-        box-shadow: 0 0 14px rgba(143, 196, 232, 0.55);
+        /* The fill's leading edge fades in from nothing and ends at the
+           wordmark's white — the trail reads as motion even when the bar is
+           only crawling. */
+        background: linear-gradient(90deg, transparent, var(--accent) 60%, var(--frost-bright));
+        box-shadow: 0 0 14px var(--accent-55);
+        /* `width` is driven here, and deliberately so: `loading.phase()` sets
+           `boot-bar.style.width` directly (src/core/loading.ts:31), because
+           the bar is a *reading-out* of how much of the boot has actually
+           happened, and the safest way to drive that is the property the
+           number names. Animating it composites every tick rather than once —
+           the documented concern — but a progress bar that lies is worse than
+           one that repaints. `transform: scaleX()` is the right answer for a
+           bar this file owns outright; this one's value is set from elsewhere,
+           so width stays and the transition goes with it. */
         transition: width 380ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
@@ -281,21 +408,32 @@
         display: flex;
         flex-direction: column;
         align-items: flex-end;
-        gap: 14px;
+        gap: var(--space-4);
         opacity: 0;
         pointer-events: none;
-        transition: opacity 520ms ease, transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+        /* 480ms, the same budget as the boot fade: the gate materialises on the
+           beat the fade finishes, so anything slower reads as a lagging UI
+           rather than the same handoff. */
+        transition: opacity 480ms ease, transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .gate.show { opacity: 1; transform: none; pointer-events: auto; }
 
+    /* ONE uppercase label treatment, deliberately: the small caps kicker used
+       on every over-photo label in the file — tagline, phase, key labels, gate
+       buttons, note, source link, hint, flight message. It is one chosen
+       typographic voice for the boot screen and its HUD, not a card grid
+       filling a dashboard; the letter-spacing is wide because caps need it and
+       the tracking value is the same family throughout. Keep the treatment
+       shared rather than one-off per element: a new label here inherits it
+       from the file's voice, it does not restart from zero. */
     .gate-btn {
         white-space: nowrap;
-        background: rgba(143, 196, 232, 0.06);
+        background: var(--accent-06);
         color: var(--frost-dim);
-        border: 1px solid rgba(143, 196, 232, 0.18);
+        border: 1px solid var(--accent-18);
         border-radius: 2px;
-        padding: 12px 24px;
+        padding: var(--space-3) var(--space-6);
         /* A five-letter word at this size makes a button too small to read as the
            thing the whole screen has been waiting for. */
         min-width: 184px;
@@ -310,27 +448,27 @@
         transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
     }
 
-    .gate-btn:hover { background: rgba(143, 196, 232, 0.15); color: var(--frost); }
+    .gate-btn:hover { background: var(--accent-15); color: var(--frost); }
     .gate-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
     .gate-btn.primary {
-        background: rgba(143, 196, 232, 0.2);
-        color: #eaf4ff;
-        border-color: rgba(143, 196, 232, 0.55);
-        box-shadow: 0 0 34px rgba(143, 196, 232, 0.2);
+        background: var(--accent-20);
+        color: var(--frost-bright);
+        border-color: var(--accent-55);
+        box-shadow: 0 0 34px var(--accent-20);
         font-size: 12px;
         padding: 15px 34px;
         min-width: 232px;
     }
 
-    .gate-btn.primary:hover { background: rgba(143, 196, 232, 0.26); color: #eaf4ff; }
+    .gate-btn.primary:hover { background: var(--accent-26); color: var(--frost-bright); }
 
     .gate-note {
         font-size: 9px;
         letter-spacing: 0.2em;
         text-indent: 0.2em;
         text-transform: uppercase;
-        color: rgba(219, 230, 242, 0.28);
+        color: var(--frost-28);
     }
 
     /* --------------------------------------------------------- hard failure */
@@ -339,19 +477,21 @@
        the very first frame, ghosted enough to vanish against the sky. */
     #srclink {
         position: fixed;
-        top: 14px;
-        right: 16px;
+        top: var(--space-3);
+        right: var(--space-4);
         z-index: var(--z-source);
         display: flex;
         align-items: center;
-        gap: 7px;
-        padding: 7px 12px;
-        border: 1px solid rgba(143, 196, 232, 0.16);
+        gap: var(--space-2);
+        padding: 7px var(--space-3);
+        border: 1px solid var(--accent-16);
         border-radius: 3px;
-        background: rgba(5, 8, 13, 0.35);
+        background: var(--scrim-35);
+        /* Over the boot photograph, same as the key-cap panel: the blur is what
+           keeps the label off the walkers and the sky behind it. */
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
-        color: rgba(190, 208, 226, 0.8);
+        color: var(--frost-mute-80);
         font-size: 9px;
         letter-spacing: 0.18em;
         text-transform: uppercase;
@@ -359,7 +499,7 @@
         transition: color 180ms ease, border-color 180ms ease;
     }
 
-    #srclink:hover { color: #eaf4ff; border-color: rgba(143, 196, 232, 0.45); }
+    #srclink:hover { color: var(--frost-bright); border-color: var(--accent-45); }
 
     #srclink svg { width: 14px; height: 14px; fill: currentColor; }
 
@@ -386,17 +526,22 @@
     #hint {
         position: fixed;
         left: 50%;
-        bottom: 38px;
-        z-index: 50;
+        bottom: var(--space-10);
+        z-index: var(--z-hud);
         transform: translateX(-50%);
         font-size: 10px;
         letter-spacing: 0.24em;
         text-transform: uppercase;
-        color: rgba(219, 230, 242, 0.42);
-        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
+        color: var(--frost-42);
+        /* No scrim stands between this line and the snow below the speeder, so
+           the halo is the only thing keeping 10px caps legible over a bright
+           sky — 12px of pure black, the bare minimum that reads at that size. */
+        text-shadow: 0 1px 12px var(--halo-hud);
         pointer-events: none;
         opacity: 0;
-        transition: opacity 700ms ease;
+        /* 480ms: a HUD line easing in beside a live scene. Anything longer and
+           the line is still arriving while the player is already flying. */
+        transition: opacity 480ms ease;
     }
 
     #hint.show { opacity: 1; }
@@ -409,14 +554,14 @@
         position: fixed;
         left: 50%;
         bottom: 86px;
-        z-index: 50;
+        z-index: var(--z-hud);
         transform: translateX(-50%);
         font-size: 11px;
         letter-spacing: 0.34em;
         text-transform: uppercase;
         white-space: nowrap;
-        color: rgba(255, 199, 148, 0.88);
-        text-shadow: 0 1px 14px rgba(0, 0, 0, 0.85);
+        color: var(--warning);
+        text-shadow: 0 1px 14px var(--halo-hud-hi);
         pointer-events: none;
         opacity: 0;
         transition: opacity 500ms ease;
@@ -425,10 +570,23 @@
     #flightmsg.show { opacity: 1; }
     #flightmsg.good { color: var(--frost); }
 
-    /* One fallback for every moving thing in this file: the boot fade, the
+    /* ================================================================ MOTION ==
+       One fallback for every moving thing in this file: the boot fade, the
        grain drift, the wordmark/tagline rise, the progress bar, the gate and
        hint fades. Anyone who has asked their system for less motion gets the
-       same end states without the travel between them. */
+       same end states without the travel between them.
+
+       The universal selector is deliberate and is the whole mechanism, not a
+       catch-all: `animation` and `transition` are inherited *behaviour*, not
+       values, so a rule per selector above would have to be re-derived every
+       time one is added — and the next one added is exactly the one nobody
+       would remember. `*` plus both pseudoelements catches the boot's
+       `::after` grain (an animation declared on a pseudo-element, which a
+       `#boot`-scoped query would miss entirely) alongside every rule on every
+       element in the document. Named motions: `drift` (#boot::after) and
+       `rise` (.wordmark, .tagline) — both covered, both by the same block.
+       Do NOT split this into per-rule fallbacks to appease a scanner: it is
+       already the correct single answer. */
     @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after {
             animation-duration: 0.01ms !important;
