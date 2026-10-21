@@ -110,6 +110,11 @@
 
     #boot.gone { opacity: 0; pointer-events: none; }
 
+    /* The grain keeps drifting behind the fade until the node is removed six
+       seconds later, so an invisible layer is still being composited for all
+       that time. Stop it the moment the overlay dismisses. */
+    #boot.gone::after { animation-name: none; }
+
     /* Faint drifting grain so the boot screen is never a flat fill. */
     #boot::after {
         content: "";
@@ -435,9 +440,26 @@
 </style>
 </head>
 <body>
-    <!-- Decorative: what the pilot needs is in the DOM readouts below. The
-         canvas still takes focus, because that is how the sim reads the keys. -->
-    <canvas id="view" tabindex="0" aria-hidden="true"></canvas>
+    <!-- The play surface. It takes focus because that is how the sim reads the
+         keys: `initInput()` (src/core/input.ts) binds pointer lock and the
+         key handlers to this node, so tabindex="0" is the keyboard route into
+         the simulation and must stay.
+
+         aria-hidden is gone, deliberately: an element that can hold focus is
+         part of the tab order and therefore part of the accessibility tree —
+         aria-hidden on a focusable element is an invalid combination (the node
+         is announced as absent while the user is standing on it, so a screen
+         reader lands on a hole and reads nothing). A canvas is also not
+         "decorative" in the WAIG sense once it is interactive.
+
+         What replaces it is the honest description of what this element is: a
+         focusable application surface with a name, `role="application"` so
+         assistive tech hands unhandled keys through to the game instead of
+         trying to make its contents browseable (a canvas has no contents to
+         browse — the readouts in #hint and #flightmsg carry the state). The
+         label says what the player is steering, not "canvas". -->
+    <canvas id="view" tabindex="0" role="application"
+            aria-label="Battlefield viewport — fly the snowspeeder with W and A/D, mouse looks around"></canvas>
 
     <div id="flightmsg"></div>
 
