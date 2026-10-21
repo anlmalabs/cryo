@@ -16,17 +16,31 @@ import * as THREE from "three";
 import { makeMaterial } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 
+/** The slice of `core/gfx.js`'s `Gfx` this module touches. */
+interface GfxLike {
+ scene: THREE.Scene;
+ LAYER: { SKY: number; OPAQUE: number; BLEND: number };
+ addMesh(mesh: THREE.Object3D, layerBit: number, renderOrder: number): THREE.Object3D;
+}
+
+/** How many bands the pool holds, simultaneously. */
 const POOL = 16;
 /** Band height as a fraction of its half-length. */
 const HEIGHT = 0.17;
 
 export class EyeBands {
- [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
-  this.gfx = gfx;
+ gfx: GfxLike;
+ /** (centre xyz, halfLen) then (axis xyz, halfHeight), per band. */
+ _data: Float32Array;
+ _count: number;
+ _cameraPos: THREE.Vector3;
+ texture: THREE.DataTexture;
+ mesh: THREE.Mesh & { metadata: { triangles: number; vertices: number } };
+ material: THREE.RawShaderMaterial;
 
-  /** (centre xyz, halfLen) then (axis xyz, halfHeight), per band. */
+ /** @param {GfxLike} gfx */
+ constructor(gfx: GfxLike) {
+  this.gfx = gfx;
   this._data = new Float32Array(POOL * 2 * 4);
   this._count = 0;
   this._cameraPos = new THREE.Vector3();
@@ -100,8 +114,7 @@ export class EyeBands {
  }
 
  /** Point the bands through the same (jittered) camera as the scene. */
- /** @param {THREE.Matrix4} viewProjection */
- bindCamera(viewProjection: any) {
+ bindCamera(viewProjection: THREE.Matrix4) {
   this.material.uniforms.viewProjection.value = viewProjection;
  }
 
@@ -115,9 +128,11 @@ export class EyeBands {
   * The axis and length come off the segment, so the caller only has to
   * know where the viewport's corners are.
   */
- /** @param {number} ax @param {number} ay @param {number} az @param {number} bx @param {number} by @param {number} bz */
- add(ax: any, ay: any, az: any, bx: any, by: any, bz: any) {
+ add(ax: number, ay: number, az: number, bx: number, by: number, bz: number) {
   if (this._count >= POOL) return;
+  // Midpoint and half-vector of the slit: the band's centre and its own
+  // axis, so 0.5 here is the definition of a segment's centre, not a
+  // tunable.
   const rx = (bx - ax) * 0.5, ry = (by - ay) * 0.5, rz = (bz - az) * 0.5;
   const halfLen = Math.hypot(rx, ry, rz);
   if (halfLen < 1e-5) return;
@@ -135,8 +150,7 @@ export class EyeBands {
  }
 
  /** Upload the frame's bands; zero added means nothing draws. */
- /** @param {THREE.Vector3} [cameraPos] @param {number} [time] */
- commit(cameraPos: any, time: any) {
+ commit(cameraPos?: THREE.Vector3, time?: number) {
   if (cameraPos) this._cameraPos.copy(cameraPos);
   if (time !== undefined) this.material.uniforms.time.value = time;
   for (let i = this._count; i < POOL; i++) this._data[i * 4 + 3] = 0;

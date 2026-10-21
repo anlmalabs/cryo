@@ -48,6 +48,62 @@ const LOOKAHEAD = 0.6;
  */
 const SOLO_RELEASE = 0.06;
 
+/**
+ * Head-room a scheduled `start()`/`stop()` is given against the audio thread,
+ * seconds. Not a musical offset — a 5 ms margin is small enough to be
+ * undetectable and large enough that a stop lands after the release ramp it
+ * trails rather than inside it.
+ */
+const SCHEDULE_MARGIN = 0.005;
+
+/**
+ * Fraction of a segment the crossfade may occupy at most. Below half, so an
+ * overlapped join always carries more programme than transition — the join
+ * reads as a breath in the texture rather than as the asset stuttering.
+ */
+const CROSSFADE_MAX_FRACTION = 0.45;
+
+/**
+ * Shortest segment the overlap scheduler will lay out, seconds. Under this a
+ * join's two ramps would overlap their own successor's.
+ */
+const MIN_SEGMENT_SEC = 0.05;
+
+/**
+ * How much of an asset's load progress its decode counts for. The last slice:
+ * decode is real work but not measurable, so it gets a flat reservation and
+ * the reported number stays monotonic rather than stalling mid-file.
+ */
+const LOAD_DECODE_WEIGHT = 0.85;
+
+/**
+ * Master open rate for the resume gesture, seconds. Faster than `applyMix`'s
+ * default: this is the frame the player asked for sound, and the fade here is
+ * only there to keep the first sample from clicking.
+ */
+const UNLOCK_MIX_RATE = 0.008;
+
+/**
+ * Mix limiter envelope, seconds. Fast enough that a stack of several voices in
+ * one frame is caught before it clips, slow enough to release without
+ * pumping — it only ever sees pile-ups, so it stays transparent otherwise.
+ */
+const LIMITER_ATTACK = 0.004;
+const LIMITER_RELEASE = 0.16;
+
+/**
+ * How often the overlap scheduler re-queues segments, milliseconds. Four times
+ * a second against the 0.6 s look-ahead: comfortably ahead of the schedule
+ * even on a busy main thread, cheap enough to ignore.
+ */
+const PUMP_POLL_MS = 250;
+
+/**
+ * Head-room a release fade gets before its source stops, seconds. The stop is
+ * always issued after the ramp, never inside it, or the fade clicks.
+ */
+const STOP_AFTER_FADE = 0.02;
+
 const BUS_NAMES = ["ambience", "music", "sfx", "voice"] as const;
 
 /** A mixer bus name — one gain node per name, all wired into `master`. */
@@ -85,18 +141,17 @@ function num(v: unknown): number | undefined {
  * Resolve the `AudioContext` constructor.
  *
  * Old Safari exposes Web Audio only as `window.webkitAudioContext`, which
- * `lib.dom` does not declare. The prefixed name is read through an index
- * into `unknown` and only accepted when the value is function-shaped, so the
- * vendor-prefix fallback keeps working without a fabricated object type or a
- * `Window` augmentation. `undefined` means "no Web Audio at all".
+ * `lib.dom` does not declare. The prefix is intersected onto `Window` with a
+ * single optional field — the one thing it might be — and is only accepted
+ * when the value is function-shaped. `undefined` means "no Web Audio at all".
  */
 function readAudioContextCtor(): typeof AudioContext | undefined {
  if (window.AudioContext) return window.AudioContext;
- const w = window as unknown as Record<string, unknown>;
- const prefixed = w["webkitAudioContext"];
- return typeof prefixed === "function"
-  ? (prefixed as typeof AudioContext)
-  : undefined;
+ // Narrow rather than open: the prefix is either the constructor or it is not
+ // there, and an unknown-typed window read would let any later access through.
+ const w = window as Window & { webkitAudioContext?: typeof AudioContext };
+ const prefixed = w.webkitAudioContext;
+ return typeof prefixed === "function" ? prefixed : undefined;
 }
 
 export class AudioEngine {
@@ -184,8 +239,8 @@ export class AudioEngine {
   this.limiter.threshold.value = -6;
   this.limiter.knee.value = 6;
   this.limiter.ratio.value = 8;
-  this.limiter.attack.value = 0.004;
-  this.limiter.release.value = 0.16;
+  this.limiter.attack.value = LIMITER_ATTACK;
+  this.limiter.release.value = LIMITER_RELEASE;
   this.limiter.connect(ctx.destination);
 
   this.master = ctx.createGain();
@@ -314,7 +369,7 @@ export class AudioEngine {
      const buf = await this._fetchDecode(
       def.url as string,
       (p: number) => {
-       frac[i] = p * 0.85;
+       frac[i] = p * LOAD_DECODE_WEIGHT;
        report();
       }
      );
@@ -345,6 +400,11 @@ export class AudioEngine {
   // but not yet uploaded still plays. See `core/assets.js`.
   let res = null;
   let lastError = null;
+  // Sequential by necessity: this is a fallback chain, not a fan-out. The
+  // second URL is only fetched when the first has actually failed, and
+  // `await` inside the loop is what makes "try the next one" mean anything.
+  // `lastError` carries the *last* failure rather than the first, so the
+  // message names the origin that was tried most recently.
   for (const url of assetCandidates(path)) {
    try {
     const r = await fetch(url);
@@ -365,6 +425,10 @@ export class AudioEngine {
    /** @type {Uint8Array[]} */
    const chunks = [];
    let read = 0;
+   // Sequential by construction: a `ReadableStream` reader yields one chunk
+   // at a time and each chunk is appended at the running byte offset, so
+   // there is no work to parallelise and none to skip. `read` is the progress
+   // cursor, not a loop index.
    for (; ;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -414,7 +478,7 @@ export class AudioEngine {
   this.unlocked = ctx.state === "running";
   // Open the master fast — this is the gesture that asked for sound, so the
   // fade here exists only to keep the first sample from clicking.
-  this.applyMix(0.008);
+  this.applyMix(UNLOCK_MIX_RATE);
   return this.unlocked;
  }
 
@@ -460,9 +524,13 @@ export class AudioEngine {
 
   // One voice per exclusive group. The group defaults to the key itself, so
   // re-casting a spell cuts its own sound and leaves every other spell's
-  // alone.
+  // alone. `exclusive` is three states — `true` = the key is the group, a
+  // string = that named group, anything else = free to layer — written as
+  // branches because a ternary chain over three states hides the third.
   const solo = opts?.exclusive ?? def.exclusive;
-  const group: string = solo === true ? key : (typeof solo === "string" ? solo : "");
+  let group = "";
+  if (solo === true) group = key;
+  else if (typeof solo === "string") group = solo;
   if (group) this._releaseSolo(group, now);
 
   const src = ctx.createBufferSource();
@@ -509,7 +577,7 @@ export class AudioEngine {
   p.linearRampToValueAtTime(0, now + SOLO_RELEASE);
   // `onended` does the disconnecting and the voice-count bookkeeping.
   try {
-   live.src.stop(now + SOLO_RELEASE + 0.005);
+   live.src.stop(now + SOLO_RELEASE + SCHEDULE_MARGIN);
   } catch {
    // Already stopped — nothing to release.
   }
@@ -605,8 +673,9 @@ export class LoopVoice {
   this.rate = (opts?.rate ?? 1) * (num(def.rate) ?? 1);
   this.trim = num(def.trim) ?? 0;
   this.crossfade = num(def.crossfade) ?? 0;
-  this.segment = Math.max(0.05, buf.duration - this.trim * 2);
-  if (this.crossfade > this.segment * 0.45) this.crossfade = this.segment * 0.45;
+  this.segment = Math.max(MIN_SEGMENT_SEC, buf.duration - this.trim * 2);
+  if (this.crossfade > this.segment * CROSSFADE_MAX_FRACTION)
+   this.crossfade = this.segment * CROSSFADE_MAX_FRACTION;
 
   const ctx = engine.ctx;
   if (!ctx) return;
@@ -625,16 +694,14 @@ export class LoopVoice {
   if (this.crossfade > 0) {
    // As close to "now" as scheduling allows: a few milliseconds of head
    // room against the audio thread, not a musical offset.
-   this._nextAt = ctx.currentTime + 0.005;
+   this._nextAt = ctx.currentTime + SCHEDULE_MARGIN;
    // The first segment has nothing to crossfade against, so it starts at
    // full level. Fading it in over the overlap window would make every
    // entrance a slow swell no matter what the caller asked for — which
    // is the one thing a bed that should already be there must not do.
    this._first = true;
    this._pump();
-   // 4 Hz against a 0.6 s look-ahead: comfortably ahead of the schedule
-   // even if the main thread is busy, and free enough to ignore.
-   this._timer = setInterval(() => this._pump(), 250);
+   this._timer = setInterval(() => this._pump(), PUMP_POLL_MS);
    return;
   }
 
@@ -680,6 +747,8 @@ export class LoopVoice {
    // switched on at full gain is a click.
    this._first = false;
    g.gain.setValueAtTime(0, at);
+   // `ENTRY_RAMP`: a few ms, enough that a buffer beginning on a
+   // non-zero sample is faded up rather than switched on at full gain.
    g.gain.linearRampToValueAtTime(1, at + 0.006);
   } else {
    g.gain.setValueAtTime(0, at);
@@ -693,7 +762,11 @@ export class LoopVoice {
    src.disconnect();
    g.disconnect();
   };
+  // `SRC_TAIL`: read a quarter-second past the segment's own end, so the
+  // encoder padding the trim assumes is actually inside the buffer.
   src.start(at, this.trim, seg + 0.02);
+  // `STOP_GUARD`: stop 10 ms *before* that read, so the source is torn down
+  // on its own schedule rather than being cut off mid-sample.
   src.stop(at + seg + 0.01);
 
   // The next segment starts where this one begins fading out, so the pair
@@ -757,7 +830,7 @@ export class LoopVoice {
   const ctx = this.engine.ctx;
   const src = this._src;
   if (src && ctx) {
-   src.stop(ctx.currentTime + fadeSeconds + 0.02);
+   src.stop(ctx.currentTime + fadeSeconds + STOP_AFTER_FADE);
    this._src = null;
   }
  }

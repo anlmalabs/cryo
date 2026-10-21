@@ -27,7 +27,55 @@ const PASS_LAYER = 30;
 const _clearColor = new THREE.Color();
 const _size = new THREE.Vector2();
 
-function makeFallbackTexture(r: any, g: any, b: any, a: any) {
+/**
+ * A mesh temporarily wearing another material for one pass. `_savedMaterial`
+ * and `_savedMask` are the swap-back slot — the pass runner writes and then
+ * clears them, so a record is used once at a time.
+ */
+interface Caster {
+ mesh: THREE.Mesh;
+ material: THREE.Material;
+ // `THREE.Mesh.material` is `Material | Material[]`; the slot mirrors that so
+ // the swap-back restores exactly what was there, arrays included. It is null
+ // between passes, which is how the code knows a record is not mid-swap.
+ _savedMaterial?: THREE.Material | THREE.Material[] | null;
+ _savedMask?: number;
+}
+
+/** One render-pass request. Every field is optional; a bare `{}` renders as-is. */
+interface RunPassOpts {
+ /** Draw into this target, or the canvas when null/omitted. */
+ target?: THREE.WebGLRenderTarget | null;
+ /** [r,g,b,a] linear clear colour; alpha may be omitted, floats >1 allowed. */
+ clearColor?: number[] | null;
+ /** Clear depth as well as colour. */
+ clearDepth?: boolean;
+ /** Meshes to material-swap and draw alone this pass. */
+ casters?: Caster[] | null;
+ /** Layer mask to draw when `casters` is absent. */
+ layer?: number;
+ /** Camera to render with; defaults to the token camera. */
+ camera?: THREE.Camera | null;
+}
+
+/** Render-target construction knobs; every fallback is three's own default. */
+interface RenderTargetOpts {
+ type?: THREE.TextureDataType;
+ format?: THREE.PixelFormat;
+ /**
+  * A GL enum name three's own `PixelFormatGPU` union does not list (e.g.
+  * "RG32F" for the RG32F heightfield). Kept as `string` on purpose: it is a
+  * raw GL token, not a three format constant, and the one caller that uses
+  * it needs to say a name three has no member for.
+  */
+ internalFormat?: string | null;
+ filter?: THREE.MagnificationTextureFilter;
+ wrap?: THREE.Wrapping;
+ depth?: boolean;
+ mips?: boolean;
+}
+
+function makeFallbackTexture(r: number, g: number, b: number, a: number): THREE.Texture {
  const data = new Uint8Array([r, g, b, a]);
  const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
  tex.colorSpace = THREE.NoColorSpace;
@@ -43,9 +91,29 @@ function makeFallbackTexture(r: any, g: any, b: any, a: any) {
 }
 
 export class Gfx {
- [key: string]: any;
+ /** Layer bits — a mesh is in exactly one. */
+ LAYER: { SKY: number; OPAQUE: number; BLEND: number };
+ /** The container scene; meshes are added here at an identity world matrix. */
+ scene: THREE.Scene;
+ /** The renderer. Owns the GL context; nothing else may touch it. */
+ renderer: THREE.WebGLRenderer;
+ /** The element the renderer draws into. */
+ canvas: HTMLCanvasElement;
+ /** Capability flags probed at construction: 32F-filter and parallel compile. */
+ caps: { floatLinear: boolean; parallelCompile: boolean };
+ /** Token camera handed to `renderer.render` for its internal sorting only. */
+ threeCamera: THREE.Camera;
+ /** 1x1 textures bound when a peer sampler is missing, so boot cannot crash. */
+ whiteTex: THREE.Texture;
+ blackTex: THREE.Texture;
+ /** Current resolution scale (the source's `S.resolutionScale`). */
+ _scale: number;
+ /** Screen-sized targets kept in step with the render size. */
+ _tracked: { rt: THREE.WebGLRenderTarget; scale: number }[];
+ /** Render-size subscribers, notified by `resize()`. */
+ _resizeFns: Set<(w: number, h: number) => void>;
  /** @param {HTMLCanvasElement} canvas */
- constructor(canvas: any) {
+ constructor(canvas: HTMLCanvasElement) {
   /** @type {THREE.WebGLRenderer} */
   let renderer;
   try {
@@ -57,18 +125,32 @@ export class Gfx {
    });
   } catch (err) {
    console.error(err);
-   throw new Error("WebGL2 is not available in this browser — try an up-to-date browser on a desktop GPU.");
+   throw new Error(
+    "Could not create a WebGL2 context on this device, so the demo cannot start. " +
+    "This usually means WebGL is disabled or blacklisted (common on VMs and on " +
+    "some Chrome/linux software-fallback paths) — try an up-to-date browser on a " +
+    "desktop GPU, or enable hardware acceleration."
+   );
   }
   if (!renderer.capabilities.isWebGL2) {
    renderer.dispose();
-   throw new Error("WebGL2 is not available in this browser — try an up-to-date browser on a desktop GPU.");
+   throw new Error(
+    "This device exposes a WebGL context but only WebGL 1, and the demo's shaders " +
+    "and render targets need WebGL 2 — try an up-to-date browser on a desktop GPU " +
+    "with hardware acceleration on."
+   );
   }
 
   const gl = renderer.getContext();
   // Every HDR target needs this; there is no fallback path worth having.
   if (!gl.getExtension("EXT_color_buffer_float")) {
    renderer.dispose();
-   throw new Error("WebGL2 float render targets are unavailable in this browser — try an up-to-date browser on a desktop GPU.");
+   throw new Error(
+    "This browser exposes WebGL2 but not float colour attachments " +
+    "(EXT_color_buffer_float), which every HDR render target in the demo needs — " +
+    "there is no lower-quality path to fall back to, so the demo cannot run here. " +
+    "Try an up-to-date browser on a desktop GPU."
+   );
   }
   // The heightfield is RG32F and is filtered in the vertex shader. Warn
   // and degrade (owners of 32F targets check `caps.floatLinear`).
@@ -127,7 +209,7 @@ export class Gfx {
   * @param {number} layerBit one of `gfx.LAYER`
   * @param {number} renderOrder
   */
- addMesh(mesh: any, layerBit: any, renderOrder: any) {
+ addMesh(mesh: THREE.Object3D, layerBit: number, renderOrder: number): THREE.Object3D {
   mesh.layers.set(layerBit);
   mesh.renderOrder = renderOrder;
   mesh.frustumCulled = false;
@@ -151,7 +233,7 @@ export class Gfx {
   *   camera?: THREE.Camera|null,
   * }} opts
   */
- runPass(opts: any) {
+ runPass(opts: RunPassOpts) {
   const r = this.renderer;
   const cam = opts.camera || this.threeCamera;
   const target = opts.target !== undefined ? opts.target : null;
@@ -180,8 +262,10 @@ export class Gfx {
    r.render(this.scene, cam);
    for (let i = 0; i < casters.length; i++) {
     const c = casters[i];
-    c.mesh.material = c._savedMaterial;
-    c.mesh.layers.mask = c._savedMask;
+    // Both slots were written two loops ago and read exactly once, so they are
+    // defined here; the non-null reads say so rather than re-deriving it.
+    c.mesh.material = c._savedMaterial as THREE.Material | THREE.Material[];
+    c.mesh.layers.mask = c._savedMask as number;
     c._savedMaterial = null;
    }
   } else {
@@ -201,7 +285,7 @@ export class Gfx {
   *   filter?: number, wrap?: number, depth?: boolean, mips?: boolean,
   * }} [opts]
   */
- makeRenderTarget(name: any, w: any, h: any, opts: any) {
+ makeRenderTarget(name: string, w: number, h: number, opts: RenderTargetOpts = {}) {
   const o = opts || {};
   const filter = o.filter !== undefined ? o.filter : THREE.LinearFilter;
   const mips = !!o.mips;
@@ -217,7 +301,11 @@ export class Gfx {
    generateMipmaps: mips,
    colorSpace: THREE.NoColorSpace,
   });
-  if (o.internalFormat) rt.texture.internalFormat = o.internalFormat;
+  // `o.internalFormat` is a raw GL enum name; three's texture field is its own
+  // `PixelFormatGPU` union, which is a different (smaller) set of tokens.
+  if (o.internalFormat) {
+   rt.texture.internalFormat = o.internalFormat as THREE.PixelFormatGPU;
+  }
   rt.texture.name = name;
   rt.texture.flipY = false;
   rt.texture.premultiplyAlpha = false;
@@ -230,7 +318,7 @@ export class Gfx {
   * @param {THREE.WebGLRenderTarget} rt
   * @param {number} [scale] fraction of render size (1, 1/4, 1/16…)
   */
- trackScreenTarget(rt: any, scale = 1) {
+ trackScreenTarget(rt: THREE.WebGLRenderTarget, scale = 1) {
   this._tracked.push({ rt, scale });
   rt.setSize(
    Math.max(1, Math.round(this.renderWidth * scale)),
@@ -239,7 +327,7 @@ export class Gfx {
  }
 
  /** @param {number} s resolution scale (the source's `S.resolutionScale`) */
- setRenderScale(s: any) {
+ setRenderScale(s: number) {
   this._scale = s || 1;
   this.resize();
  }
@@ -268,7 +356,7 @@ export class Gfx {
   * here). Returns an unsubscribe function.
   * @param {(w:number, h:number) => void} fn
   */
- onResize(fn: any) {
+ onResize(fn: (w: number, h: number) => void): () => boolean {
   this._resizeFns.add(fn);
   return () => this._resizeFns.delete(fn);
  }
@@ -289,7 +377,7 @@ export class Gfx {
   * chain has jittered the projection.
   * @param {{view: THREE.Matrix4, projection: THREE.Matrix4}} rigCamera
   */
- syncTokenCamera(rigCamera: any) {
+ syncTokenCamera(rigCamera: { view: THREE.Matrix4; projection: THREE.Matrix4 }) {
   const cam = this.threeCamera;
   cam.projectionMatrix.copy(rigCamera.projection);
   cam.projectionMatrixInverse.copy(rigCamera.projection).invert();
@@ -299,18 +387,35 @@ export class Gfx {
 }
 
 /**
- * Build the device layer, or fail the boot screen and return null. The
- * failure message (no WebGL2 vs. no float render targets) is written by the
+ * Build the device layer, or fail the boot screen and return null.
+ *
+ * `canvas` is typed loosely as an element because the callers resolve it through
+ * `getElementById`; a null or non-canvas there is reported through `fail()` as
+ * the same kind of boot stop as a missing capability, rather than throwing a
+ * type-shaped surprise at whoever passes it.
+ *
+ * The failure message (no WebGL2 vs. no float render targets) is written by the
  * capability gate itself, so the caller only has to stop.
- * @param {HTMLCanvasElement} canvas
+ * @param {HTMLElement|null} canvas
  * @returns {Gfx|null}
  */
-export function createGfx(canvas: any) {
+export function createGfx(canvas: HTMLElement | null): Gfx | null {
+ if (!(canvas instanceof HTMLCanvasElement)) {
+  loading.fail("The canvas element is missing from the page, so there is nothing to render to.");
+  return null;
+ }
  try {
   return new Gfx(canvas);
  } catch (err: unknown) {
+  // The capability gate in the constructor throws a specific, actionable
+  // message and already did its own cleanup. `fail()` only renders what
+  // it is given, so the typed reason has to survive the boundary here —
+  // substituting a generic one would throw away the diagnosis.
   console.error(err);
-  loading.fail(err instanceof Error && err.message ? err.message : "WebGL2 is not available in this browser.");
+  const message = err instanceof Error && err.message
+   ? err.message
+   : "The graphics device could not be initialised (no diagnostic was reported).";
+  loading.fail(message);
   return null;
  }
 }

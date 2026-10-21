@@ -73,7 +73,31 @@ export const touch = {
 /** @type {Record<string, boolean>} */
 const keys = Object.create(null);
 
-const LOOK_SCALE = 0.0022;
+const LOOK_SCALE = 0.0022; // radians per pixel of mouse travel
+/** Radians of zoom per wheel notch; a notch is 100+ delta units, so this lands at ~0.16 rad. */
+const ZOOM_SCALE = 0.0016;
+
+/** Index into `SPELL_KEYS`, i.e. which numbered digit key maps to which spell. */
+enum SpellKey {
+ Ribbon = 2,
+}
+
+/** `MouseEvent.button` for the right button — the snow-surf slide binding. */
+enum MouseButton {
+ Right = 2,
+}
+
+/** `KeyboardEvent.code` for the digit keys that select a spell. */
+enum DigitKey {
+ One = "Digit1",
+ Two = "Digit2",
+ Three = "Digit3",
+ Four = "Digit4",
+ Five = "Digit5",
+}
+
+/** Any binding of the "am I moving" axis test must exceed this to count. */
+const MOVE_EPSILON = 0.001;
 
 /**
  * Right mouse held. Kept separate from `input.surf` because the slide has two
@@ -88,25 +112,36 @@ let touchSeen = false;
 let onToggleOverlay: (() => void) | null = null;
 let onToggleFps: (() => void) | null = null;
 
+/** The two UI toggles input owns no opinion about; both optional. */
+interface InputHooks {
+ onToggleOverlay?: () => void;
+ onToggleFps?: () => void;
+}
+
 /**
- * @param {HTMLCanvasElement} canvas
- * @param {{ onToggleOverlay?: () => void, onToggleFps?: () => void }} [hooks]
+ * @param {HTMLElement|null} canvas the play surface; pointer lock and pointer
+ *        events are attached here, and a null simply wins nothing
+ * @param {InputHooks} [hooks] the two UI toggles this module calls
  */
-export function initInput(canvas: any, hooks: any) {
+export function initInput(canvas: HTMLElement | null, hooks?: InputHooks) {
  onToggleOverlay = hooks?.onToggleOverlay ?? null;
  onToggleFps = hooks?.onToggleFps ?? null;
 
  // Pointer lock is a mouse idea. Asking for it from a touch tap does nothing
  // useful on any engine and throws on some, and on a hybrid laptop it would
  // capture the cursor the moment somebody prodded the screen.
- canvas.addEventListener("pointerdown", (e: any) => {
-  if (e.pointerType === "touch") touchSeen = true;
- });
+ if (canvas) {
+  canvas.addEventListener("pointerdown", (e: PointerEvent) => {
+   if (e.pointerType === "touch") touchSeen = true;
+  });
 
- canvas.addEventListener("click", () => {
-  if (touchSeen || input.locked) return;
-  canvas.requestPointerLock();
- });
+  canvas.addEventListener("click", () => {
+   if (touchSeen || input.locked) return;
+   canvas.requestPointerLock();
+  });
+
+  canvas.addEventListener("contextmenu", (e: MouseEvent) => e.preventDefault());
+ }
 
  document.addEventListener("pointerlockchange", () => {
   input.locked = document.pointerLockElement === canvas;
@@ -125,15 +160,13 @@ export function initInput(canvas: any, hooks: any) {
   input.lookY += e.movementY * LOOK_SCALE;
  });
 
- canvas.addEventListener("contextmenu", (e: any) => e.preventDefault());
-
  document.addEventListener("mousedown", (e) => {
   if (!input.locked) return;
-  if (e.button === 2) rmbHeld = true;
+  if (e.button === MouseButton.Right) rmbHeld = true;
  });
 
  document.addEventListener("mouseup", (e) => {
-  if (e.button === 2) rmbHeld = false;
+  if (e.button === MouseButton.Right) rmbHeld = false;
  });
 
  document.addEventListener(
@@ -141,7 +174,7 @@ export function initInput(canvas: any, hooks: any) {
   (e) => {
    if (!input.locked) return;
    e.preventDefault();
-   input.zoomDelta += e.deltaY * 0.0016;
+   input.zoomDelta += e.deltaY * ZOOM_SCALE;
   },
   { passive: false }
  );
@@ -166,6 +199,9 @@ export function initInput(canvas: any, hooks: any) {
   // scheme W/S own the vertical instead, and E falls through to the
   // held keys as the reheat.
   if (e.code === "KeyE" && S.flightThrottle !== true) {
+   // ^ explicit comparison against the settings toggle's `boolean` value:
+   // `flightThrottle` is `SettingValue` (number | boolean | string), so it can
+   // only be one of those — compare with the one we mean, not its truthiness.
    if (!e.repeat) {
     input.riseLevel = input.riseLevel >= 3 ? 1 : input.riseLevel + 1;
    }
@@ -182,13 +218,13 @@ export function initInput(canvas: any, hooks: any) {
   const n = SPELL_KEYS[e.code];
   if (n) {
    input.spellPressed = n;
-   if (n === 2) input.spellHeld2 = true;
+   if (n === SpellKey.Ribbon) input.spellHeld2 = true;
   }
  });
 
  window.addEventListener("keyup", (e) => {
   keys[e.code] = false;
-  if (SPELL_KEYS[e.code] === 2) input.spellHeld2 = false;
+  if (SPELL_KEYS[e.code] === SpellKey.Ribbon) input.spellHeld2 = false;
  });
 
  window.addEventListener("blur", () => {
@@ -205,12 +241,13 @@ export function initInput(canvas: any, hooks: any) {
   touch.z = 0;
  });
 }
+
 const SPELL_KEYS: Record<string, number> = {
- Digit1: 1,
- Digit2: 2,
- Digit3: 3,
- Digit4: 4,
- Digit5: 5,
+ [DigitKey.One]: 1,
+ [DigitKey.Two]: 2,
+ [DigitKey.Three]: 3,
+ [DigitKey.Four]: 4,
+ [DigitKey.Five]: 5,
 };
 
 /** Resolve held keys into movement axes. Called once per frame before update. */
@@ -247,7 +284,7 @@ export function pollInput() {
 
  input.moveX = x;
  input.moveZ = z;
- input.moving = len > 0.001;
+ input.moving = len > MOVE_EPSILON;
  const shift = !!(keys.ShiftLeft || keys.ShiftRight) || touch.sprint;
  input.sprint = shift;
 
@@ -257,9 +294,14 @@ export function pollInput() {
  // touch the stick's vertical axis is the climb.
  input.thrust = throttle && shift;
  input.boost = throttle && !!(keys.KeyE || keys.KeyQ);
- input.vert = !throttle ? 0
-  : touch.active ? touch.z
+ // Vertical axis of the throttle scheme: the stick's own when it is being
+ // held, otherwise the S/W pair (push forward to descend). Dead without it.
+ let vert = 0;
+ if (throttle) {
+  vert = touch.active ? touch.z
    : (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+ }
+ input.vert = vert;
 
  // Any binding holds the slide; releasing one while another is down must not
  // end it.
@@ -285,7 +327,8 @@ export function endFrame() {
  input.zoomDelta = 0;
  input.spellPressed = 0;
 }
+
 /** @param {string} code */
-export function isDown(code: any) {
+export function isDown(code: string): boolean {
  return !!keys[code];
 }

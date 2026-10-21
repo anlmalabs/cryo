@@ -36,6 +36,7 @@
  */
 
 import * as THREE from "three";
+import type { Gfx } from "../core/gfx.js";
 import { whenReady } from "../core/gpuUtil.js";
 
 /**
@@ -47,15 +48,27 @@ export const DEPTH_FAR = 9000;
 /** Clear color of the prepass target. */
 const CLEAR = [DEPTH_FAR, 0, 0, 1];
 
+/** Render-scale of the tracked prepass target: full resolution, unitsless. */
+const PREPASS_SCALE = 1;
+
 export class DepthPass {
-  [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
+ /** The device layer that owns the prepass target. */
+ gfx: Gfx;
+ /** Every registered prepass material, compiled in `warmUp`. */
+ materials: THREE.Material[];
+ /** Meshes to draw into the prepass, each with its own prepass material. */
+ casters: { mesh: THREE.Mesh, material: THREE.Material }[];
+ /** Render-target size in pixels, republished for the shaders that read it. */
+ size: THREE.Vector2;
+ /** The prepass target ("scenePrepass"). Bound as `depthTex` by the post passes. */
+ rtt: THREE.WebGLRenderTarget;
+ /** Cancels the render-size subscription when the pass is disposed. */
+ _unsub: () => void;
+
+ constructor(gfx: Gfx) {
   this.gfx = gfx;
 
-  /** @type {THREE.Material[]} */
   this.materials = [];
-  /** @type {{mesh: THREE.Object3D, material: THREE.Material}[]} */
   this.casters = [];
 
   /** Render-target size in pixels, republished for the shaders that read it. */
@@ -75,7 +88,7 @@ export class DepthPass {
    filter: THREE.NearestFilter,
    depth: true,
   });
-  gfx.trackScreenTarget(this.rtt, 1);
+  gfx.trackScreenTarget(this.rtt, PREPASS_SCALE);
   this.size.set(this.rtt.width, this.rtt.height);
 
   this._unsub = gfx.onResize(() => {
@@ -90,10 +103,10 @@ export class DepthPass {
   * — camera matrix, so the depth and the colour line up to the subpixel, and
   * output via `prepass.fragment.glsl`'s varyings (`vViewZ`, `vMask`).
   *
-  * @param {THREE.Object3D} mesh
+  * @param {THREE.Mesh} mesh
   * @param {THREE.Material} material
   */
- registerCaster(mesh: any, material: any) {
+ registerCaster(mesh: THREE.Mesh, material: THREE.Material) {
   if (!mesh || !material) return;
   this.casters.push({ mesh, material });
   this.materials.push(material);
@@ -102,9 +115,8 @@ export class DepthPass {
  /**
   * Render the prepass (§4.3 step 3). Cleared to (9000, 0, 0, 1); casters
   * wear their prepass materials for exactly this pass.
-  * @param {import("../core/gfx.js").Gfx} gfx
   */
- render(gfx: any) {
+ render(gfx: Gfx) {
   gfx.runPass({
    target: this.rtt,
    clearColor: CLEAR,
@@ -113,7 +125,16 @@ export class DepthPass {
   });
  }
 
- /** Compile every registered prepass pipeline, behind the loading screen. */
+ /**
+  * Compile every registered prepass pipeline, behind the loading screen.
+  *
+  * Stays serial: `whenReady` compiles through `core/gpuUtil.js`'s single
+  * shared `_compileScene`, which each call adds a mesh to and removes it
+  * from again. Running the calls concurrently interleaves those mutations
+  * on one scene, so one compile can strip the mesh another still needs.
+  * Serial also gives each material its own full 25 s watchdog rather than
+  * sharing one wall-clock budget across all of them.
+  */
  async warmUp() {
   for (let i = 0; i < this.materials.length; i++) {
    await whenReady(

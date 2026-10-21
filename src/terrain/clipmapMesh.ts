@@ -22,8 +22,10 @@ import * as THREE from "three";
 
 /** Quads per side, per ring. Must be divisible by 4. */
 export const GRID_N = 160;
+
 /** Number of rings. */
 export const LEVELS = 8;
+
 /** Vertex spacing of the innermost ring, metres. */
 export const BASE_SPACING = 0.085;
 
@@ -33,10 +35,9 @@ const HOLE_SHRINK = 3;
 const HALF = GRID_N / 2;
 
 /**
- * @param {import("../core/gfx.js").Gfx} gfx
  * @returns {THREE.Mesh}
  */
-export function buildClipmapMesh(gfx: any) {
+export function buildClipmapMesh() {
  const side = GRID_N + 1;
  const vertsPerLevel = side * side;
 
@@ -134,6 +135,9 @@ export function buildClipmapMesh(gfx: any) {
 
 /** Half-extent of the finest ring, metres — used to size the deformation area. */
 export const INNER_EXTENT = HALF * BASE_SPACING;
+
 /** Half-extent of the whole clipmap, metres. */
 export const OUTER_EXTENT = HALF * BASE_SPACING * Math.pow(2, LEVELS - 1);
+
+/** Half of `GRID_N` — the lattice is centred on ±this. */
 export const GRID_HALF_N = HALF;

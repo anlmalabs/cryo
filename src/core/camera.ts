@@ -19,7 +19,8 @@
 
 import * as THREE from "three";
 import { input } from "./input.js";
-import { S } from "./settings.js";
+import { S, type SettingValue } from "./settings.js";
+import type { Gfx } from "./gfx.js";
 import {
  setFrame, invertRigid, mulMat4, invertMat4, perspectiveFovLH,
 } from "./mat4.js";
@@ -43,22 +44,188 @@ const ARM_SAMPLES = 5;
 // after (the craft leads into the turn and presents its flank) from the real
 // steer, and returns to exactly zero on the straight by construction.
 
-const PITCH_MIN = -0.62; // looking up
-const PITCH_MAX = 1.05; // looking down
-const DIST_MIN = 2.6;
-const DIST_MAX = 11.0;
+const PITCH_MIN = -0.62; // radians, looking up
+const PITCH_MAX = 1.05; // radians, looking down
+const DIST_MIN = 2.6; // metres, tightest zoom-in
+const DIST_MAX = 11.0; // metres, widest zoom-out
+
+// ------------------------------------------------------------ framing knobs
+// All speeds are 1/second exponential-damping rates; all lengths are metres.
+
+/** Field of view, vertical, in radians (~58 deg). */
+const FOV_BASE = 1.02;
+/** Near/far clip planes, metres. */
+const NEAR_Z = 0.12;
+const FAR_Z = 4200;
+
+/** Pitch that opens the shot: on the craft vs. shoulder-height on foot. */
+const PITCH_SHIP = 0.42;
+const PITCH_FOOT = 0.17;
+/** Arm length at boot, metres. */
+const DIST_SHIP = 11.5;
+const DIST_FOOT = 6.2;
+/** Over-the-shoulder offset in camera space, metres (ship: none). */
+const SHOULDER_FOOT = 0.85;
+/** Pivot height above the target's feet, metres. */
+const PIVOT_HEIGHT_SHIP = 4.2;
+const PIVOT_HEIGHT_FOOT = 1.62;
+/** Clearance the arm keeps above the snow, metres. */
+const GROUND_CLEARANCE_SHIP = 3.4;
+const GROUND_CLEARANCE_FOOT = 1.35;
+/** Initial yaw, radians. */
+const YAW_START = 2.4;
+
+// -------------------------------------------------------------- update knobs
+
+/** How hard each fractional turn-of-the-wheel zooms (1/s fraction). */
+const ZOOM_RATE = 0.35;
+/** Damping rate pulling the eased arm length to its target, 1/s. */
+const ZOOM_DAMP = 9;
+/** How far the pivot leads the target's velocity, metres per m/s. */
+const LEAD_GAIN = 1.35;
+/** Fraction of that lead actually applied to the pivot, ratio. */
+const LEAD_MIX = 0.09;
+/** Pivot spring frequency and damping (1 = critical). */
+const PIVOT_SPRING_FREQ = 7.5;
+const PIVOT_SPRING_DAMPING = 1.0;
+/** Boost-breath ease rate, 1/s, and its FOV contribution, ratio. */
+const BREATH_RATE = 2.5;
+const BREATH_FOV = 0.04;
+/** Fraction of FOV the frame inhales with speed, ratio. */
+const SPEED_FOV = 0.19;
+/** Damping rate of the FOV toward its target, 1/s. */
+const FOV_DAMP = 3.2;
+/** Bank angle per unit of lean, radians. */
+const ROLL_PER_LEAN = 0.085;
+/** Roll ease rate, 1/s. */
+const ROLL_DAMP = 5.0;
+/** Trauma decay per second (trauma is squared before it is used). */
+const TRAUMA_DECAY = 1.15;
+// --- the ground-clearance probes -------------------------------------------
+/** Seconds of travel each probe looks ahead to predict oncoming snow. */
+const PREDICT_SECONDS = 0.12;
+/**
+ * Clearance profile along the arm: `base + taper * t`, where t = 0 at the
+ * pivot and 1 at the eye. At the pivot the arm only wants the base fraction
+ * (so it is not shoved up merely for being near the player's own feet), and
+ * the full clearance is restored by the eye.
+ */
+const CLEARANCE_BASE_FRACTION = 0.35;
+const CLEARANCE_TAPER = 0.65;
+/** Ground lift ease rates, 1/s — rise fast, relax slowly. */
+const LIFT_RISE = 10;
+const LIFT_FALL = 4.5;
+
+// --- compose-xform ----------------------------------------------------------
+/** How far the eye is lifted off the pivot's own line, metres. */
+const UP_OFFSET = 0.22;
+
+// --- shake ------------------------------------------------------------------
+/** Trauma below this is treated as exactly zero (already squared below). */
+const SHAKE_EPSILON = 0.0001;
+/** Frequency multiplier of the positional shake signal, 1/s. */
+const POSITIONAL_SHAKE_FREQ = 26;
+/** Per-axis positional shake amplitude of the noise signal, metres. */
+const SHAKE_AMP_X = 0.16;
+const SHAKE_AMP_Y = 0.16;
+const SHAKE_AMP_Z = 0.10;
+/** Frequency multipliers of the angular shake signals, 1/s. */
+const SHAKE_FREQ_PITCH = 31;
+const SHAKE_FREQ_YAW = 29;
+const SHAKE_FREQ_ROLL = 23;
+/** Per-axis angular shake amplitude, radians. */
+const SHAKE_AMP_PITCH = 0.02;
+const SHAKE_AMP_YAW = 0.02;
+const SHAKE_AMP_ROLL = 0.05;
+
+/**
+ * Read a numeric knob off the shared settings struct. `S` is a union of
+ * number | boolean | string, so a lookup is not a number until it has been
+ * checked — and a toggle mistakenly read as a tuning value must fail loudly
+ * here rather than quietly serving `false` as 0.
+ */
+function numSetting(v: SettingValue): number {
+ if (typeof v !== "number") {
+  throw new TypeError(`camera setting expected a number, got ${typeof v}`);
+ }
+ return v;
+}
+
 /** @param {number} v @param {number} lo @param {number} hi */
-function clamp(v: any, lo: any, hi: any) {
- return v < lo ? lo : v > hi ? hi : v;
+function clamp(v: number, lo: number, hi: number): number {
+ if (v < lo) return lo;
+ if (v > hi) return hi;
+ return v;
 }
 
 export class CameraRig {
-  [key: string]: any;
+ /** The device layer; owned by `core/gfx.js`. */
+ gfx: Gfx;
+ /** May be null before boot has resolved the element; `_aspect` falls back. */
+ canvas: HTMLElement | null;
+ /**
+  * The camera state — a plain object, not a THREE camera. `fov` is
+  * vertical and in RADIANS (the source convention; walkers and the
+  * overlay read it as such). `projection` carries the TAA jitter once
+  * the post chain has run; `view` is LH with +Z forward.
+  */
+ camera: {
+  position: THREE.Vector3;
+  fov: number;
+  aspect: number;
+  minZ: number;
+  maxZ: number;
+  view: THREE.Matrix4;
+  projection: THREE.Matrix4;
+  viewProjection: THREE.Matrix4;
+  invView: THREE.Matrix4;
+  invViewProjection: THREE.Matrix4;
+ };
+ /** Current yaw/pitch/roll, radians. */
+ yaw: number;
+ pitch: number;
+ roll: number;
+ /** Where the roll is heading at the current lean, radians. */
+ rollTarget: number;
+ /** Arm length now and where it is heading, metres. */
+ distance: number;
+ distanceTarget: number;
+ /** Unrotated FOV the speed widening rides on top of, radians. */
+ baseFov: number;
+ /** Active FOV, radians. */
+ fov: number;
+ /** Smoothed pivot position (the thing the spring chases). */
+ pivot: THREE.Vector3;
+ pivotVel: THREE.Vector3;
+ /** Over-the-shoulder offset, in camera space, metres. */
+ shoulder: number;
+ /** Pivot height above the target's feet, metres. */
+ pivotHeight: number;
+ /** The rig's basis, republished every frame, published for aimers. */
+ forward: THREE.Vector3;
+ right: THREE.Vector3;
+ up: THREE.Vector3;
+ /** Trauma-based shake; `shake = trauma^2`. */
+ trauma: number;
+ shakeTime: number;
+ /** Height sampler, injected once the terrain exists. */
+ groundAt: ((x: number, z: number) => number) | null;
+ /** Metres of snow the camera must keep beneath it. */
+ groundClearance: number;
+ /** The value `groundClearance` starts from, metres. */
+ groundClearanceBase: number;
+ /** Eased lift currently being applied to stay above the surface. */
+ groundLift: number;
+ /** Mouse-look offset riding on the facing-follow while flying. */
+ _yawUser: number | null;
+ /** Boost inhale 0..1 — eases the arm and FOV breathing on reheat. */
+ _breath: number;
+ _first: boolean;
  /**
   * @param {import("./gfx.js").Gfx} gfx
-  * @param {HTMLCanvasElement} canvas
+  * @param {HTMLElement|null} canvas the element whose client size drives the aspect
   */
- constructor(gfx: any, canvas: any) {
+ constructor(gfx: Gfx, canvas: HTMLElement | null) {
   this.gfx = gfx;
   this.canvas = canvas;
 
@@ -70,10 +237,10 @@ export class CameraRig {
    */
   this.camera = {
    position: new THREE.Vector3(0, 3, -6),
-   fov: 1.02, // ~58deg vertical
+   fov: FOV_BASE, // ~58deg vertical
    aspect: 16 / 9,
-   minZ: 0.12,
-   maxZ: 4200,
+   minZ: NEAR_Z,
+   maxZ: FAR_Z,
    view: new THREE.Matrix4(),
    projection: new THREE.Matrix4(),
    viewProjection: new THREE.Matrix4(),
@@ -81,15 +248,15 @@ export class CameraRig {
    invViewProjection: new THREE.Matrix4(),
   };
 
-  this.yaw = 2.4;
+  this.yaw = YAW_START;
   // Looking down on the craft rather than along the ground behind it. A
   // speeder is read from above — you fly it by watching the snow come at
   // you — and the figure's shoulder-height framing put the horizon across
   // the middle of the hull.
   // Build-time capability gate (S.speeder): camera framing for a ship build vs walk-only. Not runtime mode.
-  this.pitch = S.speeder !== false ? 0.42 : 0.17;
+  this.pitch = S.speeder !== false ? PITCH_SHIP : PITCH_FOOT;
 
-  this.distance = S.speeder !== false ? 11.5 : 6.2;
+  this.distance = S.speeder !== false ? DIST_SHIP : DIST_FOOT;
   this.distanceTarget = this.distance;
 
   /** Smoothed pivot position (the thing the spring chases). */
@@ -97,15 +264,15 @@ export class CameraRig {
   this.pivotVel = new THREE.Vector3(0, 0, 0);
 
   /** Over-the-shoulder offset, in camera space. */
-  this.shoulder = S.speeder !== false ? 0.0 : 0.85;
+  this.shoulder = S.speeder !== false ? 0.0 : SHOULDER_FOOT;
   // The craft hovers a few metres up, so the pivot has to as well or the
   // arm sits under it and looks up through the floor.
-  this.pivotHeight = S.speeder !== false ? 4.2 : 1.62;
+  this.pivotHeight = S.speeder !== false ? PIVOT_HEIGHT_SHIP : PIVOT_HEIGHT_FOOT;
   /** Metres of clearance the arm keeps above the snow. */
-  this.groundClearanceBase = S.speeder !== false ? 3.4 : 1.35;
+  this.groundClearanceBase = S.speeder !== false ? GROUND_CLEARANCE_SHIP : GROUND_CLEARANCE_FOOT;
 
-  this.baseFov = 1.02;
-  this.fov = 1.02;
+  this.baseFov = FOV_BASE;
+  this.fov = FOV_BASE;
 
   this.roll = 0;
   this.rollTarget = 0;
@@ -152,7 +319,7 @@ export class CameraRig {
  }
 
  /** @param {number} amount 0..1 */
- addTrauma(amount: any) {
+ addTrauma(amount: number) {
   this.trauma = Math.min(1, this.trauma + amount);
  }
 
@@ -166,7 +333,7 @@ export class CameraRig {
   *        When given, the rig owns following it — the controller no longer
   *        writes `rig.yaw` directly.
   */
- update(dt: any, targetPos: any, targetVel: any, lean: any, speed01: any, facing = null, targetFacing = null) {
+ update(dt: number, targetPos: THREE.Vector3, targetVel: THREE.Vector3, lean: number, speed01: number, facing: number | null = null, targetFacing: number | null = null) {
   // ------------------------------------------------------------- look
   const flying = facing !== null;
   if (flying) {
@@ -183,7 +350,7 @@ export class CameraRig {
    // Near-welded by default; the cinematic layer relaxes the follow as
    // speed builds, so the faster the run the more the craft leads it.
    let rate = 18;
-   if (S.cinematicCam) rate -= 9 * Math.min(1, speed01) * /** @type {number} */ (S.camYawLag);
+   if (S.cinematicCam) rate -= 9 * Math.min(1, speed01) * numSetting(S.camYawLag);
    this.yaw = angleDamp(this.yaw, facing + this._yawUser, rate, dt);
   } else {
    this.yaw += input.lookX;
@@ -200,12 +367,12 @@ export class CameraRig {
 
   // ------------------------------------------------------------- zoom
   this.distanceTarget = clamp(
-   this.distanceTarget + input.zoomDelta * (this.distanceTarget * 0.35),
+   this.distanceTarget + input.zoomDelta * (this.distanceTarget * ZOOM_RATE),
    DIST_MIN,
    DIST_MAX
   );
   // Eased zoom — expDamp is framerate-independent.
-  this.distance = expDamp(this.distance, this.distanceTarget, 9, dt);
+  this.distance = expDamp(this.distance, this.distanceTarget, ZOOM_DAMP, dt);
 
   // ------------------------------------------------------------ pivot
   _pivot.copy(targetPos);
@@ -213,16 +380,16 @@ export class CameraRig {
 
   // Lead the camera slightly into the direction of travel so fast motion
   // shows more of what's ahead.
-  const lead = Math.min(1, speed01) * 1.35;
-  _pivot.x += targetVel.x * lead * 0.09;
-  _pivot.z += targetVel.z * lead * 0.09;
+  const lead = Math.min(1, speed01) * LEAD_GAIN;
+  _pivot.x += targetVel.x * lead * LEAD_MIX;
+  _pivot.z += targetVel.z * lead * LEAD_MIX;
 
   if (this._first) {
    this.pivot.copy(_pivot);
    this._first = false;
   } else {
    // Softer spring under acceleration = the arm stretches, then recovers.
-   springDamp(this.pivot, this.pivotVel, _pivot, 7.5, 1.0, dt);
+   springDamp(this.pivot, this.pivotVel, _pivot, PIVOT_SPRING_FREQ, PIVOT_SPRING_DAMPING, dt);
   }
 
   // -------------------------------------------------------------- fov
@@ -233,18 +400,18 @@ export class CameraRig {
   this._breath = expDamp(
    this._breath,
    flying && S.cinematicCam && input.sprint ? 1 : 0,
-   2.5, dt
+   BREATH_RATE, dt
   );
-  const breath = this._breath * /** @type {number} */ (S.camBoostBreath);
-  const fovWant = this.baseFov * (1 + speed01 * 0.19) + breath * 0.04;
-  this.fov = expDamp(this.fov, fovWant, 3.2, dt);
+  const breath = this._breath * numSetting(S.camBoostBreath);
+  const fovWant = this.baseFov * (1 + speed01 * SPEED_FOV) + breath * BREATH_FOV;
+  this.fov = expDamp(this.fov, fovWant, FOV_DAMP, dt);
 
   // ------------------------------------------------------------- bank
-  this.rollTarget = -lean * 0.085;
-  this.roll = expDamp(this.roll, this.rollTarget, 5.0, dt);
+  this.rollTarget = -lean * ROLL_PER_LEAN;
+  this.roll = expDamp(this.roll, this.rollTarget, ROLL_DAMP, dt);
 
   // ------------------------------------------------------------ shake
-  this.trauma = Math.max(0, this.trauma - dt * 1.15);
+  this.trauma = Math.max(0, this.trauma - dt * TRAUMA_DECAY);
   this.shakeTime += dt;
   const shake = this.trauma * this.trauma;
 
@@ -266,7 +433,7 @@ export class CameraRig {
   _desired.copy(this.pivot);
   _desired.add(_tmp.copy(_fwd).multiplyScalar(-(this.distance + breath)));
   _desired.add(_tmp.copy(_right).multiplyScalar(this.shoulder));
-  _desired.add(_tmp.copy(_up).multiplyScalar(0.22));
+  _desired.add(_tmp.copy(_up).multiplyScalar(UP_OFFSET));
 
   // ---- keep the arm out of the snow --------------------------------
   // The lift rises quickly and relaxes slowly: snapping down the instant a
@@ -282,8 +449,8 @@ export class CameraRig {
    // lift *before* it slides under the arm. That early warning is what
    // lets the rise rate drop from a near-instant 26 to 10 — a felt
    // ease-in instead of a vertical kick — without ever clipping snow.
-   const px = this.pivotVel.x * 0.12;
-   const pz = this.pivotVel.z * 0.12;
+   const px = this.pivotVel.x * PREDICT_SECONDS;
+   const pz = this.pivotVel.z * PREDICT_SECONDS;
    for (let i = 0; i <= ARM_SAMPLES; i++) {
     const t = i / ARM_SAMPLES;
     const x = this.pivot.x + (_desired.x - this.pivot.x) * t;
@@ -292,22 +459,25 @@ export class CameraRig {
     const g = Math.max(this.groundAt(x, z), this.groundAt(x + px, z + pz));
     // Clearance eases in along the arm so it does not shove the
     // camera up merely for being near the player's own feet.
-    const gh = g + this.groundClearance * (0.35 + 0.65 * t);
+    const gh = g + this.groundClearance * (CLEARANCE_BASE_FRACTION + CLEARANCE_TAPER * t);
     const d = gh - y;
     if (d > need) need = d;
    }
 
    this.groundLift = expDamp(
-    this.groundLift, need, need > this.groundLift ? 10 : 4.5, dt
+    this.groundLift, need, need > this.groundLift ? LIFT_RISE : LIFT_FALL, dt
    );
    _desired.y += this.groundLift;
   }
 
-  if (shake > 0.0001) {
-   const t = this.shakeTime * 26;
-   _desired.x += (noise1(t) * 2 - 1) * shake * 0.16;
-   _desired.y += (noise1(t + 31.7) * 2 - 1) * shake * 0.16;
-   _desired.z += (noise1(t + 71.3) * 2 - 1) * shake * 0.10;
+  if (shake > SHAKE_EPSILON) {
+   const t = this.shakeTime * POSITIONAL_SHAKE_FREQ;
+   // 31.7 / 71.3 are decorrelated phase offsets into the same noise
+   // channel, so the three axes do not move in lockstep. Arbitrary
+   // irrational-ish seeds, not a unit — kept inline.
+   _desired.x += (noise1(t) * 2 - 1) * shake * SHAKE_AMP_X;
+   _desired.y += (noise1(t + 31.7) * 2 - 1) * shake * SHAKE_AMP_Y;
+   _desired.z += (noise1(t + 71.3) * 2 - 1) * shake * SHAKE_AMP_Z;
   }
 
   // The Babylon build wrote position + Euler angles and let the engine
@@ -316,10 +486,13 @@ export class CameraRig {
   const cam = this.camera;
   cam.position.copy(_desired);
   cam.fov = this.fov;
+  // + 11 / + 53 / + 97 are per-axis phase offsets into the same noise
+  // channel (see the positional shake above) — decorrelation seeds, not
+  // units, so they stay inline.
   this._composeMatrices(
-   this.pitch + (shake > 0.0001 ? (noise1(this.shakeTime * 31 + 11) * 2 - 1) * shake * 0.02 : 0),
-   this.yaw + (shake > 0.0001 ? (noise1(this.shakeTime * 29 + 53) * 2 - 1) * shake * 0.02 : 0),
-   this.roll + (shake > 0.0001 ? (noise1(this.shakeTime * 23 + 97) * 2 - 1) * shake * 0.05 : 0)
+   this.pitch + (shake > SHAKE_EPSILON ? (noise1(this.shakeTime * SHAKE_FREQ_PITCH + 11) * 2 - 1) * shake * SHAKE_AMP_PITCH : 0),
+   this.yaw + (shake > SHAKE_EPSILON ? (noise1(this.shakeTime * SHAKE_FREQ_YAW + 53) * 2 - 1) * shake * SHAKE_AMP_YAW : 0),
+   this.roll + (shake > SHAKE_EPSILON ? (noise1(this.shakeTime * SHAKE_FREQ_ROLL + 97) * 2 - 1) * shake * SHAKE_AMP_ROLL : 0)
   );
  }
 
@@ -334,7 +507,7 @@ export class CameraRig {
   * (the warm-up shadow fit runs before the post chain exists) see coherent
   * matrices; the post chain recomputes all three after jittering.
 /** @param {number} pitch @param {number} yaw @param {number} roll */
- _composeMatrices(pitch: any, yaw: any, roll: any) {
+ _composeMatrices(pitch: number, yaw: number, roll: number) {
   const cam = this.camera;
   cam.aspect = this._aspect();
 
@@ -372,13 +545,13 @@ export class CameraRig {
    ux2, uy2, uz2,
    fx, fy, fz
   );
-  invertRigid(/** @type {any} */(cam.view.elements), 0, _frame, 0);
+  invertRigid(cam.view.elements, 0, _frame, 0);
 
-  perspectiveFovLH(/** @type {any} */(cam.projection.elements), cam.fov, cam.aspect, cam.minZ, cam.maxZ);
+  perspectiveFovLH(cam.projection.elements, cam.fov, cam.aspect, cam.minZ, cam.maxZ);
 
-  mulMat4(/** @type {any} */(cam.viewProjection.elements), /** @type {any} */(cam.projection.elements), /** @type {any} */(cam.view.elements));
-  invertRigid(/** @type {any} */(cam.invView.elements), 0, /** @type {any} */(cam.view.elements), 0);
-  invertMat4(/** @type {any} */(cam.invViewProjection.elements), /** @type {any} */(cam.viewProjection.elements));
+  mulMat4(cam.viewProjection.elements, cam.projection.elements, cam.view.elements);
+  invertRigid(cam.invView.elements, 0, cam.view.elements, 0);
+  invertMat4(cam.invViewProjection.elements, cam.viewProjection.elements);
  }
 
  /** Render-size aspect; the ratio is scale-invariant. */
@@ -396,12 +569,12 @@ export class CameraRig {
  }
 
  /** @param {THREE.Vector3} out */
- getFlatForward(out: any) {
+ getFlatForward(out: THREE.Vector3): THREE.Vector3 {
   out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
   return out;
  }
  /** @param {THREE.Vector3} out */
- getFlatRight(out: any) {
+ getFlatRight(out: THREE.Vector3): THREE.Vector3 {
   out.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
   return out;
  }
@@ -410,7 +583,7 @@ export class CameraRig {
 // ------------------------------------------------------------------ helpers
 
 /** @param {number} cur @param {number} target @param {number} rate @param {number} dt */
-export function expDamp(cur: any, target: any, rate: any, dt: any) {
+export function expDamp(cur: number, target: number, rate: number, dt: number): number {
  return target + (cur - target) * Math.exp(-rate * dt);
 }
 
@@ -419,7 +592,7 @@ export function expDamp(cur: any, target: any, rate: any, dt: any) {
 // would close a module cycle for the sake of six lines.
 
 /** @param {number} a @param {number} b */
-function angleDelta(a: any, b: any) {
+function angleDelta(a: number, b: number): number {
  let d = b - a;
  while (d > Math.PI) d -= Math.PI * 2;
  while (d < -Math.PI) d += Math.PI * 2;
@@ -427,7 +600,7 @@ function angleDelta(a: any, b: any) {
 }
 
 /** @param {number} cur @param {number} target @param {number} rate @param {number} dt */
-function angleDamp(cur: any, target: any, rate: any, dt: any) {
+function angleDamp(cur: number, target: number, rate: number, dt: number): number {
  return cur + angleDelta(cur, target) * (1 - Math.exp(-rate * dt));
 }
 /**
@@ -439,7 +612,7 @@ function angleDamp(cur: any, target: any, rate: any, dt: any) {
  * @param {number} damping 1 = critical
  * @param {number} dt
  */
-function springDamp(pos: any, vel: any, target: any, freq: any, damping: any, dt: any) {
+function springDamp(pos: THREE.Vector3, vel: THREE.Vector3, target: THREE.Vector3, freq: number, damping: number, dt: number) {
  const k = freq * freq;
  const c = 2 * damping * freq;
  // Substep rather than truncate. The old clamp to 1/45 kept the integrator
@@ -457,20 +630,24 @@ function springDamp(pos: any, vel: any, target: any, freq: any, damping: any, dt
   pos.x += vel.x * h;
   pos.y += vel.y * h;
   pos.z += vel.z * h;
-}
+ }
 }
 
 /** Cheap smooth 1D value noise for shake. Deterministic, no allocation. */
 /** @param {number} x */
-function noise1(x: any) {
-  const i = Math.floor(x);
-  const f = x - i;
-  const u = f * f * (3 - 2 * f);
-  return hash1(i) * (1 - u) + hash1(i + 1) * u;
+function noise1(x: number): number {
+ const i = Math.floor(x);
+ const f = x - i;
+ const u = f * f * (3 - 2 * f);
+ return hash1(i) * (1 - u) + hash1(i + 1) * u;
 }
 
 /** @param {number} n */
-function hash1(n: any) {
-  const s = Math.sin(n * 127.1) * 43758.5453;
-  return s - Math.floor(s);
+function hash1(n: number): number {
+ // Sinusoidal PRNG: `127.1` and `43758.5453` are the classic GLSL hash
+ // coefficients — the fractional part of `sin(n * 127.1)` scaled up is a
+ // cheap deterministic pseudo-random per integer n. Not units; they belong
+ // to the technique and stay inline.
+ const s = Math.sin(n * 127.1) * 43758.5453;
+ return s - Math.floor(s);
 }

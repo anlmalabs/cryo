@@ -28,6 +28,9 @@
  */
 
 import * as THREE from "three";
+import type { Gfx } from "../core/gfx.js";
+import type { CharacterMeshMetadata } from "./character.js";
+import type { ClothPanel } from "./cloth.js";
 import {
  B_ROOT, B_SPINE, B_CHEST, B_NECK, B_HEAD, B_HOOD,
  B_UPPER_L, B_FORE_L, B_HAND_L, B_UPPER_R, B_FORE_R, B_HAND_R,
@@ -46,31 +49,104 @@ export const M_FUR = 6;      // hood and cuff trim
 /** Segments around a limb. 14 is smooth at the distances this is seen from. */
 const SEG = 14;
 
+/**
+ * Paired body parts are built twice: once per side, index 0 mirrored to `-1`
+ * and index 1 at `+1`. One pass per body side.
+ */
+const SIDE_COUNT = 2;
+
+// ------------------------------------------------------------------- skull
+
+/**
+ * The skull is a half-ellipsoid swept as rings. These are metres, bind
+ * space, measured from the head centre.
+ */
+const SKULL_RINGS = 8;      // rings from the crown down to the jaw
+const SKULL_RADIUS = 0.105; // radius of the sweep, metres
+const SKULL_RY = 0.089;     // section half-width on the face axis, metres
+const SKULL_RZ = 0.096;     // section half-depth, metres
+const SKULL_R_MIN = 0.004;  // section collapse at the poles, metres
+const SKULL_Z_PULL = 0.006; // rings drift forward toward the crown, metres
+const SKULL_OCCLUSION = 0.22; // baked occlusion of the shaded cavity, 0..1
+
+// ------------------------------------------------------------ section geometry
+
+/**
+ * Cap centre placement: a fraction of the larger section radius, pushed out
+ * along the ring's own axis. Ratio of metres, dimensionless.
+ */
+const CAP_EXTENT = 0.7;
+
+/**
+ * Spine blend bands, by bind-pose height in metres, with the blend's own
+ * height in metres. Each band is a height threshold where the weight of the
+ * next bone takes over.
+ */
+const SPINE_BASE_TOP = 1.06;     // metres: below this, root and spine blend
+const SPINE_BASE_FROM = 0.88;    // metres: bottom of the root/spine blend
+const SPINE_BASE_SPAN = 0.18;    // metres: height the root/spine blend spans
+const SPINE_MID_TOP = 1.26;      // metres: below this, spine and chest blend
+const SPINE_MID_SPAN = 0.20;     // metres: height the spine/chest blend spans
+const SPINE_TOP_SPAN = 0.20;     // metres: height the chest/neck blend spans
+
+/** How far each blend reaches up the next bone's influence, as a ratio. */
+const SPINE_BASE_NEXT = 0.5;     // fraction of the upper bone's weight gained
+const SPINE_TOP_NEXT = 0.35;     // fraction of the upper bone's weight gained
+
+/**
+ * A mesh out of this module: every builder finishes by attaching build stats —
+ * triangle count, vertex count, and on the fur mesh the shell flag — which the
+ * perf HUD and the material pass read. Three's `Mesh` has no such field, so the
+ * shape is named once here and the callers consume it structurally.
+ */
+export type BuilderMesh = THREE.Mesh & { metadata: CharacterMeshMetadata };
+
 // -----------------------------------------------------------------------------
 
 class Builder {
- [key: string]: any;
+ /** Position, xyz per vertex, metres in bind space. */
+ pos: number[] = [];
+ /** Normal, xyz per vertex. Zeroed until the smooth pass or an override. */
+ nrm: number[] = [];
+ /** Texture coordinates, uv per vertex, metres of surface. */
+ uv: number[] = [];
+ /** Material slot and baked occlusion, two scalars per vertex. */
+ aux: number[] = [];
+ /** Bone index for each of two influences, two per vertex. */
+ bi: number[] = [];
+ /** Bone weight for each of two influences, two per vertex. */
+ bw: number[] = [];
+ /** Triangle list as vertex indices. */
+ idx: number[] = [];
+ /** Set when `nrm` is written directly and must skip the smooth pass. */
+ explicitNormals: boolean;
+
  constructor() {
-  /** @type {number[]} */
   this.pos = [];
-  /** @type {number[]} */
   this.nrm = [];
-  /** @type {number[]} */
   this.uv = [];
-  /** @type {number[]} */
   this.aux = [];
-  /** @type {number[]} */
   this.bi = [];
-  /** @type {number[]} */
   this.bw = [];
-  /** @type {number[]} */
   this.idx = [];
-  /** @type {boolean} */
   this.explicitNormals = false;
  }
 
- /** @param {number} x @param {number} y @param {number} z @param {number} u @param {number} v @param {number} matId @param {number} ao @param {number} b0 @param {number} w0 @param {number} b1 @param {number} w1 @returns {number} */
- vert(x: any, y: any, z: any, u: any, v: any, matId: any, ao: any, b0: any, w0: any, b1: any, w1: any) {
+ /**
+  * @param x metres, bind space
+  * @param y metres, bind space
+  * @param z metres, bind space
+  * @param u metres of surface along the sweep
+  * @param v metres of surface around the section
+  * @param matId material slot
+  * @param ao baked occlusion, 0..1
+  * @param b0 bone index, first influence
+  * @param w0 bone weight, first influence
+  * @param b1 bone index, second influence, 0 when unused
+  * @param w1 bone weight, second influence, 0 when unused
+  * @returns {number} the new vertex's index
+  */
+ vert(x: number, y: number, z: number, u: number, v: number, matId: number, ao: number, b0: number, w0: number, b1: number, w1: number): number {
   this.pos.push(x, y, z);
   this.nrm.push(0, 0, 0);
   this.uv.push(u, v);
@@ -80,20 +156,34 @@ class Builder {
   return this.pos.length / 3 - 1;
  }
 
- /** @param {number} vi @param {number} x @param {number} y @param {number} z */
- normal(vi: any, x: any, y: any, z: any) {
+ /**
+  * @param vi vertex index to overwrite
+  * @param x normal x
+  * @param y normal y
+  * @param z normal z
+  */
+ normal(vi: number, x: number, y: number, z: number): void {
   this.nrm[vi * 3] = x;
   this.nrm[vi * 3 + 1] = y;
   this.nrm[vi * 3 + 2] = z;
  }
 
- /** @param {number} a @param {number} b @param {number} c */
- tri(a: any, b: any, c: any) {
+ /**
+  * @param a first vertex index
+  * @param b second vertex index
+  * @param c third vertex index
+  */
+ tri(a: number, b: number, c: number): void {
   this.idx.push(a, b, c);
  }
 
- /** @param {number} a @param {number} b @param {number} c @param {number} d */
- quad(a: any, b: any, c: any, d: any) {
+ /**
+  * @param a first vertex index
+  * @param b second vertex index
+  * @param c third vertex index
+  * @param d fourth vertex index
+  */
+ quad(a: number, b: number, c: number, d: number): void {
   // Both diagonals of every quad get used across the mesh, alternating is
   // not worth the bookkeeping on shapes this smooth.
   this.idx.push(a, b, c, a, c, d);
@@ -106,8 +196,11 @@ class Builder {
  * Area weighting rather than plain averaging: a long thin triangle at a cap
  * would otherwise pull the pole normal off toward its own plane.
  */
-/** @param {Float32Array} pos @param {Uint32Array} idx */
-function computeNormals(pos: any, idx: any) {
+/** @param {Float32Array} pos vertex positions, xyz per vertex, metres
+ *  @param {Uint32Array} idx triangle list
+ *  @returns {Float32Array} unit normals, xyz per vertex
+ */
+function computeNormals(pos: Float32Array, idx: Uint32Array): Float32Array {
  const n = new Float32Array(pos.length);
  for (let i = 0; i < idx.length; i += 3) {
   const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
@@ -142,7 +235,7 @@ function computeNormals(pos: any, idx: any) {
  * @param {[number,number,number]} ref reference axis the section frame avoids
  */
 /** @param {Builder} B @param {number[][]} rings @param {number} matId @param {[number,number,number]} ref @param {boolean} capStart @param {boolean} capEnd */
-function loft(B: any, rings: any, matId: any, ref: any, capStart: any, capEnd: any) {
+function loft(B: Builder, rings: number[][], matId: number, ref: [number, number, number], capStart: boolean, capEnd: boolean): void {
  const n = rings.length;
  const first = [];
  let prevRow = null;
@@ -207,11 +300,11 @@ function loft(B: any, rings: any, matId: any, ref: any, capStart: any, capEnd: a
 }
 
 /** @param {Builder} B @param {number[]} ring @param {number[]} neighbour @param {number[]} row @param {number} matId @param {boolean} isStart */
-function capRing(B: any, ring: any, neighbour: any, row: any, matId: any, isStart: any) {
+function capRing(B: Builder, ring: number[], neighbour: number[], row: number[], matId: number, isStart: boolean): void {
  let ax = ring[0] - neighbour[0], ay = ring[1] - neighbour[1], az = ring[2] - neighbour[2];
  const al = Math.hypot(ax, ay, az) || 1;
  ax /= al; ay /= al; az /= al;
- const ext = Math.max(ring[3], ring[4]) * 0.7;
+ const ext = Math.max(ring[3], ring[4]) * CAP_EXTENT;
  const c = B.vert(
   ring[0] + ax * ext, ring[1] + ay * ext, ring[2] + az * ext,
   0.5, 0.5, matId, ring[5], ring[6], ring[7], ring[8], ring[9]
@@ -224,29 +317,54 @@ function capRing(B: any, ring: any, neighbour: any, row: any, matId: any, isStar
 }
 
 /** Bone blend along the spine, by bind-pose height. */
-/** @param {number} y */
-function spineBones(y: any) {
- if (y < 1.06) {
-  const t = Math.min(1, Math.max(0, (y - 0.88) / 0.18));
-  return [B_ROOT, 1 - t * 0.5, B_SPINE, t * 0.5];
+/** @param {number} y bind-pose height in metres
+ *  @returns {number[]} `[bone0, weight0, bone1, weight1]`
+ */
+function spineBones(y: number): number[] {
+ if (y < SPINE_BASE_TOP) {
+  const t = Math.min(1, Math.max(0, (y - SPINE_BASE_FROM) / SPINE_BASE_SPAN));
+  return [B_ROOT, 1 - t * SPINE_BASE_NEXT, B_SPINE, t * SPINE_BASE_NEXT];
  }
- if (y < 1.26) {
-  const t = (y - 1.06) / 0.20;
+ if (y < SPINE_MID_TOP) {
+  const t = (y - SPINE_BASE_TOP) / SPINE_MID_SPAN;
   return [B_SPINE, 1 - t, B_CHEST, t];
  }
- const t = Math.min(1, (y - 1.26) / 0.20);
- return [B_CHEST, 1 - t * 0.35, B_NECK, t * 0.35];
+ const t = Math.min(1, (y - SPINE_MID_TOP) / SPINE_TOP_SPAN);
+ return [B_CHEST, 1 - t * SPINE_TOP_NEXT, B_NECK, t * SPINE_TOP_NEXT];
 }
 
 /** Ring helper: `[cx,cy,cz, rx,rz, ao, b0,w0,b1,w1]`. */
-/** @param {number} cx @param {number} cy @param {number} cz @param {number} rx @param {number} rz @param {number} ao @param {number[]} bones */
-function ring(cx: any, cy: any, cz: any, rx: any, rz: any, ao: any, bones: any) {
+/** @param {number} cx ring centre x, metres
+ *  @param {number} cy ring centre y, metres
+ *  @param {number} cz ring centre z, metres
+ *  @param {number} rx section radius along U, metres
+ *  @param {number} rz section radius along W, metres
+ *  @param {number} ao baked occlusion, 0..1
+ *  @param {number[]} bones `[b0, w0, b1, w1]`
+ *  @returns {number[]} the ring as `[cx,cy,cz, rx,rz, ao, b0,w0,b1,w1]`
+ */
+function ring(cx: number, cy: number, cz: number, rx: number, rz: number, ao: number, bones: number[]): number[] {
  return [cx, cy, cz, rx, rz, ao, bones[0], bones[1], bones[2], bones[3]];
 }
 
 /** Rings along a straight bone segment, interpolating radius and bone weights. */
-/** @param {number} x0 @param {number} y0 @param {number} z0 @param {number} x1 @param {number} y1 @param {number} z1 @param {number} r0 @param {number} r1 @param {number} steps @param {number} boneA @param {number} boneB @param {number} ao @param {number} from @param {number} to */
-function limbRings(x0: any, y0: any, z0: any, x1: any, y1: any, z1: any, r0: any, r1: any, steps: any, boneA: any, boneB: any, ao: any, from: any, to: any) {
+/** @param {number} x0 segment start x, metres
+ *  @param {number} y0 segment start y, metres
+ *  @param {number} z0 segment start z, metres
+ *  @param {number} x1 segment end x, metres
+ *  @param {number} y1 segment end y, metres
+ *  @param {number} z1 segment end z, metres
+ *  @param {number} r0 radius at the start, metres
+ *  @param {number} r1 radius at the end, metres
+ *  @param {number} steps rings to emit, excluding both ends
+ *  @param {number} boneA bone index at the start
+ *  @param {number} boneB bone index at the end
+ *  @param {number} ao baked occlusion, 0..1
+ *  @param {number} from parameter where the weight ramp starts
+ *  @param {number} to parameter where the weight ramp ends
+ *  @returns {number[][]} the rings
+ */
+function limbRings(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r0: number, r1: number, steps: number, boneA: number, boneB: number, ao: number, from: number, to: number): number[][] {
  const out = [];
  for (let i = 0; i <= steps; i++) {
   const t = i / steps;
@@ -273,8 +391,11 @@ function limbRings(x0: any, y0: any, z0: any, x1: any, y1: any, z1: any, r0: any
  * covers the shoulders. What is genuinely on screen is the hood silhouette, the
  * boots, and the forearms, so that is where the ring counts go.
  */
-/** @param {any} scene */
-export function buildBody(scene: any) {
+/** @param {Gfx} scene unused — the Babylon parameter name kept for signature
+ *  parity; here it is the `gfx` device layer
+ *  @returns {BuilderMesh} the body mesh
+ */
+export function buildBody(scene: Gfx): BuilderMesh {
  const B = new Builder();
 
  // ---- torso ------------------------------------------------------------
@@ -311,14 +432,14 @@ export function buildBody(scene: any) {
  // a heavy baked occlusion so the cavity reads dark even when the sun swings
  // round to face it.
  const head = [];
- for (let i = 0; i <= 8; i++) {
-  const a = (i / 8) * Math.PI;
-  const y = HEAD_C[1] - Math.cos(a) * 0.105;
+ for (let i = 0; i <= SKULL_RINGS; i++) {
+  const a = (i / SKULL_RINGS) * Math.PI;
+  const y = HEAD_C[1] - Math.cos(a) * SKULL_RADIUS;
   const r = Math.sin(a);
   head.push(ring(
-   0, y, HEAD_C[2] + r * 0.006,
-   0.089 * r + 0.004, 0.096 * r + 0.004,
-   0.22, [B_HEAD, 1, 0, 0]
+   0, y, HEAD_C[2] + r * SKULL_Z_PULL,
+   SKULL_RY * r + SKULL_R_MIN, SKULL_RZ * r + SKULL_R_MIN,
+   SKULL_OCCLUSION, [B_HEAD, 1, 0, 0]
   ));
  }
  loft(B, head, M_SKIN, [0, 0, 1], true, true);
@@ -335,7 +456,7 @@ export function buildBody(scene: any) {
  buildHood(B);
 
  // ---- arms -------------------------------------------------------------
- for (let a = 0; a < 2; a++) {
+ for (let a = 0; a < SIDE_COUNT; a++) {
   const s = a === 0 ? -1 : 1;
   const up = a === 0 ? B_UPPER_L : B_UPPER_R;
   const fo = a === 0 ? B_FORE_L : B_FORE_R;
@@ -365,7 +486,7 @@ export function buildBody(scene: any) {
  }
 
  // ---- legs and boots ---------------------------------------------------
- for (let l = 0; l < 2; l++) {
+ for (let l = 0; l < SIDE_COUNT; l++) {
   const s = l === 0 ? -1 : 1;
   const th = l === 0 ? B_THIGH_L : B_THIGH_R;
   const sh = l === 0 ? B_SHIN_L : B_SHIN_R;
@@ -417,42 +538,78 @@ export function buildBody(scene: any) {
  */
 const HOOD_COLS = 34;
 const HOOD_ROWS = 9;
-const HEAD_C = [0, 1.655, 0.005];
-const FACE_DIR = (() => {
- const v = [0, -0.28, 0.96];
+const HEAD_C: [number, number, number] = [0, 1.655, 0.005];
+const FACE_DIR: [number, number, number] = (() => {
+ const v: [number, number, number] = [0, -0.28, 0.96];
  const l = Math.hypot(v[0], v[1], v[2]);
  return [v[0] / l, v[1] / l, v[2] / l];
 })();
 
+/**
+ * The cowl's rim: an ellipse around the head centre, metres, bind space.
+ */
+const RIM_RISE = 0.105; // rim centre, along the face direction, metres
+const RIM_HALF_WIDTH = 0.152; // half the rim's horizontal axis, metres
+const RIM_HALF_HEIGHT = 0.163; // half the rim's vertical axis, metres
+
+/**
+ * The ring where the cowl meets the shoulders, metres, bind space.
+ */
+const HOOD_BASE_RADIUS = 0.212; // half-width of that ring, metres
+const HOOD_BASE_Y = 1.352; // height of that ring, metres
+const HOOD_BASE_Z = -0.012; // its centre fore-and-aft, metres
+const HOOD_BASE_DEPTH = 0.182; // half the ring's fore-and-aft axis, metres
+
+/**
+ * Cowl volume, metres, bind space. The control point sits out from the head
+ * centre by a radius that is widest over the crown and tightest at the throat,
+ * which is what gives the cowl its peak.
+ */
+const HOOD_RADIUS_BASE = 0.205; // radius at the throat, metres
+const HOOD_RADIUS_CROWN = 0.062; // extra radius over the crown, metres
+/** Baked occlusion: the inside of a cowl sees almost no sky, 0..1. */
+const HOOD_AO_BASE = 0.34;
+const HOOD_AO_INSIDE = 0.55; // extra occlusion where the sweep is fully deep
+const HOOD_AO_FULL = 2.2; // sweep parameter at which the deep end is reached
+/** UVs in metres: the rim is about a metre round, the sweep about 45 cm. */
+const HOOD_UV_AROUND = 1.02;
+const HOOD_UV_SWEEP = 0.45;
+
 /** Face-opening rim point at parameter `s` (0 = crown, 0.5 = under the chin). */
-/** @param {number} s @param {number[]} out */
-export function hoodRimPoint(s: any, out: any) {
+/** @param {number} s rim parameter
+ *  @param {number[]} out receives `[x, y, z]` in metres, bind space
+ *  @returns {number[]} `out`, for chaining
+ */
+export function hoodRimPoint(s: number, out: number[]): number[] {
  const a = s * Math.PI * 2;
  // U spans the rim horizontally, W vertically, both perpendicular to FACE_DIR.
  const ux = 1, uy = 0, uz = 0;
  const wx = FACE_DIR[1] * uz - FACE_DIR[2] * uy;
  const wy = FACE_DIR[2] * ux - FACE_DIR[0] * uz;
  const wz = FACE_DIR[0] * uy - FACE_DIR[1] * ux;
- const cx = HEAD_C[0] + FACE_DIR[0] * 0.105;
- const cy = HEAD_C[1] + FACE_DIR[1] * 0.105;
- const cz = HEAD_C[2] + FACE_DIR[2] * 0.105;
- out[0] = cx + ux * 0.152 * Math.sin(a) + wx * 0.163 * Math.cos(a);
- out[1] = cy + uy * 0.152 * Math.sin(a) + wy * 0.163 * Math.cos(a);
- out[2] = cz + uz * 0.152 * Math.sin(a) + wz * 0.163 * Math.cos(a);
+ const cx = HEAD_C[0] + FACE_DIR[0] * RIM_RISE;
+ const cy = HEAD_C[1] + FACE_DIR[1] * RIM_RISE;
+ const cz = HEAD_C[2] + FACE_DIR[2] * RIM_RISE;
+ out[0] = cx + ux * RIM_HALF_WIDTH * Math.sin(a) + wx * RIM_HALF_HEIGHT * Math.cos(a);
+ out[1] = cy + uy * RIM_HALF_WIDTH * Math.sin(a) + wy * RIM_HALF_HEIGHT * Math.cos(a);
+ out[2] = cz + uz * RIM_HALF_WIDTH * Math.sin(a) + wz * RIM_HALF_HEIGHT * Math.cos(a);
  return out;
 }
 
-/** @param {number} s @param {number[]} out */
-function hoodBasePoint(s: any, out: any) {
+/** @param {number} s rim parameter
+ *  @param {number[]} out receives `[x, y, z]` in metres, bind space
+ *  @returns {number[]} `out`, for chaining
+ */
+function hoodBasePoint(s: number, out: number[]): number[] {
  const a = s * Math.PI * 2;
- out[0] = 0.212 * Math.sin(a);
- out[1] = 1.352;
- out[2] = -0.012 - 0.182 * Math.cos(a);
+ out[0] = HOOD_BASE_RADIUS * Math.sin(a);
+ out[1] = HOOD_BASE_Y;
+ out[2] = HOOD_BASE_Z - HOOD_BASE_DEPTH * Math.cos(a);
  return out;
 }
 
 /** @param {Builder} B */
-function buildHood(B: any) {
+function buildHood(B: Builder): void {
  const rim = [0, 0, 0];
  const base = [0, 0, 0];
  let prevRow = null;
@@ -486,7 +643,7 @@ function buildHood(B: any) {
    nx /= nl; ny /= nl; nz /= nl;
    // Radius out from the head: widest over the crown, tightest at the
    // throat, which is what gives the cowl its peak.
-   const rad = 0.205 + 0.062 * ca;
+   const rad = HOOD_RADIUS_BASE + HOOD_RADIUS_CROWN * ca;
    const mx = HEAD_C[0] + nx * rad;
    const my = HEAD_C[1] + ny * rad;
    const mz = HEAD_C[2] + nz * rad;
@@ -498,10 +655,10 @@ function buildHood(B: any) {
 
    // Occlusion: the inside of a cowl sees almost no sky. It is the
    // single cheapest thing that makes a hood read as deep.
-   const ao = 0.34 + 0.55 * Math.min(1, t * 2.2);
+   const ao = HOOD_AO_BASE + HOOD_AO_INSIDE * Math.min(1, t * HOOD_AO_FULL);
    // UVs in metres: the rim is about a metre round and the sweep from
    // rim to shoulder about 45 cm.
-   row.push(B.vert(px, py, pz, s * 1.02, t * 0.45, M_ROBE, ao, B_HOOD, 1, 0, 0));
+   row.push(B.vert(px, py, pz, s * HOOD_UV_AROUND, t * HOOD_UV_SWEEP, M_ROBE, ao, B_HOOD, 1, 0, 0));
   }
   if (prevRow) {
    for (let c = 0; c < HOOD_COLS; c++) {
@@ -522,6 +679,28 @@ const HOOD_SHELLS = 22;
 const CUFF_SHELLS = 18;
 
 /**
+ * Fur band on the hood rim, metres, bind space.
+ */
+const HOOD_FUR_COLS = 26; // positions around the band
+const HOOD_FUR_RISE = 0.45; // band's tilt toward the face direction, ratio
+const HOOD_FUR_RADIUS = 0.024; // band's core thickness, metres
+const HOOD_FUR_LENGTH = 0.048; // strand length beyond the core, metres
+const HOOD_FUR_AO = 0.62; // baked occlusion, 0..1
+
+/**
+ * Fur band on each cuff, metres, bind space.
+ */
+const CUFF_FUR_COLS = 12; // positions around the band
+const CUFF_FUR_RADIUS_X = 0.240; // band centre's distance from the spine, metres
+const CUFF_FUR_RADIUS_Y = 0.066; // band's radius about the forearm, metres
+const CUFF_FUR_Y = 0.900; // band centre's height, metres
+const CUFF_FUR_Z = 0.012; // band centre's depth, metres
+const CUFF_FUR_RADIUS_Z = 0.064; // band's radius fore-and-aft, metres
+const CUFF_FUR_RADIUS = 0.015; // band's core thickness, metres
+const CUFF_FUR_LENGTH = 0.032; // strand length beyond the core, metres
+const CUFF_FUR_AO = 0.52; // baked occlusion, 0..1
+
+/**
  * Shell fur.
  *
  * A trim band is modelled as a partial torus around the edge it decorates: a
@@ -537,8 +716,11 @@ const CUFF_SHELLS = 18;
  * a simulated surface would need the shell direction to come out of the cloth
  * solve — a second vertex program, for very little visible gain.
  */
-/** @param {any} scene */
-export function buildFur(scene: any) {
+/** @param {Gfx} scene unused — the Babylon parameter name kept for signature
+ *  parity; here it is the `gfx` device layer
+ *  @returns {BuilderMesh} the fur mesh
+ */
+export function buildFur(scene: Gfx): BuilderMesh {
  const B = new Builder();
  B.explicitNormals = true;
  const p = [0, 0, 0];
@@ -546,7 +728,7 @@ export function buildFur(scene: any) {
  // ---- hood rim ---------------------------------------------------------
  // The band's outward direction is the rim's own bisector: away from the
  // skull, tilted along the face direction so the trim frames the opening.
- const cols = 26;
+ const cols = HOOD_FUR_COLS;
  const bases = new Float32Array(cols * 3);
  const outs = new Float32Array(cols * 3);
  for (let c = 0; c < cols; c++) {
@@ -554,19 +736,19 @@ export function buildFur(scene: any) {
   bases[c * 3] = p[0]; bases[c * 3 + 1] = p[1]; bases[c * 3 + 2] = p[2];
   let dx = p[0] - HEAD_C[0], dy = p[1] - HEAD_C[1], dz = p[2] - HEAD_C[2];
   const dl = Math.hypot(dx, dy, dz) || 1;
-  dx = dx / dl + FACE_DIR[0] * 0.45;
-  dy = dy / dl + FACE_DIR[1] * 0.45;
-  dz = dz / dl + FACE_DIR[2] * 0.45;
+  dx = dx / dl + FACE_DIR[0] * HOOD_FUR_RISE;
+  dy = dy / dl + FACE_DIR[1] * HOOD_FUR_RISE;
+  dz = dz / dl + FACE_DIR[2] * HOOD_FUR_RISE;
   const l2 = Math.hypot(dx, dy, dz) || 1;
   outs[c * 3] = dx / l2; outs[c * 3 + 1] = dy / l2; outs[c * 3 + 2] = dz / l2;
  }
- emitFurBand(B, cols, bases, outs, 0.024, 0.048, HOOD_SHELLS, B_HOOD, 0.62);
+ emitFurBand(B, cols, bases, outs, HOOD_FUR_RADIUS, HOOD_FUR_LENGTH, HOOD_SHELLS, B_HOOD, HOOD_FUR_AO);
 
  // ---- cuffs ------------------------------------------------------------
- for (let a = 0; a < 2; a++) {
+ for (let a = 0; a < SIDE_COUNT; a++) {
   const s = a === 0 ? -1 : 1;
   const bone = a === 0 ? B_FORE_L : B_FORE_R;
-  const n = 12;
+  const n = CUFF_FUR_COLS;
   const cb = new Float32Array(n * 3);
   const co = new Float32Array(n * 3);
   // The forearm runs almost straight down in the bind pose, so the band's
@@ -577,12 +759,12 @@ export function buildFur(scene: any) {
    // Sits on the sleeve at the wrist, just above the loose cuff rows,
    // where the garment is pinned hard enough that a bone-bound band
    // cannot visibly separate from it.
-   cb[c * 3] = s * 0.240 + rx * 0.066;
-   cb[c * 3 + 1] = 0.900;
-   cb[c * 3 + 2] = 0.012 + rz * 0.064;
+   cb[c * 3] = s * CUFF_FUR_RADIUS_X + rx * CUFF_FUR_RADIUS_Y;
+   cb[c * 3 + 1] = CUFF_FUR_Y;
+   cb[c * 3 + 2] = CUFF_FUR_Z + rz * CUFF_FUR_RADIUS_Z;
    co[c * 3] = rx; co[c * 3 + 1] = 0; co[c * 3 + 2] = rz;
   }
-  emitFurBand(B, n, cb, co, 0.015, 0.032, CUFF_SHELLS, bone, 0.52);
+  emitFurBand(B, n, cb, co, CUFF_FUR_RADIUS, CUFF_FUR_LENGTH, CUFF_SHELLS, bone, CUFF_FUR_AO);
  }
 
  return finishSkinned(scene, "charFur", B, true);
@@ -606,7 +788,7 @@ const FUR_ARC = 2.1; // radians, centred on the outward direction
  * @param {number} ao
  */
 /** @param {Builder} B @param {number} cols @param {Float32Array} bases @param {Float32Array} outs @param {number} r0 @param {number} len @param {number} shells @param {number} bone @param {number} ao */
-function emitFurBand(B: any, cols: any, bases: any, outs: any, r0: any, len: any, shells: any, bone: any, ao: any) {
+function emitFurBand(B: Builder, cols: number, bases: Float32Array, outs: Float32Array, r0: number, len: number, shells: number, bone: number, ao: number): void {
  const dir = new Float32Array((cols * (FUR_ARC_STEPS + 1)) * 3);
 
  // Precompute the cross-section directions once: each is the outward vector
@@ -686,11 +868,17 @@ function emitFurBand(B: any, cols: any, bases: any, outs: any, r0: any, len: any
 
 // -----------------------------------------------------------------------------
 
-/** @param {any} scene @param {string} name @param {Builder} B @param {boolean} [isFur] */
-function finishSkinned(scene: any, name: any, B: any, isFur: boolean = false) {
+/** @param {Gfx} scene unused — the Babylon parameter name kept for signature
+ *  parity; here it is the `gfx` device layer
+ *  @param {string} name mesh name
+ *  @param {Builder} B the vertex data to finalise
+ *  @param {boolean} [isFur] true when `B.nrm` holds authored normals
+ *  @returns {BuilderMesh} the skinned mesh
+ */
+function finishSkinned(scene: Gfx, name: string, B: Builder, isFur: boolean = false): BuilderMesh {
  const pos = new Float32Array(B.pos);
  const idx = new Uint32Array(B.idx);
- const nrm = B.explicitNormals ? new Float32Array(B.nrm) : computeNormals(pos, /** @type {any} */(idx));
+ const nrm = B.explicitNormals ? new Float32Array(B.nrm) : computeNormals(pos, idx);
 
  const geometry = new THREE.BufferGeometry();
  geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
@@ -701,9 +889,7 @@ function finishSkinned(scene: any, name: any, B: any, isFur: boolean = false) {
  geometry.setAttribute("boneWt", new THREE.BufferAttribute(new Float32Array(B.bw), 4));
  geometry.setIndex(new THREE.BufferAttribute(idx, 1));
 
- const mesh = new THREE.Mesh(geometry) as THREE.Mesh & {
-  metadata: { triangles: number; vertices: number; fur: boolean };
- };
+ const mesh = new THREE.Mesh(geometry) as BuilderMesh;
  mesh.name = name;
 
  // The mesh is placed entirely by the vertex shader from bone matrices, so
@@ -729,14 +915,18 @@ function finishSkinned(scene: any, name: any, B: any, isFur: boolean = false) {
  * render as a smooth 48x28 surface, and it means the sim cost is independent of
  * how finely the garment is tessellated.
  *
- * @param {import("./cloth.js").ClothPanel[]} panels
+ * @param {ClothPanel[]} panels
  */
-/** @param {any} scene @param {any} panels */
-export function buildClothMesh(scene: any, panels: any) {
- const pos = [];
- const uv = [];
- const aux = [];
- const idx = [];
+/** @param {Gfx} scene unused — the Babylon parameter name kept for signature
+ *  parity; here it is the `gfx` device layer
+ *  @param {ClothPanel[]} panels
+ *  @returns {BuilderMesh} the cloth render mesh
+ */
+export function buildClothMesh(scene: Gfx, panels: ClothPanel[]): BuilderMesh {
+ const pos: number[] = [];
+ const uv: number[] = [];
+ const aux: number[] = [];
+ const idx: number[] = [];
 
  for (let pi = 0; pi < panels.length; pi++) {
   const p = panels[pi];
@@ -774,9 +964,7 @@ export function buildClothMesh(scene: any, panels: any) {
  geometry.setAttribute("aux", new THREE.BufferAttribute(new Float32Array(aux), 2));
  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
 
- const mesh = new THREE.Mesh(geometry) as THREE.Mesh & {
-  metadata: { triangles: number; vertices: number };
- };
+ const mesh = new THREE.Mesh(geometry) as BuilderMesh;
  mesh.name = "charCloth";
  mesh.frustumCulled = false;
  mesh.matrixAutoUpdate = false;

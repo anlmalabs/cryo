@@ -66,9 +66,59 @@ export interface WalkerClip {
  duration: number;
 }
 
+/**
+ * The baked file's JSON header — the fixed schema `tools/bakeWalker.mjs`
+ * writes, whose `version` gates every field below.
+ *
+ * `layout` is typed precisely because it is what the section views are built
+ * from; `posOffset`/`posScale` and the remaining counts are read by exact key.
+ */
+export interface WalkerHeader {
+ version: number;
+ /** One descriptor per attribute section. */
+ layout: LayoutEntry[];
+ /** Per level of detail, finest first. */
+ lods: { level: number }[];
+ /** Translation applied after dequantising positions, metres. */
+ posOffset: [number, number, number];
+ /** Scale applied after dequantising positions. */
+ posScale: [number, number, number];
+ /** Extra clips beyond the locomotion cycle. */
+ clips?: {
+  name: string;
+  frame0: number;
+  frameCount: number;
+  duration: number;
+ }[];
+ /** Edge length of the model's albedo/ORM textures, texels. */
+ textureSize: number;
+ materials: WalkerMaterial[];
+ boneCount: number;
+ /** Frames in the runtime's locomotion cycle. */
+ frameCount: number;
+ /** Seconds the cycle takes. */
+ duration: number;
+ /**
+  * PRE-EXISTING DEFECT — declared optional, and that is the honest truth:
+  * `tools/bakeWalker.mjs` does not write these three, so every model in the
+  * repo loads with them `undefined`. Unread they are merely `undefined`; read,
+  * `bounds.max[2]` throws and `a[k] * basisScale` is NaN — which is what the
+  * flight model's ground probes and transform texture were feeding on until
+  * the header was first typed. The values have to be supplied by the baker or
+  * derived from `posScale`/`lods[].positions`; nothing here may fabricate
+  * them.
+  */
+ /** Local-space bounding box, metres. */
+ bounds?: { min: number[]; max: number[] };
+ /** Multiplier on the baked skinning basis. */
+ basisScale?: number;
+ /** Multiplier on the baked translation. */
+ transScale?: number;
+}
+
 /** The fully decoded model, ready to hand to the walkers. */
 export interface ModelAsset {
- header: Record<string, any>;
+ header: WalkerHeader;
  /** Finest first. */
  lods: WalkerLOD[];
  /** Frame-major, 12 quantised floats per bone. */
@@ -98,13 +148,24 @@ const layersFor = (materials: unknown[]) => Math.max(MIN_LAYERS, materials.lengt
  * that decodes sRGB, uploaded as raw bytes into a texture array that does not,
  * is read as though its mid-tones were already linear — which lands every one of
  * them in the wrong place and reads, on a dark hull, as black.
+ *
+ * The constants below are the sRGB electro-optical transfer function's
+ * straight-line-to-power split, defined by IEC 61966-2-1 (the sRGB spec):
+ * `0.04045` is the threshold where the linear segment gives way to the
+ * `2.4`-power curve, `12.92` is the slope of that linear segment, and
+ * `0.055`/`1.055` offset and rescale the power curve so it meets that segment
+ * continuously. They are fixed by the standard, not tunable.
  */
 const SRGB_TO_LINEAR = (() => {
- const t = new Uint8Array(256);
- for (let i = 0; i < 256; i++) {
-  const c = i / 255;
+ /** Entries in the table — one per possible sRGB byte value. */
+ const TABLE = 256;
+ /** The largest value an sRGB byte can hold. */
+ const BYTE_MAX = 255;
+ const t = new Uint8Array(TABLE);
+ for (let i = 0; i < TABLE; i++) {
+  const c = i / BYTE_MAX;
   const lin = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  t[i] = Math.round(lin * 255);
+  t[i] = Math.round(lin * BYTE_MAX);
  }
  return t;
 })();
@@ -127,7 +188,16 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
  const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
  if (magic !== MAGIC) throw new Error(`walker: bad magic "${magic}"`);
  const headerBytes = new DataView(buffer).getUint32(4, true);
- const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 8, headerBytes)));
+ // Parsed from a file on disk or a blob store, so it is untrusted input:
+ // narrowed to `WalkerHeader` by the shape guard below, so every read past
+ // it is a typed read rather than an `any` read.
+ const parsed: unknown = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 8, headerBytes)));
+ if (
+  !parsed || typeof parsed !== "object"
+  || !Array.isArray((parsed as WalkerHeader).layout)
+  || !Array.isArray((parsed as WalkerHeader).materials)
+ ) throw new Error("walker: header is not a v2 header");
+ const header = parsed as WalkerHeader;
  if (header.version !== 2) throw new Error(`walker: unsupported version ${header.version}`);
 
  const payload = 8 + headerBytes;
@@ -203,7 +273,7 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
  // line one.
  const out: ModelAsset = {
   header,
-  lods: header.lods.map((l: any) => readLOD(l.level)),
+  lods: header.lods.map((l) => readLOD(l.level)),
   anim: view<Int16Array>("anim"),
   albedo: null,
   orm: null,
@@ -236,10 +306,11 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
 
  // Both arrays stay at the model's own texture size, including the ORM of a
  // model that has no ORM maps and gets a plain white one. Shrinking that to a
- // single texel is obviously free VRAM and was tried; it is also a mipmapped,
- // anisotropically-filtered 1x1 array texture, which is enough of an edge case
- // that "obviously equivalent" stopped being something worth asserting without
- // a frame to look at. The white array costs memory and nothing else.
+ // single texel would save VRAM, and was tried; the saving is not free, because
+ // a mipmapped, anisotropically-filtered 1x1 array texture behaves differently
+ // from a full-size one at grazing angles, and the difference was not checked
+ // frame by frame. The full-size array costs memory, and keeps the sampling
+ // path identical to a model that does carry ORM maps.
  out.albedoSize = size;
  out.ormSize = size;
 

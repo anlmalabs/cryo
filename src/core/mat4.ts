@@ -49,7 +49,7 @@ type Mat4 = Float32Array | number[];
  * @param {number} zy
  * @param {number} zz
  */
-export function setFrame(out: Float32Array, o: number, px: number, py: number, pz: number, xx: number, xy: number, xz: number, yx: number, yy: number, yz: number, zx: number, zy: number, zz: number) {
+export function setFrame(out: Mat4, o: number, px: number, py: number, pz: number, xx: number, xy: number, xz: number, yx: number, yy: number, yz: number, zx: number, zy: number, zz: number) {
  out[o] = xx; out[o + 1] = xy; out[o + 2] = xz; out[o + 3] = 0;
  out[o + 4] = yx; out[o + 5] = yy; out[o + 6] = yz; out[o + 7] = 0;
  out[o + 8] = zx; out[o + 9] = zy; out[o + 10] = zz; out[o + 11] = 0;
@@ -77,7 +77,7 @@ export function setFrame(out: Float32Array, o: number, px: number, py: number, p
  * @param {number} ry
  * @param {number} rz
  */
-export function setFrameFromDir(out: Float32Array, o: number, px: number, py: number, pz: number, dx: number, dy: number, dz: number, rx: number, ry: number, rz: number) {
+export function setFrameFromDir(out: Mat4, o: number, px: number, py: number, pz: number, dx: number, dy: number, dz: number, rx: number, ry: number, rz: number) {
  let l = Math.hypot(dx, dy, dz) || 1;
  const yx = dx / l, yy = dy / l, yz = dz / l;
 
@@ -109,14 +109,15 @@ export function setFrameFromDir(out: Float32Array, o: number, px: number, py: nu
 
 /** `out = a * b`, both rigid. Aliasing `out` with either input is not allowed. */
 /**
- * @param {Float32Array} out
+ * @param {Mat4} out
  * @param {number} oo
- * @param {Float32Array} a
+ * @param {Mat4} a
  * @param {number} oa
- * @param {Float32Array} b
+ * @param {Mat4} b
  * @param {number} ob
  */
-export function mul(out: Float32Array, oo: number, a: Float32Array, oa: number, b: Float32Array, ob: number) {
+export function mul(out: Mat4, oo: number, a: Mat4, oa: number, b: Mat4, ob: number) {
+ // 4 columns — the 4x4 dimension of both operands, in column-major order.
  for (let c = 0; c < 4; c++) {
   const bx = b[ob + c * 4], by = b[ob + c * 4 + 1], bz = b[ob + c * 4 + 2], bw = b[ob + c * 4 + 3];
   out[oo + c * 4] = a[oa] * bx + a[oa + 4] * by + a[oa + 8] * bz + a[oa + 12] * bw;
@@ -137,7 +138,7 @@ export function mul(out: Float32Array, oo: number, a: Float32Array, oa: number, 
  * @param {Float32Array} m
  * @param {number} om
  */
-export function invertRigid(out: Float32Array, oo: number, m: Float32Array, om: number) {
+export function invertRigid(out: Mat4, oo: number, m: Mat4, om: number) {
  const xx = m[om], xy = m[om + 1], xz = m[om + 2];
  const yx = m[om + 4], yy = m[om + 5], yz = m[om + 6];
  const zx = m[om + 8], zy = m[om + 9], zz = m[om + 10];
@@ -341,6 +342,8 @@ export function lookAtLH(out: Mat4, eyeX: number, eyeY: number, eyeZ: number, tX
  * @param {number} far
  */
 export function perspectiveFovLH(out: Mat4, fovY: number, aspect: number, near: number, far: number) {
+ // 1/2 of the vertical FOV: the projection's focal length is the cotangent of
+ // *half* the field angle, since `fovY` is the full vertical extent.
  const f = 1 / Math.tan(fovY * 0.5);
  const rangeInv = 1 / (far - near);
 

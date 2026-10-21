@@ -8,18 +8,44 @@
  * Nothing here allocates.
  */
 
+/** The height query every spell makes against the terrain. */
+interface GroundQuery {
+ heightAt(x: number, z: number): number;
+}
+
+/** Coarse-march step of `groundRay`, metres. */
+const RAY_STEP = 0.6;
+/** Bisection steps after a crossing is bracketed. Eight reaches ~1 cm. */
+const REFINE_STEPS = 8;
+/** Stand-in height when the ray starts below the surface, metres. */
+const BURIED_EPS = 0.001;
+
+/**
+ * Standard gravity, m/s².
+ *
+ * Positive magnitude, subtracted wherever it applies: `ay -= GRAVITY`. Here
+ * rather than in any one caller because the cloth solver, the ribbon's
+ * ballistic arc and the snow grains all need it, and three files each
+ * defining their own copy is exactly how a sign convention drifts apart.
+ */
+export const GRAVITY = 9.81;
+
 /** @param {number} v */
-export function clamp01(v: any) {
- return v < 0 ? 0 : v > 1 ? 1 : v;
+export function clamp01(v: number): number {
+ if (v < 0) return 0;
+ if (v > 1) return 1;
+ return v;
 }
 
 /** @param {number} v @param {number} lo @param {number} hi */
-export function clampRange(v: any, lo: any, hi: any) {
- return v < lo ? lo : v > hi ? hi : v;
+export function clampRange(v: number, lo: number, hi: number): number {
+ if (v < lo) return lo;
+ if (v > hi) return hi;
+ return v;
 }
 
 /** Hermite smoothstep on an already-normalised parameter. @param {number} t */
-export function smooth01(t: any) {
+export function smooth01(t: number): number {
  const x = clamp01(t);
  return x * x * (3 - 2 * x);
 }
@@ -33,14 +59,14 @@ export function smooth01(t: any) {
  * spawns, no instant despawns".
  * @param {number} t
  */
-export function bell(t: any) {
+export function bell(t: number): number {
  const x = clamp01(t);
  const s = Math.sin(Math.PI * x);
  return s * s;
 }
 
 /** Framerate-independent exponential approach. @param {number} cur @param {number} target @param {number} rate @param {number} dt */
-export function expDamp(cur: any, target: any, rate: any, dt: any) {
+export function expDamp(cur: number, target: number, rate: number, dt: number): number {
  return target + (cur - target) * Math.exp(-rate * dt);
 }
 
@@ -67,7 +93,7 @@ export function expDamp(cur: any, target: any, rate: any, dt: any) {
  * @param {number} t0x @param {number} t0y @param {number} t0z
  * @param {number} t1x @param {number} t1y @param {number} t1z
  */
-export function transport(out: any, o: any, rx: any, ry: any, rz: any, t0x: any, t0y: any, t0z: any, t1x: any, t1y: any, t1z: any) {
+export function transport(out: Float32Array, o: number, rx: number, ry: number, rz: number, t0x: number, t0y: number, t0z: number, t1x: number, t1y: number, t1z: number) {
  // Axis and angle of the rotation taking t0 to t1.
  let ax = t0y * t1z - t0z * t1y;
  let ay = t0z * t1x - t0x * t1z;
@@ -119,11 +145,12 @@ export function transport(out: any, o: any, rx: any, ry: any, rz: any, t0x: any,
  * @param {number} maxDist
  * @returns {number} distance along the ray, or -1 for a miss
  */
-export function groundRay(terrain: any, ox: any, oy: any, oz: any, dx: any, dy: any, dz: any, maxDist: any) {
- const STEP = 0.6;
+export function groundRay(terrain: GroundQuery, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): number {
+ const STEP = RAY_STEP;
+
  let prevT = 0;
  let prevAbove = oy - terrain.heightAt(ox, oz);
- if (prevAbove < 0) prevAbove = 0.001; // started buried; treat as above
+ if (prevAbove < 0) prevAbove = BURIED_EPS; // started buried; treat as above
 
  for (let t = STEP; t <= maxDist; t += STEP) {
   const x = ox + dx * t;
@@ -134,8 +161,8 @@ export function groundRay(terrain: any, ox: any, oy: any, oz: any, dx: any, dy: 
   if (above <= 0) {
    let lo = prevT;
    let hi = t;
-   for (let k = 0; k < 8; k++) {
-    const mid = (lo + hi) * 0.5;
+   for (let k = 0; k < REFINE_STEPS; k++) {
+    const mid = (lo + hi) * 0.5;  // bisection midpoint
     const my = oy + dy * mid;
     if (my - terrain.heightAt(ox + dx * mid, oz + dz * mid) > 0) lo = mid;
     else hi = mid;
@@ -163,7 +190,7 @@ export function groundRay(terrain: any, ox: any, oy: any, oz: any, dx: any, dy: 
  * @param {number} dx @param {number} dy @param {number} dz
  * @param {number} maxDist @param {number} fallback
  */
-export function aimPoint(out: any, terrain: any, ox: any, oy: any, oz: any, dx: any, dy: any, dz: any, maxDist: any, fallback: any) {
+export function aimPoint(out: Float32Array, terrain: GroundQuery, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, fallback: number): number {
  const t = groundRay(terrain, ox, oy, oz, dx, dy, dz, maxDist);
  if (t > 0) {
   out[0] = ox + dx * t;

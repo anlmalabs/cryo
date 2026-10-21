@@ -15,15 +15,28 @@ import * as THREE from "three";
 import { makeMaterial } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 
+/** The slice of `core/gfx.js`'s `Gfx` this module touches. */
+interface GfxLike {
+ scene: THREE.Scene;
+ LAYER: { SKY: number; OPAQUE: number; BLEND: number };
+ addMesh(mesh: THREE.Object3D, layerBit: number, renderOrder: number): THREE.Object3D;
+}
+
+/** How many tuning rings the pool holds, simultaneously. */
 const POOL = 32;
 
 export class MuzzleMarkers {
- [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
-  this.gfx = gfx;
+ gfx: GfxLike;
+ /** (centre xyz, radius) then (rgb, 1), one column per marker. */
+ _data: Float32Array;
+ _count: number;
+ _cameraPos: THREE.Vector3;
+ texture: THREE.DataTexture;
+ mesh: THREE.Mesh & { metadata: { triangles: number; vertices: number } };
+ material: THREE.RawShaderMaterial;
 
-  /** (centre xyz, radius) then (rgb, 1), one column per marker. */
+ constructor(gfx: GfxLike) {
+  this.gfx = gfx;
   this._data = new Float32Array(POOL * 2 * 4);
   this._count = 0;
   this._cameraPos = new THREE.Vector3();
@@ -97,8 +110,7 @@ export class MuzzleMarkers {
  }
 
  /** Point the markers through the same (jittered) camera as the scene. */
- /** @param {THREE.Matrix4} viewProjection */
- bindCamera(viewProjection: any) {
+ bindCamera(viewProjection: THREE.Matrix4) {
   this.material.uniforms.viewProjection.value = viewProjection;
  }
 
@@ -109,7 +121,7 @@ export class MuzzleMarkers {
 
  /** One ring: world centre, radius in metres, ring colour. */
  /** @param {number} x @param {number} y @param {number} z @param {number} radius @param {number} r @param {number} g @param {number} b */
- add(x: any, y: any, z: any, radius: any, r: any, g: any, b: any) {
+ add(x: number, y: number, z: number, radius: number, r: number, g: number, b: number) {
   if (this._count >= POOL) return;
   const i = this._count++;
   const a = i * 4;
@@ -125,8 +137,7 @@ export class MuzzleMarkers {
  }
 
  /** Upload the frame's rings; zero added means nothing draws. */
- /** @param {THREE.Vector3} [cameraPos] */
- commit(cameraPos: any) {
+ commit(cameraPos?: THREE.Vector3) {
   if (cameraPos) this._cameraPos.copy(cameraPos);
   for (let i = this._count; i < POOL; i++) this._data[i * 4 + 3] = 0;
   this.texture.needsUpdate = true;

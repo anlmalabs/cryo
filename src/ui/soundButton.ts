@@ -50,12 +50,23 @@ const OFF = SPEAKER +
  'fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>';
 
 /**
- * @param {import("../audio/engine.js").AudioEngine} audio
+ * A structural read of the engine, not the engine itself: the button needs only
+ * `unlocked` and `unlock()`, and a test double or a stub engine satisfies both
+ * without dragging `AudioEngine` and all of `audio/` in behind it.
+ */
+interface SoundAudio {
+ readonly unlocked: boolean;
+ /** Resolves true once the context is actually running. */
+ unlock(): Promise<boolean>;
+}
+
+/**
+ * @param {SoundAudio} audio
  * @param {{ onEnable?: () => void }} [hooks]
  *   `onEnable` fires the first time this button unlocks the engine — that is the
  *   soundscape's cue to open its continuous voices.
  */
-export function createSoundButton(audio: any, hooks?: { onEnable?: () => void }) {
+export function createSoundButton(audio: SoundAudio, hooks?: { onEnable?: () => void }) {
  const style = document.createElement("style");
  style.textContent = CSS;
  document.head.appendChild(style);
@@ -65,7 +76,7 @@ export function createSoundButton(audio: any, hooks?: { onEnable?: () => void })
  btn.type = "button";
  document.body.appendChild(btn);
 
- const svg = /** @param {string} paths */ (paths: any) =>
+ const svg = (paths: string) =>
   '<svg viewBox="0 0 16 16" aria-hidden="true">' + paths + "</svg>";
 
  const sync = () => {
@@ -87,7 +98,7 @@ export function createSoundButton(audio: any, hooks?: { onEnable?: () => void })
   if (!audio.unlocked) {
    const p = audio.unlock();
    set("audioMuted", false);
-   p.then((ok: any) => {
+   p.then((ok: boolean) => {
     if (ok) hooks?.onEnable?.();
     sync();
    });

@@ -15,7 +15,8 @@
  * unreadable and formatting numbers ninety times a second is steady garbage.
  */
 
-import { stats } from "../core/perf.js";
+import { stats, perfTier } from "../core/perf.js";
+import { fpsTierSuffix } from "./fpsTier.js";
 
 const CSS = `
 #fpsm {
@@ -67,7 +68,7 @@ export function createFpsMeter() {
   },
 
   /** @param {number} dtMs */
-  update(dtMs: any) {
+  update(dtMs: number) {
    if (!visible) return;
    acc += dtMs;
    if (acc < PERIOD) return;
@@ -76,7 +77,7 @@ export function createFpsMeter() {
    if (num) num.textContent = f > 0 ? f.toFixed(0) : "--";
    // The same thresholds the overlay colours its fps row on, so the two
    // never disagree about what counts as a bad frame.
-   el.className = "show" + (f < 60 ? " bad" : f < 88 ? " warn" : "");
+   el.className = "show" + fpsTierSuffix(perfTier(f));
   },
 
   dispose() {

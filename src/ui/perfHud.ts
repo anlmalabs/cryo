@@ -9,7 +9,8 @@
  * Refreshes text readouts at ~4 Hz (formatting every frame is garbage) but
  * redraws the frame-time graph every frame so hitches are visible as they land.
  */
-import { stats } from "../core/perf.js";
+import { stats, BUDGET_60FPS_MS, BUDGET_90FPS_MS } from "../core/perf.js";
+
 const CSS = `
 #perfHud {
   position: fixed; top: 10px; left: 10px; z-index: 85;
@@ -43,6 +44,36 @@ const CSS = `
 const CAP = 180; // ~2 s of history at 90 fps
 const PERIOD = 250; // text refresh, ms
 const GRAPH_H = 32;
+
+/** y-axis top of the eased graph, ms — floor and ceiling of its range. */
+const AXIS_FLOOR_MS = 33.3; // 30 fps: the resting ceiling
+const AXIS_CEILING_MS = 80;
+/** How far above the observed max the axis may stretch, ratio. */
+const AXIS_HEADROOM = 1.25;
+/** Fraction of the remaining distance the eased axis closes per frame. */
+const AXIS_EASE = 0.08;
+/** fps below which this HUD's headline figure is coloured red. */
+const FPS_BAD = 30;
+/** …and the top of its amber band, fps. A lower, coarser ladder than the
+ *  overlay's: this HUD has room for one number and reads over the shoulder. */
+const FPS_WARN_HUD = 55;
+/** Half-pixel inset keeps the 1 px guide lines off the pixel grid's edge, px. */
+const BAR_INSET = 0.5;
+
+/**
+ * Bar colour for a frame time in ms.
+ *
+ * Thresholds frame TIME, not fps: this HUD's graph is drawn from `stats.last`
+ * samples in milliseconds, the same domain `FrameGraph` and `barColour` in
+ * core/perf.ts work in. The bands are the imported 90 fps / 60 fps budgets —
+ * they are NOT derived from `perfTier`'s 88 fps boundary, which is deliberately
+ * not the same number as 11.1 ms.
+ */
+function graphBarColour(ms: number): string {
+ if (ms > BUDGET_60FPS_MS) return "#e8734f";
+ if (ms > BUDGET_90FPS_MS) return "#e8b04f";
+ return "#6fb2e0";
+}
 
 export function createPerfHud() {
  const style = document.createElement("style");
@@ -121,18 +152,21 @@ export function createPerfHud() {
   ctx.clearRect(0, 0, w, h);
 
   // ease axis
-  const want = Math.max(33.3, Math.min(80, stats.max * 1.25 || 33.3));
-  maxMs += (want - maxMs) * 0.08;
+  const want = Math.max(
+   AXIS_FLOOR_MS,
+   Math.min(AXIS_CEILING_MS, stats.max * AXIS_HEADROOM || AXIS_FLOOR_MS)
+  );
+  maxMs += (want - maxMs) * AXIS_EASE;
   const inv = h / maxMs;
 
-  // shaded target band: frame times under 16.7 ms (60 fps)
-  const y16 = h - 16.7 * inv;
+  // shaded target band: frame times under the 60 fps budget
+  const y16 = h - BUDGET_60FPS_MS * inv;
   ctx.fillStyle = "rgba(90, 180, 140, 0.07)";
   ctx.fillRect(0, Math.max(0, y16), w, h - Math.max(0, y16));
 
   // guide lines
   ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
-  const y33 = h - 33.3 * inv;
+  const y33 = h - AXIS_FLOOR_MS * inv;
   if (y33 >= 0 && y33 <= h) ctx.fillRect(0, y33, w, 1);
   ctx.fillStyle = "rgba(255, 255, 255, 0.34)";
   if (y16 >= 0 && y16 <= h) ctx.fillRect(0, y16, w, 1);
@@ -145,9 +179,8 @@ export function createPerfHud() {
    const idx = (writeIdx - n + i + CAP * 2) % CAP;
    const v = times[idx];
    const bh = Math.min(h, v * inv);
-   ctx.fillStyle =
-    v > 33.3 ? "#e8734f" : v > 16.7 ? "#e8b04f" : "#6fb2e0";
-   ctx.fillRect((start + i) * step, h - bh, Math.max(1, step - 0.5), bh);
+   ctx.fillStyle = graphBarColour(v);
+   ctx.fillRect((start + i) * step, h - bh, Math.max(1, step - BAR_INSET), bh);
   }
  }
 
@@ -180,8 +213,8 @@ export function createPerfHud() {
    txt(ft, stats.last > 0 ? stats.last.toFixed(1) + " ms" : "-- ms");
 
    // colour fps
-   el.classList.toggle("bad", f < 30);
-   el.classList.toggle("warn", f >= 30 && f < 55);
+   el.classList.toggle("bad", f < FPS_BAD);
+   el.classList.toggle("warn", f >= FPS_BAD && f < FPS_WARN_HUD);
 
    txt(rowTris.v, fmtK(stats.triangles));
   },
@@ -192,7 +225,11 @@ export function createPerfHud() {
   },
  };
 }
+
+/** Triangles to a short form: 128.5k, or the raw count. */
+const TRI_K = 1000; // count at which triangles switch to the "k" suffix
+
 function fmtK(n: number) {
- if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+ if (n >= TRI_K) return (n / TRI_K).toFixed(1) + "k";
  return String(n | 0);
 }

@@ -31,10 +31,140 @@
  * without wingmen, or without audio still runs the parts it has.
  */
 
+import * as THREE from "three";
 import { S } from "../core/settings.js";
 import { input } from "../core/input.js";
 import { makeCapsulePool, sweptSphereVsCapsule, sweptSphereVsSphere } from "./colliders.js";
-import { speederImpactResponse } from "./impact.js";
+import { speederImpactResponse, severityFor } from "./impact.js";
+import type { Capsule, CapsuleOwner } from "./colliders.js";
+import type { ImpactResponse, Severity } from "./impact.js";
+import type { CharacterController } from "../character/controller.js";
+import type { Speeder } from "../player/speeder.js";
+import type { Terrain } from "../terrain/terrain.js";
+import type { SprayField } from "../vfx/particles.js";
+import type { SmokeTrails } from "../vfx/smokeTrails.js";
+import type { CameraRig } from "../core/camera.js";
+import type { AudioEngine } from "../audio/engine.js";
+
+/**
+ * What a response needs from whichever controller drives the frame: the
+ * player's `CharacterController` or an escort's pilot, both of which publish
+ * the same pose and the same impact entry point. Declared structurally so
+ * the two do not have to share a base class.
+ */
+interface Respondable {
+ position: THREE.Vector3;
+ velocity: THREE.Vector3;
+ facing: number;
+ /**
+  * Apply a resolved impact. `spin` is rad/s, `scrambleSec` how long control
+  * is degraded for.
+  */
+ applyImpact(vx: number, vz: number, spin: number, scrambleSec: number): void;
+}
+
+/**
+ * The escort wrapper: a pilot plus the collision entry point the pass calls.
+ * The herd is gone, so this is expressed by its uses rather than a class, and
+ * named for its role rather than after `main.ts`'s own local `Wingman` type —
+ * which does not export and does not declare `collisionHit`. The pass only
+ * ever calls that on a non-null wing, so it is optional here; both shapes are
+ * accepted without an `any`.
+ */
+interface Escort {
+ /**
+  * The pilot: the same published surface the player's `CharacterController`
+  * offers, which is what the sweeps respond through. Note `main.ts` declares
+  * its own `Wingman` type without `velocity`/`applyImpact`, so its array does
+  * not satisfy this — see the report for the consequence and why it is
+  * untypeable from this file's side alone.
+  */
+ pilot: Respondable & { bounced: boolean };
+ /**
+  * Called when a contact is resolved against this escort's craft. Optional:
+  * `main.ts`'s own local `Wingman` type does not declare it, and the herd it
+  * would apply to is gone, so the call is guarded at both use sites.
+  */
+ collisionHit?(severity: Severity, px: number, py: number, pz: number): void;
+}
+
+/**
+ * A wreck's hull controller stand-in: the pose numbers the pool reads.
+ * `main.ts` constructs these by hand rather than taking a controller, and its
+ * own `WreckController` type is not exported, so it is restated here.
+ */
+interface WreckController {
+ position: THREE.Vector3;
+ velocity: THREE.Vector3;
+ facing: number;
+ groundY: number;
+}
+
+/** One hull in the graveyard, after the player's crash. */
+interface Wreck {
+ hull: Speeder;
+ ctl: WreckController;
+ active: boolean;
+ burnT: number;
+ age: number;
+ smokeT: number;
+ pilotX: number;
+ pilotZ: number;
+ /** A wreck takes nothing from being struck — `CapsuleOwner`'s contract. */
+ stumble?: never;
+}
+
+/**
+ * A capsule's back-reference, as the pass uses it: an optional `stumble`
+ * (which `colliders.ts`'s `CapsuleOwner` declares, and both a walker and a
+ * wreck slot answer differently to) plus the world pose the stumble's side
+ * is measured from. Only the herd used to populate the pose — the wrecks
+ * carry `ctl` instead — so the pose is read defensively here.
+ */
+interface CapsuleRef extends CapsuleOwner {
+ position?: { x: number, y: number, z: number };
+ yaw?: number;
+}
+
+/** A parked hull: the world point the player left it at. */
+interface ParkedPoint { x: number, y: number, z: number }
+
+/** Everything the pass reacts through; all optional so boot can stub a module. */
+interface CollisionCtx {
+ character?: CharacterController | null;
+ activeCharacter?: (() => CharacterController | null) | null;
+ speeder?: Speeder | null;
+ wingmen?: Escort[] | null;
+ wrecks?: Wreck[] | null;
+ parked?: (() => ParkedPoint | null) | null;
+ terrain?: Terrain | null;
+ spray?: SprayField | null;
+ smoke?: SmokeTrails | null;
+ rig?: CameraRig | null;
+ audio?: AudioEngine | null;
+ onWreck?: ((x: number, z: number, facing: number) => void) | null;
+ onRestart?: (() => void) | null;
+}
+
+/** One craft's collision slot: the sphere's own history, per craft. */
+interface CraftSlot {
+ wing: Escort | null;
+ /** True once a previous position has been recorded. */
+ has: boolean;
+ /** Where the sphere was at the previous frame. */
+ prevX: number; prevY: number; prevZ: number;
+ /** Where it is this frame. */
+ cx: number; cy: number; cz: number;
+ /** Motion over the frame, in XZ and Y. */
+ mx: number; my: number; mz: number;
+ active: boolean;
+ downed: boolean;
+ squashT: number;
+ fxT: number;
+}
+
+/** A contact point on a capsule, as the sweep leaves it. */
+interface AxisPoint { x: number, y: number, z: number }
 
 /** Craft collision sphere radius, metres. Deliberately under the T-47's
  *  half-width: a sphere is a fat proxy for a flat hull, and a hit the player
@@ -42,24 +172,31 @@ import { speederImpactResponse } from "./impact.js";
  *  corridor (about 3.9 m of daylight at the default scale) must stay
  *  flyable, because that run is the whole point of a snowspeeder. */
 const CRAFT_R = 1.6;
+
 /** Wreck capsule: half-length along the hull line and radius, metres. */
 const WRECK_HALF = 2.6;
 const WRECK_R = 2.2;
+
 /** Metres in one frame past which the move was a placement, not flight.
  *  Both integrators clamp their step to 1/30 s, so the fastest thing here —
  *  a boosted craft at ~57 m/s — covers under 2 m; a respawn covers 480. */
 const TELEPORT = 12;
+
 /** Seconds of degraded control a contact buys, by severity. Both maps are
  *  keyed by a severity string produced upstream (`speederImpactResponse` is
  *  untyped, so `severity` is `any` there), which is why the keys are narrowed
  *  at the use sites rather than declared as a union the compiler can't see. */
 const SCRAMBLE: Record<string, number> = { scrape: 0, hit: 0.9, crash: 2.0 };
+
 /** Player camera trauma per severity — the player feels their own hits only. */
 const TRAUMA: Record<string, number> = { scrape: 0.12, hit: 0.35, crash: 0.9 };
+
 /** The field-repair burn after the ladder trips, seconds. */
 const PLAYER_BURN = 20;
+
 /** Grace after a ladder step — same idea as the wingmen's `_hitGrace`. */
 const PLAYER_GRACE = 4;
+
 /**
  * Seconds lying in the snow before the run starts again.
  *
@@ -70,8 +207,10 @@ const PLAYER_GRACE = 4;
  * it. A crash the player is hurried away from may as well not have happened.
  */
 const RECOVER = 9.0;
+
 /** Seconds between a craft's scrape effects — see `_contactFx`. */
 const SCRAPE_GAP = 0.22;
+
 /**
  * The capsule kinds that are an Imperial machine's own body — the legs, the
  * belly and the head of an AT-AT, and the AT-ST's single pill. A craft
@@ -83,6 +222,7 @@ const SCRAPE_GAP = 0.22;
  * built once at module scope, never per contact.
  */
 const MACHINE_KINDS = new Set(["leg", "body", "head", "atst"]);
+
 /**
  * Gain for the hull strike by severity. `speeder-hit-walker.mp3` is a single
  * dry impact with no tail, so unlike the explosion it can be leaned on: a
@@ -90,9 +230,11 @@ const MACHINE_KINDS = new Set(["leg", "body", "head", "atst"]);
  * whole sample. Scrapes stay silent — the snow spray is the scrape.
  */
 const HULL_SFX_GAIN = { hit: 0.45, crash: 1.0 };
+
 /** Metres to nothing for the cannons' own report — the reference reach every
  *  local noise borrows, and what the dry hull strike uses. */
 const SHOT_AUDIBLE = 420;
+
 /** …and for an airframe exploding, which carries further. See `_bang`. */
 const CRASH_AUDIBLE = 900;
 /** Seconds into `speeder-crash-3.mp3` at which it hits the ground, and how
@@ -101,34 +243,414 @@ const CRASH_AUDIBLE = 900;
 const CRASH_SFX_IMPACT = 1.8;
 const CRASH_FALL = 2.1;
 
-/** @param {number} v @param {number} lo @param {number} hi */
-function clamp(v: any, lo: any, hi: any) { return v < lo ? lo : v > hi ? hi : v; }
+/** Squared metres of vertical clearance below which the Pythagoras corridor
+ *  answer is abandoned and the craft is counted as having cleared the capsule
+ *  vertically. One hundredth of a millimetre squared — it is the epsilon on
+ *  `reach² − dy²` being zero, not a distance anything can feel. */
+const VERTICAL_EPS2 = 1e-4;
+
+/** Metres of extra clearance the depenetration leaves between the craft's
+ *  sphere and the capsule it just pushed it out of. A hair, but it is the
+ *  difference between starting next frame clear and starting it touching. */
+const EASE_OUT = 0.05;
+
+/** Fraction of the shortest way out that a craft already sphere-in-sphere with
+ *  another gives when it starts its response. See `_sweepPair`. */
+const ALREADY_TOUCHING = 0.5;
+
+/** Fraction of the hover ease past which a craft counts as flying and takes
+ *  part in collisions at all. Half the ease: the craft is airborne, not
+ *  standing — anything less is the ease still climbing or the hull settling. */
+const SURFING = 0.5;
+
+/** Multiplier that widens the severity thresholds a craft-on-craft contact is
+ *  judged against. Two hulls glancing off each other is drama, not a wall, so
+ *  a scrape off a wingman should need more closing speed to count as a hit. */
+const CRAFT_FORGIVENESS = 1.2;
+
+/** Severity to spray count. Scrapes get a light dusting, a crash a full
+ *  burst. One lookup, asked once per contact. */
+const SPRAY_BY_SEVERITY: Record<string, number> = { crash: 10, hit: 6, scrape: 4 };
+
+/** The snow-and-sparks burst thrown off a contact, in `SprayField.emit`
+ *  arguments — metres, m/s, seconds. One row per quantity, velocities first:
+ *  the cone the particles leave along, the speed they leave at, and the size
+ *  and life they are born with. */
+const SCRAPE_SPRAY = {
+ /** Lateral scatter of the spawn point from the contact, metres ±. */
+ SPAWN_SPREAD: 0.6,
+ /** How fast the cone's own axis carries them, m/s. */
+ OUT: 2,
+ /** …and the spread of speed across the cone's mouth, m/s. */
+ OUT_JITTER: 5,
+ /** Sideways throw off the normal, m/s. */
+ SIDEWAYS: 1.6,
+ /** Upward speed, m/s. */
+ RISE: 1.5,
+ /** …and its spread, m/s. */
+ RISE_JITTER: 3.5,
+ /** Particle size at birth, metres. */
+ SIZE: 0.06,
+ /** …and its spread, metres. */
+ SIZE_JITTER: 0.09,
+ /** Lifetime, seconds. */
+ LIFE: 0.5,
+ /** …and its spread, seconds. */
+ LIFE_JITTER: 0.6,
+ /** Fraction of the burst born as white hot rather than grey snow. */
+ HOT_CHANCE: 0.5,
+ /** Air drag on the particle, per second. */
+ DRAG: 1.4,
+};
+
+/** The smoke puffs shed by a normal 'hit' — `SmokeTrails.emit` arguments in
+ *  metres, m/s and seconds. A short-lived grey plume climbing off the hull. */
+const HIT_SMOKE = {
+ /** Extra height over the contact where the puff is born, metres. */
+ LIFT: 0.2,
+ /** Lateral spread of the birth point, metres ±. */
+ SPAWN_SPREAD: 4,
+ /** Upward speed, m/s. */
+ RISE: 1,
+ /** …and its spread, m/s. */
+ RISE_JITTER: 2,
+ /** Particle size at birth, metres. */
+ SIZE: 0.45,
+ /** Growth per second, metres per second. */
+ GROW: 1.2,
+ /** Lifetime, seconds. */
+ LIFE: 0.6,
+ /** …and its spread, seconds. */
+ LIFE_JITTER: 0.3,
+ /** Opacity it fades to over that life, 0..1. */
+ ALPHA: 0.5,
+};
+
+/** Puffs shed per 'hit' contact — a short plume, not a fireball. */
+const HIT_PUFFS = 3;
+
+/** The floor a scrape's trauma is scaled to, as a fraction of the full
+ *  `TRAUMA.scrape` — a graze that barely closed on the machines still has to
+ *  register, or holding the stick into a leg stops feeling like anything. */
+const SCRAPE_TRAUMA_FLOOR = 0.15;
+
+/** Grey, in 0..1 — the values `HIT_SMOKE` never bothers to say because they
+ *  are the whole reason smoke is smoke and not fire. */
+const SMOKE_GREY = 0.09;
+
+/** The fuel-and-fire report a soft 'hit' on another craft plays at, as a
+ *  fraction of a full one — a glancing blow off a wingman is a quarter of the
+ *  hull going in, and it is played slightly faster for a lighter ring. */
+const SPEEDER_HIT_GAIN = 0.25;
+const SPEEDER_HIT_RATE = 1.1;
+
+/** Metres above the gravestone's `groundY` that a wreck's capsule sits. The
+ * hull is lying in the snow, not hovering — the offset puts the segment
+ * through the body where the player's sphere should meet it. */
+const WRECK_HOVER = 1.0;
+
+/** The parked snowspeeder's collision capsule, metres: it hangs from `parked()`
+ *  down to the hull, so its lower end is that far below the craft and its top
+ *  end is a stretch above it. Radius is a separate constant below. */
+const PARKED_LO = 1.0;
+const PARKED_HI = 2.0;
+/** Radius of the parked capsule, metres — same as the wreck's, because it is
+ *  the same hull lying in the same snow. */
+const PARKED_R = 2.0;
+
+/** The two deformation stamps a landing leaves in the snow. Each row is one
+ *  `terrain.deform.brush` call's arguments, in the order the function takes
+ *  them: (x, z, radius, depth, berm, compression, ice, yaw, elongation,
+ *  edge) — so the field names below are the brush's own parameter names and
+ *  the meaning of each lives in the comment beside it. */
+const CRATER_BRUSH = {
+ /** Radius of the hole the hull dug, metres. */
+ RADIUS: 3.4,
+ /** Depth of the depression at the centre, metres. */
+ DEPTH: 0.85,
+ /** Metres of displaced mass thrown up onto the rim. */
+ BERM: 0.6,
+ /** Snow packed tighter inside the dent, 0..1. */
+ COMPRESSION: 1.0,
+ /** Frozen glazing left on the walls, 0..1. */
+ ICE: 0.6,
+ /** Orient of the long axis, radians — the crater is round, so any free. */
+ YAW: 0,
+ /** Long-axis multiple of the radius, 1 = round. */
+ ELONGATION: 1.3,
+ /** Rim roughness, 0..1 — a clean bevel. */
+ EDGE: 1.0,
+};
+
+/** The furrow it ploughed getting there, one stroke this far behind the
+ *  crater, metres. Same `brush` argument order as the crater. */
+const FURROW_BEHIND = 4.5;
+const FURROW_BRUSH = {
+ RADIUS: 2.4,
+ DEPTH: 0.5,
+ BERM: 0.55,
+ COMPRESSION: 1.0,
+ ICE: 0.3,
+ ELONGATION: 3.0,
+ EDGE: 1.0,
+};
+
+/** The splash: a hull's worth of snow thrown up and out. `SprayField.emit`
+ *  arguments again — metres, m/s, seconds. */
+const CRASH_SPLASH = {
+ /** Particles in the burst. */
+ COUNT: 60,
+ /** Ring the spray is born around the contact, metres. */
+ RING: 1.5,
+ /** Height over the terrain, metres. */
+ LIFT: 0.5,
+ /** Outward speed, m/s. */
+ OUT: 3,
+ /** …and its spread, m/s. */
+ OUT_JITTER: 12,
+ /** Upward speed, m/s. */
+ RISE: 5,
+ /** …and its spread, m/s. */
+ RISE_JITTER: 11,
+ /** Particle size at birth, metres. */
+ SIZE: 0.08,
+ /** …and its spread, metres. */
+ SIZE_JITTER: 0.16,
+ /** Lifetime, seconds. */
+ LIFE: 0.8,
+ /** …and its spread, seconds. */
+ LIFE_JITTER: 0.9,
+ /** Fraction of the burst born white hot rather than grey snow. */
+ HOT_CHANCE: 0.5,
+ /** Air drag per second. */
+ DRAG: 1.5,
+};
+
+/** The smoke column boiling off the crater. Metres, m/s, seconds. */
+const CRASH_SMOKE = {
+ /** Puffs shed. */
+ COUNT: 10,
+ /** Lateral spread of the birth point, metres ±. */
+ SPAWN_SPREAD: 3,
+ /** Height over the terrain, metres. */
+ HEIGHT: 1,
+ /** …and its spread, metres. */
+ HEIGHT_JITTER: 2,
+ /** Lateral speed, m/s. */
+ DRIFT: 3,
+ /** Upward speed, m/s. */
+ RISE: 1.5,
+ /** …and its spread, m/s. */
+ RISE_JITTER: 2.5,
+ /** Particle size at birth, metres. */
+ SIZE: 2.2,
+ /** Growth per second, metres per second. */
+ GROW: 1.6,
+ /** Growth sign flip: a crash cloud thins as it rises. */
+ SHRINK: -0.18,
+ /** Lifetime, seconds. */
+ LIFE: 5,
+ /** …and its spread, seconds. */
+ LIFE_JITTER: 3,
+ /** Opacity it fades to over that life, 0..1. */
+ ALPHA: 0.75,
+};
+
+/** Grey in 0..1, and the alpha the crash cloud fades to. */
+const FIRE_SMOKE_TINT = 0.07;
+
+/** Rungs on the player's damage ladder. A 'hit' inside grace steps it; the
+ *  third rung is the crash, so the count is the ladder's length and not a
+ *  number chosen for the min(). */
+const LADDER_RUNGS = 3;
+
+/** Damage at which the burning trail starts lighting fires, as a rung number.
+ *  Below this it is smoke only: a wounded craft smokes, a *badly* wounded one
+ *  flames. */
+const TRAIL_FIRE_RUNG = 2;
+
+/** Seconds between damage-trail puffs off a flying hull — also the window the
+ *  inherited fall rate is measured over, because each puff reports how far the
+ *  hull has dropped since the last one. Metres over this divisor is m/s. */
+const PUFF_CADENCE = 0.05;
+
+/** Ceiling on the fall rate the trail inherits, m/s downward. A craft going in
+ *  can fall faster than the flame should be dragged, and clamping keeps level
+ *  flight its own trail. */
+const MAX_INHERITED_FALL = 14;
+
+/** The damage trail's smoke row: metres, m/s, seconds — `SmokeTrails.emit`
+ *  arguments. Drag-behind set by `S.burnBackZ`/`S.burnY`; the rest is a slow
+ *  grey stream inheriting the hull's own sideways velocity. */
+const TRAIL_SMOKE = {
+ /** Fraction of the hull's sideways velocity the smoke carries. */
+ DRIFT: 0.22,
+ /** Lateral scatter at the birth point, metres ±. */
+ SPAWN_SPREAD: 0.8,
+ /** Upward speed, m/s. */
+ RISE: 1.1,
+ /** …and its spread, m/s. */
+ RISE_JITTER: 0.6,
+ /** Particle size at birth, metres. */
+ SIZE: 0.5,
+ /** …and its spread, metres. */
+ SIZE_JITTER: 0.25,
+ /** Growth per second, metres per second. */
+ GROW: 1.7,
+ /** Lifetime, seconds. */
+ LIFE: 1.5,
+ /** …and its spread, seconds. */
+ LIFE_JITTER: 0.7,
+ /** Opacity it fades to over that life, 0..1. */
+ ALPHA: 0.55,
+ /** Grey, 0..1 — the smoke-only tint. */
+ TINT: 0.09,
+ /** Darker grey, 0..1, when the fire row is lit alongside it: the two rows are
+  *  one flame together, so the smoke half dims into it instead of competing. */
+ TINT_WITH_FIRE: 0.045,
+};
+
+/** …and the fire row, lit only once the ladder is high enough. Same units; a
+ *  short-lived hot flame, so it is darker, denser and slower than the smoke. */
+const TRAIL_FIRE = {
+ /** Height below the smoke row the flame is born, metres. */
+ DROP: 0.25,
+ /** Fraction of the hull's sideways velocity the flame carries. */
+ DRIFT: 0.72,
+ /** Lateral scatter at the birth point, metres ±. */
+ SPAWN_SPREAD: 1.2,
+ /** Upward speed, m/s. */
+ RISE: 0.9,
+ /** …and its spread, m/s. */
+ RISE_JITTER: 0.8,
+ /** Particle size at birth, metres. */
+ SIZE: 0.62,
+ /** …and its spread, metres. */
+ SIZE_JITTER: 0.25,
+ /** Growth per second, metres per second. */
+ GROW: 1.4,
+ /** Lifetime, seconds. */
+ LIFE: 0.42,
+ /** …and its spread, seconds. */
+ LIFE_JITTER: 0.2,
+ /** Opacity it fades to over that life, 0..1. */
+ ALPHA: 0.8,
+};
+
+/** The flame's colour, 0..1 per channel — red dominates heavily and falls off
+ *  through green to a barely-there blue, so the flame reads as a hot orange
+ *  with a white-hot core rather than a clean primary. */
+const FIRE_TINT = { R: 3.2, G: 1.05, B: 0.26 };
+
+/** A world point with xyz — what the burn trail's callers hand it. Structural,
+ *  so a `THREE.Vector3` (which is what `main.ts` passes) satisfies it without
+ *  this module importing THREE. */
+interface Vec3 {
+ x: number;
+ y: number;
+ z: number;
+}
+
+/** The least of `SmokeTrails` the burn trail needs: one row per puff, in the
+ *  order `SmokeTrails.emit` takes. Structural for the same reason as `Vec3`. */
+interface SmokeTrailSink {
+ emit(
+  x: number, y: number, z: number,
+  vx: number, vy: number, vz: number,
+  size: number, grow: number, life: number,
+  r: number, g: number, b: number,
+  a: number, buoyant: boolean
+ ): void;
+}
+
+/** Fallback for the trail's drag-behind distance when `S.burnBackZ` is unset,
+ *  metres. */
+const BURN_BACK_DEFAULT = 2.4;
+
+/** …and for its height over the drawn hull, `S.burnY`, metres. */
+const BURN_LIFT_DEFAULT = 0.95;
+
+/** Metres below the drawn hull where a terrain slam is reported as making
+ *  contact. There is no capsule here and no reflection — the floor already ate
+ *  the motion — so the snow comes off the belly rather than the point of the
+ *  closure, which is what the eye follows. */
+const SLAM_BELLY = 1.2;
+
+/** Clamp a scalar into [lo, hi]. `lo > hi` is not a contract this file ever
+ *  writes, so the `lo` win on an empty range is left as it falls.
+ *  v/lo/hi: dimensionless, metres or seconds — same numbers either way. */
+function clamp(v: number, lo: number, hi: number): number {
+ if (v < lo) return lo;
+ if (v > hi) return hi;
+ return v;
+}
 
 export class CollisionPass {
- [key: string]: any;
+ /** Whichever controller is driving this frame — written by `main.ts`. */
+ character: CharacterController | null;
+ /** Returns the driver, re-read each frame because the toggle swaps it. */
+ _activeCharacter: () => CharacterController | null;
+ speeder: Speeder | null;
+ /** The escorts; always empty until the herd returns. */
+ wingmen: Escort[];
+ /** Hulls left in the snow after a crash. */
+ wrecks: Wreck[];
+ /** Where the player left their hull parked in the world, if anywhere. */
+ parked: (() => ParkedPoint | null) | null;
+ terrain: Terrain | null;
+ spray: SprayField | null;
+ smoke: SmokeTrails | null;
+ rig: CameraRig | null;
+ audio: AudioEngine | null;
+ /** Leave a hull and its pilot where the player went in. */
+ onWreck: ((x: number, z: number, facing: number) => void) | null;
+ /** Start the run again from the top. */
+ onRestart: (() => void) | null;
+
+ /** Every capsule this frame: the herd's, the wrecks', then a dead tail. */
+ pool: Capsule[];
+ /** One record per craft, player first. */
+ slots: CraftSlot[];
+ /** Candidate contact record, rewritten by every sweep query. */
+ _hit: {
+  t: number, nx: number, ny: number, nz: number,
+  px: number, py: number, pz: number, cap: Capsule | null
+ };
+ /** Earliest contact so far in the current query. */
+ _best: {
+  t: number, nx: number, ny: number, nz: number,
+  px: number, py: number, pz: number, cap: Capsule | null
+ };
+ /** The last response `speederImpactResponse` wrote, for the overlay. */
+ _res: ImpactResponse;
+ /** The point on a capsule axis nearest a query, reused. */
+ _axisPt: AxisPoint;
+ /** Params bag rewritten every query, never replaced. */
+ _params: {
+  vx: number, vz: number, speed: number, nx: number, nz: number,
+  ovx: number, ovz: number, massRatio: number, hitSide: number,
+  restitution: number, hitAt: number, crashAt: number,
+ };
+ /** The last contact resolved, for the overlay and for tuning. */
+ lastImpact: {
+  kind: string, severity: string, normalSpeed: number,
+  spin: number, player: boolean
+ };
+
+ /** Player damage ladder: rungs taken, and the timers running on them. */
+ _pDamage: number;
+ _pGrace: number;
+ _pBurnT: number;
+ _pPuffT: number;
+ /** Last hull height, for the burn trail's inherited fall rate. */
+ _burnPrevY: number | null;
+ /** Seconds left lying in the snow; 0 when not crashed. */
+ _pRecover: number;
+
  /**
-  * @param {{
-  *   character?: import("../character/controller.js").CharacterController|null,
-  *   activeCharacter?: (() => import("../character/controller.js").CharacterController|null) | null,
-  *   speeder?: import("../player/speeder.js").Speeder|null,
-  *   wingmen?: any[]|null, // escorts deleted; no real type exists for the (always-empty) array
-  *   wrecks?: {hull:any, ctl:any, active:boolean, burnT:number, age:number, smokeT:number, pilotX:number, pilotZ:number}[]|null,
-  *   parked?: (() => {x:number,y:number,z:number}|null)|null,
-  *   terrain?: import("../terrain/terrain.js").Terrain|null,
-  *   spray?: import("../vfx/particles.js").SprayField|null,
-  *   smoke?: import("../vfx/smokeTrails.js").SmokeTrails|null,
-  *   rig?: import("../core/camera.js").CameraRig|null,
-  *   audio?: import("../audio/engine.js").AudioEngine|any|null,
-  *   onWreck?: ((x:number, z:number, facing:number) => void)|null,
-  *   onRestart?: (() => void)|null,
-  *   onCrash?: any,
-  *   onFire?: any,
-  *   onDeflect?: any,
-  *   onBounce?: any,
-  *   emitBurnTrail?: any,
-  * }} ctx everything the pass reacts through; all optional.
+  * @param {CollisionCtx} ctx everything the pass reacts through; all optional.
   */
- constructor(ctx: any) {
+ constructor(ctx: CollisionCtx) {
   this.character = ctx.character ?? null;
   this._activeCharacter = ctx.activeCharacter ?? (() => this.character);
   this.speeder = ctx.speeder ?? null;
@@ -158,14 +680,10 @@ export class CollisionPass {
   // ------------------------------------------------------- the craft slots
   // One record per craft, player first. Prev positions live here — the
   // sweep needs where the craft *was*, and neither controller keeps it.
-  /** @type {{wing: any,
-   *          has: boolean, prevX: number, prevY: number, prevZ: number,
-   *          cx: number, cy: number, cz: number,
-   *          mx: number, my: number, mz: number,
-   *          active: boolean, downed: boolean, squashT: number, fxT: number}[]} */
+  /** @type {CraftSlot[]} */
   this.slots = [];
-  /** @param {any} wing */
-  const slot = (wing: any) => ({
+  /** @param {Escort|null} wing */
+  const slot = (wing: Escort | null) => ({
    wing, has: false, prevX: 0, prevY: 0, prevZ: 0,
    cx: 0, cy: 0, cz: 0, mx: 0, my: 0, mz: 0,
    active: false, downed: false, squashT: 0, fxT: 0,
@@ -176,9 +694,7 @@ export class CollisionPass {
   // ---------------------------------------------------------- scratch
   // Two hit records (candidate and best-so-far), one response, one
   // params bag — rewritten every query, never replaced.
-  /** @type {{ t: number, nx: number, ny: number, nz: number, px: number, py: number, pz: number, cap: any }} */
   this._hit = { t: 0, nx: 0, ny: 0, nz: 0, px: 0, py: 0, pz: 0, cap: null };
-  /** @type {{ t: number, nx: number, ny: number, nz: number, px: number, py: number, pz: number, cap: any }} */
   this._best = { t: 0, nx: 0, ny: 0, nz: 0, px: 0, py: 0, pz: 0, cap: null };
   this._res = { vx: 0, vz: 0, spin: 0, normalSpeed: 0, severity: "scrape" };
   this._axisPt = { x: 0, y: 0, z: 0 };
@@ -206,8 +722,7 @@ export class CollisionPass {
  }
 
  /** @param {number} dt seconds; clamped to 1/30 like the craft integrators. */
- /** @param {any} dt */
- update(dt: any) {
+ update(dt: number) {
   // The player's own crash runs on its own clock, above BOTH guards —
   // the freeze-time short-circuit and the collisions toggle. It is the
   // only path back to `endCrash`, so a crash interrupted by flipping
@@ -215,7 +730,8 @@ export class CollisionPass {
   // hand the craft back, or the player is locked out of their own
   // craft forever.
   this._playerCrash(Math.min(dt, 1 / 30));
-  if (S.collisions === false) {
+  // `S.collisions` is a boolean toggle; falsy is off.
+  if (!S.collisions) {
    // Off is off: forget the prev positions so re-enabling does not
    // sweep a teleport's worth of motion through the field.
    for (const s of this.slots) s.has = false;
@@ -274,7 +790,7 @@ export class CollisionPass {
    if (!wk?.active || k >= pool.length) continue;
    const ctl = wk.ctl;
    const fx = Math.sin(ctl.facing), fz = Math.cos(ctl.facing);
-   const y = (ctl.groundY ?? 0) + 1.0;
+   const y = (ctl.groundY ?? 0) + WRECK_HOVER;
    const c = pool[k++];
    c.ax = ctl.position.x - fx * WRECK_HALF;
    c.ay = y;
@@ -291,9 +807,9 @@ export class CollisionPass {
    const p = this.parked();
    if (p) {
     const c = pool[k++];
-    c.ax = p.x; c.ay = p.y - 1.0; c.az = p.z;
-    c.bx = p.x; c.by = p.y + 2.0; c.bz = p.z;
-    c.r = 2.0;
+    c.ax = p.x; c.ay = p.y - PARKED_LO; c.az = p.z;
+    c.bx = p.x; c.by = p.y + PARKED_HI; c.bz = p.z;
+    c.r = PARKED_R;
     c.kind = "wreck";
     c.walker = null;
     c.live = true;
@@ -309,7 +825,7 @@ export class CollisionPass {
     // The player's sphere rides the controller's XZ and the drawn
     // hull's Y — the hover ease is what the eye sees hit things.
     const c = this._activeCharacter();
-    const on = !!c && !!this.speeder && S.speeder === true && c.surf > 0.5;
+    const on = !!c && !!this.speeder && S.speeder === true && c.surf > SURFING;
     s.active = on;
     // Mid-crash the craft is the fall's, exactly as a downed
     // escort is its ballistic's: the roll into the snow is
@@ -326,7 +842,9 @@ export class CollisionPass {
     s.downed = false;
     if (on) {
      s.cx = c.position.x;
-     s.cy = /** @type {import("../player/speeder.js").Speeder} */ (this.speeder).position.y;
+     // The sphere rides the drawn hull's Y: the hover ease is what the eye
+     // sees hit things, and the controller's own Y is the smooth path.
+     s.cy = this.speeder!.position.y;
      s.cz = c.position.z;
     }
     if (!s.active) { s.has = false; continue; }
@@ -355,8 +873,8 @@ export class CollisionPass {
  // ---------------------------------------------------------- world contacts
 
  /** Sweep one craft against every live capsule; resolve the earliest. */
- /** @param {any} s */
- _sweepWorld(s: any) {
+ /** @param {CraftSlot} s */
+ _sweepWorld(s: CraftSlot) {
   const pool = this.pool;
   const hit = this._hit, best = this._best;
   let found = false;
@@ -377,6 +895,7 @@ export class CollisionPass {
   if (!found) return;
 
   const ctl = s.wing ? s.wing.pilot : this._activeCharacter();
+  if (!ctl) return;
   const vel = ctl.velocity;
 
   // Both craft own their own height — the hover floor and the climb
@@ -398,7 +917,7 @@ export class CollisionPass {
   const closest = this._closestOnAxis(cap, s.cx, s.cy, s.cz);
   const dy = s.cy - closest.y;
   const need2 = reach * reach - dy * dy;
-  if (need2 <= 0.0001) return; // cleared vertically: the corridor holds
+  if (need2 <= VERTICAL_EPS2) return; // cleared vertically: the corridor holds
   const need = Math.sqrt(need2);
 
   // The way out is radially away from the axis, in the ground plane.
@@ -413,8 +932,8 @@ export class CollisionPass {
   } else { nx /= nl; nz /= nl; }
 
   if (nl < need) {
-   const outX = closest.x + nx * (need + 0.05);
-   const outZ = closest.z + nz * (need + 0.05);
+   const outX = closest.x + nx * (need + EASE_OUT);
+   const outZ = closest.z + nz * (need + EASE_OUT);
    ctl.position.x = outX;
    ctl.position.z = outZ;
    s.cx = outX; s.cz = outZ;
@@ -435,11 +954,14 @@ export class CollisionPass {
   li.player = s.wing === null;
 
   // The walker feels it too — as a beat, never as a shove. Nudged away
-  // from the side the hit came in on.
-  if (wk && typeof wk.stumble === "function") {
-   const rightward = (best.px - wk.position.x) * Math.cos(wk.yaw)
-    - (best.pz - wk.position.z) * Math.sin(wk.yaw);
-   wk.stumble(res.normalSpeed / 25, rightward > 0 ? -1 : 1);
+  // from the side the hit came in on. The pose is only there for the herd,
+  // which is gone, so a wreck reads nothing and takes no stumble.
+  const pose = wk as CapsuleRef | null;
+  if (pose && pose.position && pose.yaw !== undefined
+   && typeof pose.stumble === "function") {
+   const rightward = (best.px - pose.position.x) * Math.cos(pose.yaw)
+    - (best.pz - pose.position.z) * Math.sin(pose.yaw);
+   pose.stumble(res.normalSpeed / 25, rightward > 0 ? -1 : 1);
   }
 
   this._contactFx(
@@ -456,8 +978,8 @@ export class CollisionPass {
   * every planar clearance question is asked against. Written into one
   * reused record.
   */
- /** @param {any} cap @param {any} x @param {any} y @param {any} z */
- _closestOnAxis(cap: any, x: any, y: any, z: any) {
+ /** @param {Capsule} cap @param {number} x @param {number} y @param {number} z */
+ _closestOnAxis(cap: Capsule, x: number, y: number, z: number) {
   const ex = cap.bx - cap.ax, ey = cap.by - cap.ay, ez = cap.bz - cap.az;
   const len2 = ex * ex + ey * ey + ez * ez;
   let t = 0;
@@ -477,8 +999,8 @@ export class CollisionPass {
  // ------------------------------------------------------------ craft pairs
 
  /** Sphere-sphere sweep between two craft; both sides respond. */
- /** @param {any} a @param {any} b */
- _sweepPair(a: any, b: any) {
+ /** @param {CraftSlot} a @param {CraftSlot} b */
+ _sweepPair(a: CraftSlot, b: CraftSlot) {
   const hit = this._hit;
   if (!sweptSphereVsSphere(
    a.prevX, a.prevY, a.prevZ,
@@ -487,6 +1009,8 @@ export class CollisionPass {
   )) return;
   const ctlA = a.wing ? a.wing.pilot : this._activeCharacter();
   const ctlB = b.wing ? b.wing.pilot : this._activeCharacter();
+  // Either side without a controller has nowhere to write the response.
+  if (!ctlA || !ctlB) return;
 
   // Horizontal normal away from B toward A.
   let nx = hit.nx, nz = hit.nz;
@@ -497,7 +1021,7 @@ export class CollisionPass {
   if (hit.t === 0) {
    const dx = a.cx - b.cx, dz = a.cz - b.cz;
    const d = Math.hypot(dx, dz);
-   const need = (CRAFT_R * 2 - d) * 0.5 + 0.05;
+   const need = (CRAFT_R * 2 - d) * ALREADY_TOUCHING + EASE_OUT;
    if (need > 0) {
     ctlA.position.x += nx * need; ctlA.position.z += nz * need;
     ctlB.position.x -= nx * need; ctlB.position.z -= nz * need;
@@ -509,7 +1033,7 @@ export class CollisionPass {
   // Equal mass, both sides: each craft runs its own response with the
   // other's velocity as the obstacle's, and thresholds a fifth kinder —
   // two hulls glancing off each other is drama, not a wall.
-  const hitAt = /** @type {number} */ (S.impactHit) * 1.2, crashAt = /** @type {number} */ (S.impactCrash) * 1.2;
+  const hitAt = S.impactHit * CRAFT_FORGIVENESS, crashAt = S.impactCrash * CRAFT_FORGIVENESS;
   const avx = ctlA.velocity.x, avz = ctlA.velocity.z;
   const bvx = ctlB.velocity.x, bvz = ctlB.velocity.z;
   const resA = this._respond(
@@ -528,15 +1052,20 @@ export class CollisionPass {
   if (a.wing === null || b.wing === null) {
    if (sev !== "scrape") this._playerLadder(sev);
   }
-  if (a.wing) a.wing.collisionHit(sev, hit.px, hit.py, hit.pz);
-  if (b.wing) b.wing.collisionHit(sev, hit.px, hit.py, hit.pz);
+  if (a.wing?.collisionHit) a.wing.collisionHit(sev, hit.px, hit.py, hit.pz);
+  if (b.wing?.collisionHit) b.wing.collisionHit(sev, hit.px, hit.py, hit.pz);
  }
 
  // ------------------------------------------------------- shared machinery
 
- /** Fill the params bag, run the impact math, apply it to the craft. */
- /** @param {any} ctl @param {any} vel @param {any} nx @param {any} nz @param {any} ovx @param {any} ovz @param {any} massRatio @param {any} px @param {any} pz @param {any} hitAt @param {any} crashAt */
- _respond(ctl: any, vel: any, nx: any, nz: any, ovx: any, ovz: any, massRatio: any, px: any, pz: any, hitAt: any, crashAt: any) {
+ /** Fill the params bag, run the impact math, apply it to the craft.
+  * @param {Respondable} ctl @param {THREE.Vector3} vel
+  * @param {number} nx @param {number} nz @param {number} ovx @param {number} ovz
+  * @param {number} massRatio @param {number} px @param {number} pz
+  * @param {number} hitAt @param {number} crashAt */
+ _respond(ctl: Respondable, vel: THREE.Vector3, nx: number, nz: number,
+  ovx: number, ovz: number, massRatio: number, px: number, pz: number,
+  hitAt: number, crashAt: number) {
   const p = this._params;
   p.vx = vel.x; p.vz = vel.z;
   p.speed = Math.hypot(vel.x, vel.z);
@@ -551,13 +1080,13 @@ export class CollisionPass {
     - (pz - ctl.position.z) * Math.sin(f)) / CRAFT_R,
    -1, 1
   );
-  p.restitution = /** @type {number} */ (S.impactBounce);
+  p.restitution = S.impactBounce;
   p.hitAt = hitAt;
   p.crashAt = crashAt;
   const res = speederImpactResponse(this._res, p);
   ctl.applyImpact(
    res.vx, res.vz,
-   res.spin * /** @type {number} */ (S.impactSpin),
+   res.spin * S.impactSpin,
    // `severity` is one of three literals by construction; String() only
    // narrows the type, the value is untouched.
    SCRAMBLE[String(res.severity)]
@@ -586,18 +1115,23 @@ export class CollisionPass {
   * of ice is the old fuel-and-fire report (`speederCrash`). The look of
   * the contact — snow, smoke, fire — does not care what was hit.
   *
-  * @param {'scrape'|'hit'|'crash'} sev
-  * @param {string} [kind] struck capsule kind; see `MACHINE_KINDS`
+  * @param {Severity} sev
+  * @param {number} px @param {number} py @param {number} pz contact point
+  * @param {boolean} isPlayer whether the player's own hull was struck
+  * @param {number} nx @param {number} nz unit normal, away from the obstacle
+  * @param {CraftSlot} slot the craft that felt it, for per-craft rate limits
+  * @param {number} closing m/s the two closed at
+  * @param {string} kind what was struck; see `MACHINE_KINDS`
   */
- /** @param {any} sev @param {any} px @param {any} py @param {any} pz @param {any} isPlayer @param {any} nx @param {any} nz @param {any} slot @param {any} closing @param {any} kind */
- _contactFx(sev: any, px: any, py: any, pz: any, isPlayer: any, nx: any, nz: any, slot: any, closing: any, kind: any) {
+ _contactFx(sev: Severity, px: number, py: number, pz: number, isPlayer: boolean,
+  nx: number, nz: number, slot: CraftSlot, closing: number, kind: string) {
   if (sev === "scrape") {
-   if (slot && slot.fxT > 0) return;
-   if (slot) slot.fxT = SCRAPE_GAP;
+   if (slot.fxT > 0) return;
+   slot.fxT = SCRAPE_GAP;
   }
   if (isPlayer) {
    const t = sev === "scrape"
-    ? TRAUMA.scrape * clamp((closing ?? 0) / /** @type {number} */ (S.impactHit), 0.15, 1)
+    ? TRAUMA.scrape * clamp((closing ?? 0) / S.impactHit, SCRAPE_TRAUMA_FLOOR, 1)
     // `sev` is one of three literals by construction; String() only narrows
     // the type, the value is untouched.
     : TRAUMA[String(sev)];
@@ -605,19 +1139,20 @@ export class CollisionPass {
   }
   // A kick of snow and sparks off the contact, thrown along the normal.
   if (this.spray) {
-   const n = sev === "crash" ? 10 : sev === "hit" ? 6 : 4;
+   const n = SPRAY_BY_SEVERITY[String(sev)] ?? SPRAY_BY_SEVERITY.scrape;
    for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
-    const out = 2 + Math.random() * 5;
+    const out = SCRAPE_SPRAY.OUT + Math.random() * SCRAPE_SPRAY.OUT_JITTER;
     this.spray.emit(
-     px + (Math.random() - 0.5) * 0.6,
-     py + (Math.random() - 0.5) * 0.6,
-     pz + (Math.random() - 0.5) * 0.6,
-     nx * out + Math.cos(a) * 1.6,
-     1.5 + Math.random() * 3.5,
-     nz * out + Math.sin(a) * 1.6,
-     0.06 + Math.random() * 0.09, 0.5 + Math.random() * 0.6,
-     Math.random() < 0.5 ? 1 : 0, 1.4
+     px + (Math.random() - 0.5) * SCRAPE_SPRAY.SPAWN_SPREAD,
+     py + (Math.random() - 0.5) * SCRAPE_SPRAY.SPAWN_SPREAD,
+     pz + (Math.random() - 0.5) * SCRAPE_SPRAY.SPAWN_SPREAD,
+     nx * out + Math.cos(a) * SCRAPE_SPRAY.SIDEWAYS,
+     SCRAPE_SPRAY.RISE + Math.random() * SCRAPE_SPRAY.RISE_JITTER,
+     nz * out + Math.sin(a) * SCRAPE_SPRAY.SIDEWAYS,
+     SCRAPE_SPRAY.SIZE + Math.random() * SCRAPE_SPRAY.SIZE_JITTER,
+     SCRAPE_SPRAY.LIFE + Math.random() * SCRAPE_SPRAY.LIFE_JITTER,
+     Math.random() < SCRAPE_SPRAY.HOT_CHANCE ? 1 : 0, SCRAPE_SPRAY.DRAG
     );
    }
   }
@@ -625,15 +1160,17 @@ export class CollisionPass {
   const hull = MACHINE_KINDS.has(kind ?? "");
   if (sev === "hit") {
    if (hull) this._bang(px, pz, HULL_SFX_GAIN.hit, 1.0, "speederHitWalker");
-   else this._bang(px, pz, 0.25, 1.1);
+   else this._bang(px, pz, SPEEDER_HIT_GAIN, SPEEDER_HIT_RATE);
    if (this.smoke) {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < HIT_PUFFS; i++) {
      this.smoke.emit(
-      px, py + 0.2, pz,
-      (Math.random() - 0.5) * 4, 1 + Math.random() * 2,
-      (Math.random() - 0.5) * 4,
-      0.45, 1.2, 0.6 + Math.random() * 0.3,
-      0.09, 0.09, 0.09, 0.5, true
+      px, py + HIT_SMOKE.LIFT, pz,
+      (Math.random() - 0.5) * HIT_SMOKE.SPAWN_SPREAD,
+      HIT_SMOKE.RISE + Math.random() * HIT_SMOKE.RISE_JITTER,
+      (Math.random() - 0.5) * HIT_SMOKE.SPAWN_SPREAD,
+      HIT_SMOKE.SIZE, HIT_SMOKE.GROW,
+      HIT_SMOKE.LIFE + Math.random() * HIT_SMOKE.LIFE_JITTER,
+      SMOKE_GREY, SMOKE_GREY, SMOKE_GREY, HIT_SMOKE.ALPHA, true
      );
     }
    }
@@ -674,9 +1211,9 @@ export class CollisionPass {
   * @param {number} gain pre-distance level, 0..1
   * @param {number} rate playback rate
   * @param {string} [key] manifest key; the fuel-and-fire report by default
+  * @param {number} [lead] extra delay, seconds
   */
- /** @param {any} px @param {any} pz @param {any} gain @param {any} rate @param {any} key @param {any} lead */
- _bang(px: any, pz: any, gain: any, rate: any, key = "speederCrash", lead = 0) {
+ _bang(px: number, pz: number, gain: number, rate: number, key = "speederCrash", lead = 0) {
   if (!this.audio || !this.character) return;
   const d = Math.hypot(
    px - this.character.position.x, pz - this.character.position.z
@@ -700,21 +1237,21 @@ export class CollisionPass {
   * floor absorbed a hard vertical closure — flying into a rising face.
   * There is no capsule and no reflection (the floor already ate the
   * motion); what is left to do is the *consequence*: severity from the
-  * closing speed, the same fx path as any contact, and a crash joins the
-  * player's ladder like any other crash.
+  * closing speed, the same fx path as every other contact, and a crash joins the
+  * player's ladder like every other crash.
   */
  _terrainSlam() {
   const c = this._activeCharacter();
   const slam = c?.terrainSlam;
-  if (!slam || !this.speeder || S.speeder !== true) return;
-  // `S` is a Record<string, number|boolean|string> — a real `as number` is the
-  // only thing that narrows these reads in a .ts file; a JSDoc `/** @type */`
-  // parenthesised cast is ignored by tsc here and would buy nothing.
-  const sev = slam.closing > (S.impactCrash as number) ? "crash"
-   : slam.closing >= (S.impactHit as number) ? "hit" : "scrape";
+  // Plain truthiness on the toggle: `S.speeder` is a boolean, and `!x` is the
+  // honest read. `!== true` would additionally demand the value is not merely
+  // truthy but exactly `true`, which is a different question — and one that
+  // silently fails for anything else the toggle could ever hold.
+  if (!slam || !this.speeder || !S.speeder) return;
+  const sev = severityFor(slam.closing, S.impactHit, S.impactCrash);
   const hull = this.speeder.position;
   this._contactFx(
-   sev, hull.x, hull.y - 1.2, hull.z, true, slam.nx, slam.nz,
+   sev, hull.x, hull.y - SLAM_BELLY, hull.z, true, slam.nx, slam.nz,
    this.slots[0], slam.closing, "terrain"
   );
   if (sev !== "scrape") {
@@ -731,14 +1268,14 @@ export class CollisionPass {
   * outright. Tripping is once — while the twenty-second burn runs, further
   * crashes are already part of the fire.
   */
- /** @param {any} sev */
- _playerLadder(sev: any) {
+ /** @param {Severity} sev */
+ _playerLadder(sev: Severity) {
   if (this._pBurnT > 0) return;
   if (sev === "crash") { this._trip(); return; }
   if (this._pGrace > 0) return;
   this._pGrace = PLAYER_GRACE;
-  this._pDamage = Math.min(3, this._pDamage + 1);
-  if (this._pDamage >= 3) this._trip();
+  this._pDamage = Math.min(LADDER_RUNGS, this._pDamage + 1);
+  if (this._pDamage >= LADDER_RUNGS) this._trip();
  }
 
  /**
@@ -793,8 +1330,7 @@ export class CollisionPass {
   *
   * @param {number} h clamped seconds
   */
- /** @param {any} h */
- _playerCrash(h: any) {
+ _playerCrash(h: number) {
   const c = this._activeCharacter();
   if (!c) return;
 
@@ -824,34 +1360,44 @@ export class CollisionPass {
    this.speeder?.setVisible?.(false);
 
    // The scar: the hole it made and the furrow behind it.
-   this.terrain?.deform?.brush?.(x, z, 3.4, 0.85, 0.6, 1.0, 0.6, 0, 1.3, 1.0);
+   const cb = CRATER_BRUSH;
    this.terrain?.deform?.brush?.(
-    x - Math.sin(facing) * 4.5, z - Math.cos(facing) * 4.5,
-    2.4, 0.5, 0.55, 1.0, 0.3, facing, 3.0, 1.0
+    x, z, cb.RADIUS, cb.DEPTH, cb.BERM, cb.COMPRESSION, cb.ICE,
+    cb.YAW, cb.ELONGATION, cb.EDGE
+   );
+   const fb = FURROW_BRUSH;
+   this.terrain?.deform?.brush?.(
+    x - Math.sin(facing) * FURROW_BEHIND, z - Math.cos(facing) * FURROW_BEHIND,
+    fb.RADIUS, fb.DEPTH, fb.BERM, fb.COMPRESSION, fb.ICE,
+    facing, fb.ELONGATION, fb.EDGE
    );
 
    // The splash: a hull's worth of snow thrown up and out.
    if (this.spray) {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < CRASH_SPLASH.COUNT; i++) {
      const a = Math.random() * Math.PI * 2;
-     const out = 3 + Math.random() * 12;
+     const out = CRASH_SPLASH.OUT + Math.random() * CRASH_SPLASH.OUT_JITTER;
      this.spray.emit(
-      x + Math.cos(a) * 1.5, y + 0.5, z + Math.sin(a) * 1.5,
-      Math.cos(a) * out, 5 + Math.random() * 11, Math.sin(a) * out,
-      0.08 + Math.random() * 0.16, 0.8 + Math.random() * 0.9,
-      Math.random() < 0.5 ? 1 : 0, 1.5
+      x + Math.cos(a) * CRASH_SPLASH.RING, y + CRASH_SPLASH.LIFT, z + Math.sin(a) * CRASH_SPLASH.RING,
+      Math.cos(a) * out,
+      CRASH_SPLASH.RISE + Math.random() * CRASH_SPLASH.RISE_JITTER,
+      Math.sin(a) * out,
+      CRASH_SPLASH.SIZE + Math.random() * CRASH_SPLASH.SIZE_JITTER,
+      CRASH_SPLASH.LIFE + Math.random() * CRASH_SPLASH.LIFE_JITTER,
+      Math.random() < CRASH_SPLASH.HOT_CHANCE ? 1 : 0, CRASH_SPLASH.DRAG
      );
     }
    }
    if (this.smoke) {
-    for (let i = 0; i < 10; i++) {
+    const s = CRASH_SMOKE;
+    for (let i = 0; i < s.COUNT; i++) {
      this.smoke.emit(
-      x + (Math.random() - 0.5) * 3, y + 1 + Math.random() * 2,
-      z + (Math.random() - 0.5) * 3,
-      (Math.random() - 0.5) * 3, 1.5 + Math.random() * 2.5,
-      (Math.random() - 0.5) * 3,
-      2.2 + Math.random() * 1.6, -0.18, 5 + Math.random() * 3,
-      0.07, 0.07, 0.07, 0.75, true
+      x + (Math.random() - 0.5) * s.SPAWN_SPREAD, y + s.HEIGHT + Math.random() * s.HEIGHT_JITTER,
+      z + (Math.random() - 0.5) * s.SPAWN_SPREAD,
+      (Math.random() - 0.5) * s.DRIFT, s.RISE + Math.random() * s.RISE_JITTER,
+      (Math.random() - 0.5) * s.DRIFT,
+      s.SIZE + Math.random() * s.GROW, s.SHRINK, s.LIFE + Math.random() * s.LIFE_JITTER,
+      FIRE_SMOKE_TINT, FIRE_SMOKE_TINT, FIRE_SMOKE_TINT, s.ALPHA, true
      );
     }
    }
@@ -880,8 +1426,8 @@ export class CollisionPass {
  }
 
  /** Grace and burn timers, and the burning trail off the drawn hull. */
- /** @param {any} h */
- _ladderUpkeep(h: any) {
+ /** @param {number} h clamped seconds */
+ _ladderUpkeep(h: number) {
   if (this._pGrace > 0) this._pGrace = Math.max(0, this._pGrace - h);
   if (this._pBurnT > 0) {
    this._pBurnT -= h;
@@ -903,53 +1449,68 @@ export class CollisionPass {
    && this.character) {
    this._pPuffT -= h;
    if (this._pPuffT <= 0) {
-    this._pPuffT = 0.05;
+    this._pPuffT = PUFF_CADENCE;
     // The hull's own vertical rate goes into the puff. A craft
     // going in drops ten metres a second, and a flame that only
     // ever rises is left hanging in the air above the wreck —
     // fire floating over an empty patch of snow. Clamped to
     // falling only, so level flight keeps the trail it had.
     const hy = this.speeder.position.y;
-    const vy = (hy - (this._burnPrevY ?? hy)) / 0.05;
+    const vy = (hy - (this._burnPrevY ?? hy)) / PUFF_CADENCE;
     this._burnPrevY = hy;
     const ac = this._activeCharacter();
     if (ac) {
      emitBurnTrail(
       this.smoke, this.speeder.position, ac.facing,
-      ac.velocity, this._pDamage >= 2,
-      Math.max(-14, Math.min(0, vy))
+      ac.velocity, this._pDamage >= TRAIL_FIRE_RUNG,
+      Math.max(-MAX_INHERITED_FALL, Math.min(0, vy))
      );
     }
    }
   }
  }
 }
-/** @param {any} smoke @param {any} pos @param {any} facing @param {any} vel @param {any} withFire @param {number} vy */
-export function emitBurnTrail(smoke: any, pos: any, facing: any, vel: any, withFire: any, vy = 0) {
- const back = /** @type {number} */ (S.burnBackZ ?? 2.4);
- const lift = /** @type {number} */ (S.burnY ?? 0.95);
+/**
+ * The damage trail off a flying hull: a slow grey stream that lightens to fire
+ * once the ladder is high enough. Both rows are born `BURN_BACK_DEFAULT`
+ * metres behind the drawn hull and inherit its fall rate, so a craft going in
+ * drags its flame with it instead of leaving it hanging.
+ *
+ * smoke: the field to emit into. pos: the drawn hull's world position.
+ * facing: hull yaw, radians — the trail streams off the tail along it. vel:
+ * the hull's world velocity, m/s. withFire: whether the second, fire row is
+ * lit at all. vy: fall rate inherited this frame, m/s (negative is falling).
+ */
+export function emitBurnTrail(
+ smoke: SmokeTrailSink, pos: Vec3, facing: number, vel: Vec3,
+ withFire: boolean, vy = 0
+) {
+ const back = S.burnBackZ ?? BURN_BACK_DEFAULT;
+ const lift = S.burnY ?? BURN_LIFT_DEFAULT;
  const bx = pos.x - Math.sin(facing) * back;
  const by = pos.y + lift;
  const bz = pos.z - Math.cos(facing) * back;
- const shade = withFire ? 0.045 : 0.09;
+ const ts = TRAIL_SMOKE;
+ const tint = withFire ? ts.TINT_WITH_FIRE : ts.TINT;
  smoke.emit(
   bx, by, bz,
-  vel.x * 0.22 + (Math.random() - 0.5) * 0.8,
-  1.1 + Math.random() * 0.6 + vy,
-  vel.z * 0.22 + (Math.random() - 0.5) * 0.8,
-  0.5 + Math.random() * 0.25, 1.7,
-  1.5 + Math.random() * 0.7,
-  shade, shade, shade, 0.55, true
+  vel.x * ts.DRIFT + (Math.random() - 0.5) * ts.SPAWN_SPREAD,
+  ts.RISE + Math.random() * ts.RISE_JITTER + vy,
+  vel.z * ts.DRIFT + (Math.random() - 0.5) * ts.SPAWN_SPREAD,
+  ts.SIZE + Math.random() * ts.SIZE_JITTER, ts.GROW,
+  ts.LIFE + Math.random() * ts.LIFE_JITTER,
+  tint, tint, tint, ts.ALPHA, true
  );
  if (withFire) {
+  const tf = TRAIL_FIRE;
   smoke.emit(
-   bx, by - 0.25, bz,
-   vel.x * 0.72 + (Math.random() - 0.5) * 1.2,
-   0.9 + Math.random() * 0.8 + vy,
-   vel.z * 0.72 + (Math.random() - 0.5) * 1.2,
-   0.62 + Math.random() * 0.25, 1.4,
-   0.42 + Math.random() * 0.2,
-   3.2, 1.05, 0.26, 0.8, false
+   bx, by - tf.DROP, bz,
+   vel.x * tf.DRIFT + (Math.random() - 0.5) * tf.SPAWN_SPREAD,
+   tf.RISE + Math.random() * tf.RISE_JITTER + vy,
+   vel.z * tf.DRIFT + (Math.random() - 0.5) * tf.SPAWN_SPREAD,
+   tf.SIZE + Math.random() * tf.SIZE_JITTER, tf.GROW,
+   tf.LIFE + Math.random() * tf.LIFE_JITTER,
+   FIRE_TINT.R, FIRE_TINT.G, FIRE_TINT.B, tf.ALPHA, false
   );
  }
 }

@@ -15,15 +15,50 @@ import * as THREE from "three";
 import { makeMaterial } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 
+/** The slice of `core/gfx.js`'s `Gfx` this module touches. */
+interface GfxLike {
+ scene: THREE.Scene;
+ LAYER: { SKY: number; OPAQUE: number; BLEND: number };
+ addMesh(mesh: THREE.Object3D, layerBit: number, renderOrder: number): THREE.Object3D;
+}
+
+/** How many puffs the pool holds, simultaneously. */
 const POOL = 160;
+/**
+ * Buoyant acceleration of smoke, m/s². Flame is 0 — it hangs where it was
+ * shed. Applied as a straight acceleration, not a drag-balanced rise.
+ */
+const BUOYANCY = 2.2;
+/** Per-second velocity decay of a puff, as a fraction kept (0..1). */
+const DRAG_PER_SECOND = 1.6;
+/** Lower bound on `DRAG_PER_SECOND * dt`, so no dt step ever overshoots. */
+const DRAG_MAX = 0.9;
+/** Smallest radius a puff may shrink to, metres. */
+const MIN_PUFF_RADIUS = 0.02;
+/** Seconds of a puff's life spent fading in, as a 0..1 envelope exponent. */
+const FADE_IN_RATE = 5;
 
 export class SmokeTrails {
- [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
-  this.gfx = gfx;
+ gfx: GfxLike;
+ /** (centre xyz, radius) then (rgb, alpha), one column per puff. */
+ _data: Float32Array;
+ _pos: Float32Array;
+ _vel: Float32Array;
+ _life: Float32Array;
+ _life0: Float32Array;
+ _size: Float32Array;
+ _grow: Float32Array;
+ _col: Float32Array;
+ /** 1 = buoyant smoke, 0 = flame (no rise, fast fade). */
+ _buoy: Float32Array;
+ _next: number;
+ _cameraPos: THREE.Vector3;
+ texture: THREE.DataTexture;
+ mesh: THREE.Mesh & { metadata: { triangles: number; vertices: number } };
+ material: THREE.RawShaderMaterial;
 
-  /** (centre xyz, radius) then (rgb, alpha), one column per puff. */
+ constructor(gfx: GfxLike) {
+  this.gfx = gfx;
   this._data = new Float32Array(POOL * 2 * 4);
   this._pos = new Float32Array(POOL * 3);
   this._vel = new Float32Array(POOL * 3);
@@ -32,7 +67,6 @@ export class SmokeTrails {
   this._size = new Float32Array(POOL);
   this._grow = new Float32Array(POOL);
   this._col = new Float32Array(POOL * 4);
-  /** 1 = buoyant smoke, 0 = flame (no rise, fast fade). */
   this._buoy = new Float32Array(POOL);
   this._next = 0;
   this._cameraPos = new THREE.Vector3();
@@ -103,8 +137,7 @@ export class SmokeTrails {
  }
 
  /** Point the puffs through the same (jittered) camera as the scene. */
- /** @param {THREE.Matrix4} viewProjection */
- bindCamera(viewProjection: any) {
+ bindCamera(viewProjection: THREE.Matrix4) {
   this.material.uniforms.viewProjection.value = viewProjection;
  }
 
@@ -112,8 +145,20 @@ export class SmokeTrails {
   * One puff. Smoke wants `buoyant` true (it rises and lingers); flame
   * false (it hangs where it was born and dies fast).
   */
- /** @param {number} x @param {number} y @param {number} z @param {number} vx @param {number} vy @param {number} vz @param {number} size @param {number} grow @param {number} life @param {number} r @param {number} g @param {number} b @param {number} a @param {boolean} buoyant */
- emit(x: any, y: any, z: any, vx: any, vy: any, vz: any, size: any, grow: any, life: any, r: any, g: any, b: any, a: any, buoyant: any) {
+ emit(
+  x: number, y: number, z: number,
+  vx: number, vy: number, vz: number,
+  /** radius, metres */
+  size: number,
+  /** metres/second, may be negative */
+  grow: number,
+  /** seconds */
+  life: number,
+  r: number, g: number, b: number,
+  /** premultiplied alpha at full envelope, 0..1 */
+  a: number,
+  buoyant: boolean
+ ) {
   const i = this._next;
   this._next = (this._next + 1) % POOL;
   this._pos[i * 3] = x;
@@ -134,7 +179,7 @@ export class SmokeTrails {
  }
 
  /** @param {number} dt @param {THREE.Vector3} cameraPos */
- update(dt: any, cameraPos: any) {
+ update(dt: number, cameraPos?: THREE.Vector3) {
   if (cameraPos) this._cameraPos.copy(cameraPos);
   let live = 0;
   const d = this._data;
@@ -147,8 +192,8 @@ export class SmokeTrails {
    const t01 = Math.max(0, this._life[i] / this._life0[i]);
    // Smoke rises and slows; flame just decays where it was shed.
    const buoy = this._buoy[i];
-   this._vel[i * 3 + 1] += buoy * 2.2 * dt;
-   const drag = 1 - Math.min(0.9, 1.6 * dt);
+   this._vel[i * 3 + 1] += buoy * BUOYANCY * dt;
+   const drag = 1 - Math.min(DRAG_MAX, DRAG_PER_SECOND * dt);
    this._vel[i * 3] *= drag;
    this._vel[i * 3 + 1] *= drag;
    this._vel[i * 3 + 2] *= drag;
@@ -157,7 +202,7 @@ export class SmokeTrails {
    this._pos[i * 3 + 2] += this._vel[i * 3 + 2] * dt;
    // Growth may be negative — a smoke ball that shrinks as it lets
    // go — but a puff never inverts through zero.
-   this._size[i] = Math.max(0.02, this._size[i] + this._grow[i] * dt);
+   this._size[i] = Math.max(MIN_PUFF_RADIUS, this._size[i] + this._grow[i] * dt);
 
    const a = i * 4;
    d[a] = this._pos[i * 3];
@@ -170,7 +215,7 @@ export class SmokeTrails {
    d[c + 2] = this._col[a + 2];
    // In on the first fifth, out over the rest — a puff that pops to
    // full alpha in one frame reads as a sprite, not a shed.
-   const env = Math.min(1, (1 - t01) * 5) * t01;
+   const env = Math.min(1, (1 - t01) * FADE_IN_RATE) * t01;
    d[c + 3] = this._col[a + 3] * env;
    live++;
   }

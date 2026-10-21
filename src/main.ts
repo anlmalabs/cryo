@@ -54,7 +54,7 @@ import { loadModelAsset } from "./walkers/modelAsset.js";
  *
  * Nothing in this repo reads it — the only access is from the browser console,
  * so the global is genuinely unowned by any type here. It is declared rather
- * than reached through an `as unknown as` double cast so the one assignment
+ * than reached through a double cast through `unknown` so the one assignment
  * below needs no suppression and the shape it publishes is checked.
  */
 declare global {
@@ -73,7 +73,7 @@ type Wingman = {
   onBounce: (x: number, y: number, z: number, facing: number) => void,
   onCrash: (x: number, y: number, z: number, facing: number) => void,
  },
- pilot: { bounced: boolean, _fx: unknown, position: THREE.Vector3, facing: number },
+ pilot: { bounced: boolean, _fx: unknown, position: THREE.Vector3, facing: number, velocity: THREE.Vector3, applyImpact(vx: number, vz: number, spin: number, scrambleSec: number): void },
  bounced: boolean,
  _bounceT: number,
  flyover: (target: THREE.Vector3, y: number, distance: number) => void,
@@ -138,6 +138,7 @@ type Wreck = {
 const squadImpact: ((x: number, y: number, z: number) => void) | undefined = undefined;
 
 // ------------------------------------------------------- module-scope scratch
+
 const _vel = new THREE.Vector3();
 /** Scratch: where the crash camera is pointed. See the death-cam block. */
 const _camAt = new THREE.Vector3();
@@ -170,13 +171,16 @@ const CRASH_AUDIBLE = 900;
  * `PITCH` looks down on it rather than at it.
  */
 const DEATH_CAM_RATE = 0.72;
+
 const DEATH_CAM_DIST = 26;
 /** …and the standoff once the subject is a man rather than a machine. */
 const DEATH_CAM_DIST_PILOT = 13;
+
 /** Metres short of the battle a respawning craft comes back in at — near
  *  enough to be in the fight within seconds, far enough to be a flight back
  *  rather than a teleport into the middle of it. */
 const RESPAWN_OUT = 260;
+
 const DEATH_CAM_PITCH = 0.42;
 /**
  * …and the pitch once the subject is the pilot: nearly level with the snow.
@@ -188,7 +192,75 @@ const DEATH_CAM_PITCH = 0.42;
  */
 const DEATH_CAM_PITCH_PILOT = 0.1;
 
+// -------------------------------------------------- crash choreography
+// The wreck's repose and the pilot's launch, set when the hull is staged.
+//
+// `climb` is not a dive angle: the controller adds it to the hover height in
+// metres (see `Speeder`'s lift term), so the wreck's staged value is an
+// *altitude offset* — the hull sitting 2.35 m under its own hover line, which
+// is what sinks it into the snow where the drift reads as already claiming it.
+const WRECK_CLIMB = -2.35;
+/** Radians the hull is rolled over onto whichever side it settled on. */
+const WRECK_LEAN = 0.32;
+/**
+ * The pilot's toss, radians for the bearing scatter and metres for the throw.
+ * `side` picks either side of the wreck's own heading and lands 0.9–1.6 rad
+ * off it; the throw itself is 4–5.5 m clear of the hull.
+ */
+const PILOT_TOSS_BASE = 0.9;
+const PILOT_TOSS_SPREAD = 0.7;
+const PILOT_THROW_BASE = 4;
+const PILOT_THROW_SPREAD = 1.5;
 
+// -------------------------------------------------- crash particles
+// Every burst below is one `emit` shape at a different scale — the same
+// plume-and-ring splash, one size down and one register quieter for the skip
+// than for the crash. The coefficients with a physical meaning are named; the
+// per-emit random spreads stay inline beside the arguments they scatter.
+//
+// How much of the craft's flight the skip's snow inherits at the moment of
+// the hit (m/s per m/s of craft velocity). The splash carries more of it than
+// the puff off the same contact: it lifts a sheet of powder rather than
+// heaving a column, so it is thrown further along the direction of travel.
+const SKIP_SPLASH_SWAY = 4;
+const SKIP_PUFF_SWAY = 2;
+/** Up-drift, m/s, of the central plume each burst throws. */
+const CRASH_UP_MIN = 6;
+const CRASH_UP_SPREAD = 12;
+const SKIP_UP_MIN = 3;
+const SKIP_UP_SPREAD = 6;
+/** Plume lifetime, s — the crash's snow hangs longer than a skip's. */
+const CRASH_LIFE_MIN = 0.06;
+const CRASH_LIFE_SPREAD = 0.1;
+const SKIP_LIFE_MIN = 0.05;
+const SKIP_LIFE_SPREAD = 0.07;
+/** Disk radius the plume is born across, metres — the plume's footprint. */
+const SKIP_RADIUS = 0.4;
+const CRASH_RADIUS = 0.5;
+/** Height the plume starts at above the contact point, metres. */
+const PLUME_BASE_Y = 0.2;
+/** The low ring that races out after the plume: speed, height and radius. */
+const CRASH_RING_MIN = 12;
+const CRASH_RING_SPREAD = 8;
+const SKIP_RING_MIN = 6;
+const SKIP_RING_SPREAD = 5;
+const RING_HEIGHT = 0.15;
+const RING_LIFT_MIN = 1.5;
+const RING_LIFT_SPREAD = 2.5;
+const SKIP_RING_RADIUS = 1.0;
+const CRASH_RING_RADIUS = 1.4;
+/** Ring lifetime, s. */
+const CRASH_RING_LIFE_MIN = 0.05;
+const CRASH_RING_LIFE_SPREAD = 0.06;
+const SKIP_RING_LIFE_MIN = 0.04;
+const SKIP_RING_LIFE_SPREAD = 0.05;
+/** The dirty puff off a skip: grey, small, and gone in a few seconds. */
+const SKIP_PUFF_GREY = 0.09;
+const SKIP_PUFF_LIFE = 2.4;
+const SKIP_PUFF_LIFE_SPREAD = 2.0;
+/** …and the fat fireball cloud over the crash: born higher, born wider. */
+const CRASH_CLOUD_Y = 1.2;
+const CRASH_CLOUD_RADIUS = 1.8;
 
 async function boot() {
  const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("view"));
@@ -202,6 +274,11 @@ async function boot() {
   applyPreset("balanced");
   S.resolutionScale = 0.7;
  }
+
+ // The other user preference this demo has to honour is asked for in
+ // `core/camera.ts` — `prefers-reduced-motion`, which the stylesheet block
+ // in index.html already covers for CSS motion but which cannot reach the
+ // camera's trauma shake on its own.
 
  // Kick the audio download off before the device exists and await it at the
  // far end of the boot sequence. It is the only thing here that touches the
@@ -271,7 +348,7 @@ async function boot() {
  const terrain = new Terrain(gfx, sky, shadows);
  await terrain.build();
  onChange("showTerrain", (v) => {
-  if (terrain.mesh) terrain.mesh.visible = v;
+  if (terrain.mesh) terrain.mesh.visible = v === true;
  });
  depthPass.registerCaster(terrain.mesh, terrain.makePrepassMaterial());
 
@@ -312,9 +389,17 @@ async function boot() {
 
  // ------------------------------------------------------------ the speeder
  /** @type {Speeder|null} */
- const speeder = FLYING
-  ? new Speeder(gfx, terrain, sky, shadows, await speederReady, shipController, spray)
-  : null;
+ let speeder: Speeder | null = null;
+ // `loadModelAsset` throws on a bad file rather than resolving null, so the
+ // null arm of the ternary is a construction artifact: the promise exists
+ // exactly when the build has a ship, and so does the controller that is
+ // constructed beside it. Narrowing on those two values is what states the
+ // invariant to the compiler — an `if (FLYING)` guard cannot, because `FLYING`
+ // is a plain boolean and carries no type information.
+ if (FLYING && speederReady !== null && shipController) {
+  const asset = await speederReady;
+  speeder = new Speeder(gfx, terrain, sky, shadows, asset, shipController, spray);
+ }
  speeder?.registerPrepass(depthPass);
 
  /**
@@ -345,15 +430,17 @@ async function boot() {
 
  let wrecks: Wreck[] = [];
  let leaveWreck: ((x: number, z: number, facing: number) => null) | null = null;
- if (FLYING) {
+ // Same narrowing as the speeder above: the promise, not the `FLYING` flag, is
+ // what tells the compiler the awaited asset is a value rather than a null.
+ if (FLYING && speederReady !== null) {
   const speederAsset2 = await speederReady;
   wrecks = [];
   const ctl = {
    position: new THREE.Vector3(0, -500, 0),
    velocity: new THREE.Vector3(),
-   facing: 0, lean: 0.32, steerRate: 0,
+   facing: 0, lean: WRECK_LEAN, steerRate: 0,
    speed01: 0, speedRaw: 0,
-   climb: -2.35, lift01: 0, pathY: 0, groundY: 0,
+   climb: WRECK_CLIMB, lift01: 0, pathY: 0, groundY: 0,
    driveHeld: false, boostHeld: false, fireHeld: false,
   };
   const hull = new Speeder(gfx, terrain, sky, shadows, speederAsset2, ctl, null);
@@ -372,8 +459,8 @@ async function boot() {
    wk.ctl.lean = (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.15);
    wk.ctl.groundY = terrain.heightAt(x, z); wk.ctl.pathY = wk.ctl.groundY;
    wk.hull.snowOverride = 0; wk.hull.setVisible(true);
-   const side = facing + (Math.random() < 0.5 ? 1 : -1) * (0.9 + Math.random() * 0.7);
-   const throwOut = 4 + Math.random() * 1.5;
+   const side = facing + (Math.random() < 0.5 ? 1 : -1) * (PILOT_TOSS_BASE + Math.random() * PILOT_TOSS_SPREAD);
+   const throwOut = PILOT_THROW_BASE + Math.random() * PILOT_THROW_SPREAD;
    wk.pilotX = x + Math.sin(side) * throwOut;
    wk.pilotZ = z + Math.cos(side) * throwOut;
    return null;
@@ -474,23 +561,23 @@ async function boot() {
      const a = Math.random() * Math.PI * 2;
      const out = 3 + Math.random() * 6;
      spray.emit(
-      x + Math.cos(a) * 0.4, gy + 0.2, z + Math.sin(a) * 0.4,
-      Math.cos(a) * out + fx2 * 4,
-      3 + Math.random() * 6,
-      Math.sin(a) * out + fz2 * 4,
-      0.05 + Math.random() * 0.07, 0.5 + Math.random() * 0.7,
+      x + Math.cos(a) * SKIP_RADIUS, gy + PLUME_BASE_Y, z + Math.sin(a) * SKIP_RADIUS,
+      Math.cos(a) * out + fx2 * SKIP_SPLASH_SWAY,
+      SKIP_UP_MIN + Math.random() * SKIP_UP_SPREAD,
+      Math.sin(a) * out + fz2 * SKIP_SPLASH_SWAY,
+      0.05 + Math.random() * 0.07, SKIP_LIFE_MIN + Math.random() * SKIP_LIFE_SPREAD,
       Math.random() < 0.4 ? 1 : 0, 1.2
      );
     }
     // The low ring racing out from the touch point.
     for (let k = 0; k < 12; k++) {
      const a = (k / 12) * Math.PI * 2 + Math.random() * 0.3;
-     const out = 6 + Math.random() * 5;
+     const out = SKIP_RING_MIN + Math.random() * SKIP_RING_SPREAD;
      spray.emit(
-      x + Math.cos(a) * 1.0, gy + 0.15, z + Math.sin(a) * 1.0,
-      Math.cos(a) * out, 1.0 + Math.random() * 1.6,
+      x + Math.cos(a) * SKIP_RING_RADIUS, gy + RING_HEIGHT, z + Math.sin(a) * SKIP_RING_RADIUS,
+      Math.cos(a) * out, RING_LIFT_MIN + Math.random() * RING_LIFT_SPREAD,
       Math.sin(a) * out,
-      0.04 + Math.random() * 0.05, 0.45 + Math.random() * 0.4,
+      0.04 + Math.random() * 0.05, SKIP_RING_LIFE_MIN + Math.random() * SKIP_RING_LIFE_SPREAD,
       1, 1.5
      );
     }
@@ -501,12 +588,12 @@ async function boot() {
      smoke.emit(
       x + Math.cos(a) * rr, gy + 0.8 + Math.random() * 1.0,
       z + Math.sin(a) * rr,
-      (Math.random() - 0.5) * 1.6 + fx2 * 2,
+      (Math.random() - 0.5) * 1.6 + fx2 * SKIP_PUFF_SWAY,
       0.6 + Math.random() * 1.0,
-      (Math.random() - 0.5) * 1.6 + fz2 * 2,
+      (Math.random() - 0.5) * 1.6 + fz2 * SKIP_PUFF_SWAY,
       0.9 + Math.random() * 0.7, -0.1,
-      2.4 + Math.random() * 2.0,
-      0.09, 0.09, 0.09, 0.5, true
+      SKIP_PUFF_LIFE + Math.random() * SKIP_PUFF_LIFE_SPREAD,
+      SKIP_PUFF_GREY, SKIP_PUFF_GREY, SKIP_PUFF_GREY, 0.5, true
      );
     }
    },
@@ -532,19 +619,19 @@ async function boot() {
      const a = Math.random() * Math.PI * 2;
      const out = 4 + Math.random() * 11;
      spray.emit(
-      x + Math.cos(a) * 0.5, y + 0.2, z + Math.sin(a) * 0.5,
-      Math.cos(a) * out, 6 + Math.random() * 12, Math.sin(a) * out,
-      0.06 + Math.random() * 0.1, 0.9 + Math.random() * 1.3,
+      x + Math.cos(a) * CRASH_RADIUS, y + PLUME_BASE_Y, z + Math.sin(a) * CRASH_RADIUS,
+      Math.cos(a) * out, CRASH_UP_MIN + Math.random() * CRASH_UP_SPREAD, Math.sin(a) * out,
+      0.06 + Math.random() * 0.1, CRASH_LIFE_MIN + Math.random() * CRASH_LIFE_SPREAD,
       Math.random() < 0.4 ? 1 : 0, 1.2
      );
     }
     for (let k = 0; k < 30; k++) {
      const a = (k / 30) * Math.PI * 2 + Math.random() * 0.2;
-     const out = 12 + Math.random() * 8;
+     const out = CRASH_RING_MIN + Math.random() * CRASH_RING_SPREAD;
      spray.emit(
-      x + Math.cos(a) * 1.4, y + 0.15, z + Math.sin(a) * 1.4,
-      Math.cos(a) * out, 1.5 + Math.random() * 2.5, Math.sin(a) * out,
-      0.05 + Math.random() * 0.06, 0.6 + Math.random() * 0.6,
+      x + Math.cos(a) * CRASH_RING_RADIUS, y + RING_HEIGHT, z + Math.sin(a) * CRASH_RING_RADIUS,
+      Math.cos(a) * out, RING_LIFT_MIN + Math.random() * RING_LIFT_SPREAD, Math.sin(a) * out,
+      0.05 + Math.random() * 0.06, CRASH_RING_LIFE_MIN + Math.random() * CRASH_RING_LIFE_SPREAD,
       1, 1.6
      );
     }
@@ -553,9 +640,9 @@ async function boot() {
     // and lets go over the next ten seconds.
     for (let k = 0; k < 14; k++) {
      const a = Math.random() * Math.PI * 2;
-     const rr = Math.random() * 1.8;
+     const rr = Math.random() * CRASH_CLOUD_RADIUS;
      smoke.emit(
-      x + Math.cos(a) * rr, y + 1.2 + Math.random() * 2.2,
+      x + Math.cos(a) * rr, y + CRASH_CLOUD_Y + Math.random() * 2.2,
       z + Math.sin(a) * rr,
       (Math.random() - 0.5) * 1.2,
       0.7 + Math.random() * 1.4,
@@ -615,7 +702,7 @@ async function boot() {
  const collision = new CollisionPass({
   activeCharacter: () => (flying && shipController) ? shipController : character,
   speeder, wingmen,
-  wrecks, terrain, spray, smoke, rig, audio, troopers: null,
+  wrecks, terrain, spray, smoke, rig, audio,
   parked: () => {
    if (flying || !speeder) return null;
    if (wrecks.length && wrecks[0]?.active) return null;
@@ -624,10 +711,6 @@ async function boot() {
    if (dx * dx + dz * dz < 3.5 * 3.5) return null;
    return speeder.position;
   },
-  // Inert purge remnant: never assigned, so a call throws exactly as it
-  // would have without the `| undefined` on the binding above. `?.` here
-  // would turn that TypeError into a silent no-op.
-  squadImpact: (x: number, z: number) => squadImpact!(x, 0, z),
   // Where the player's own crash ends up, and what happens after it.
   // Back in the air where the fight is, and flying immediately.
   //
@@ -673,14 +756,6 @@ async function boot() {
  // hull, and the wreck graveyard. Every collaborator is optional, so a boot
  // without a speeder still runs the parts it has.
 
- /**
-  * How near the line the player must get before Luke calls again, metres.
-  * Wider than the flyby ring on purpose: the transmission is about having
-  * *arrived at the battle*, not about passing under one machine, and the
-  * square wants to be up before the shooting starts rather than during it.
-  */
- const CROSSFIRE_AT = 165;
- let crossFired = false;
  speeder?.setVisible(true);
  showFigure();
 
@@ -851,6 +926,10 @@ async function boot() {
  await depthPass.warmUp();
  post.update(0, 0, rig.distance);
  const passes = post.passes;
+ // Sequential, and deliberately not `Promise.all`: `whenReady` polls until a
+ // pass's pipeline has been bound, and two passes sharing a device poll far
+ // slower under contention than one after another. Nine passes at a few
+ // milliseconds each is not worth a scheduler fight on the boot path.
  for (let i = 0; i < passes.length; i++) {
   await whenReady(gfx, passes[i], "post:" + passes[i].name);
  }
@@ -862,7 +941,11 @@ async function boot() {
 
  await loading.phase("warming render targets", 0.92);
  // A few real frames so every render target is allocated and every pipeline
- // has actually been bound at least once.
+ // has actually been bound at least once. Sequential on purpose, and not
+ // batchable: each frame has to *complete* before the next begins, because
+ // the render targets one frame allocates are the ones the next frame reads,
+ // and the spell meshes had to be standing through them for their render
+ // pipelines to exist.
  for (let i = 0; i < 3; i++) {
   renderFrame();
   await loading.nextFrame();
@@ -901,12 +984,6 @@ async function boot() {
  };
  /** Cadence clock for the overlay's burn preview trail. */
  let burnPreviewT = 0;
- /**
-  * The AT-AT line's advance bearing, latched from the opening line's own
-  * mean heading on the first frame and never recomputed — the formation
-  * marches *that* course for the whole battle, wherever the player goes.
-  */
- let advanceBearing: number | null = null;
  /**
   * The player's fly-in, or null once they have arrived — set by
   * `startFlyover` alongside the escorts' own staging.
@@ -1440,6 +1517,16 @@ async function boot() {
  // device existed. This phase only shows up on a cold cache or a slow line.
  await loading.phase("loading audio", 0.96);
  await audioReady;
+ // A missing asset is non-fatal by design — one dead sample must not take the
+ // other forty — so `load()` resolves regardless and the affected key simply
+ // never plays. The engine records each in `failed`; say it out loud here,
+ // before the game starts, rather than letting the game run quiet-by-omission.
+ if (audio.failed.size) {
+  console.error(
+   "[audio] " + audio.failed.size + " asset(s) failed to load and are silent:",
+   [...audio.failed]
+  );
+ }
  // The second transmission is fetched behind the boot with everything
  // else, so the moment it is called for it plays local bytes — a clip that
  // buffered mid-battle would arrive after the moment that earned it.

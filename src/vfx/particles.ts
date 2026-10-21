@@ -25,7 +25,9 @@ import { S } from "../core/settings.js";
 import { getShader } from "../shaders/registry.js";
 import { makeMaterial, whenReady } from "../core/gpuUtil.js";
 import { CASCADE_COUNT } from "../render/shadows.js";
+import type { ShadowSystem } from "../render/shadows.js";
 import { SPELL_LIGHT_UNIFORMS } from "../spells/spellLights.js";
+import { GRAVITY } from "../spells/bending.js";
 
 /**
  * Pool size. A hard cap, not a target — an emission is simply dropped when it is
@@ -47,15 +49,127 @@ const CAPACITY = 5120;
 /** Terminal fall speed of a snow grain, m/s. Drag is tuned to land here. */
 const TERMINAL = 1.9;
 
+/**
+ * Horizontal velocity scale applied to the wind by `S.windStrength`, m/s per
+ * unit strength. `S.windDirection` only chooses the axis.
+ */
+const WIND_SCALE = 2.4;
+
+/** Speed kept after a grain lands on the snow, as a fraction per axis. */
+const SETTLE_FRICTION = 0.2;
+/** Life consumed per second by a grain already sitting on the snow. */
+const SETTLE_AGE_MULTIPLIER = 2.5;
+
+/** Drag of a heavy clod, 1/s. Powder gets 5.2. */
+const CLOD_DRAG = 1.1;
+/** Drag of settling powder, 1/s — soft-edged but quick to stop. */
+const POWDER_DRAG = 5.2;
+/** `kind` at or above which a grain is a heavy clod rather than powder. */
+const CLOD_KIND = 0.5;
+
+/** Puff radius growth per second at end of life, as a multiple of size. */
+const POWDER_GROWTH = 1.3;
+/** Alpha fade-in rate on a normalised 0..1 age, per unit of age. */
+const FADE_IN_STRENGTH = 8;
+
+/** Wind resampled lazily: the largest dt the integrator accepts, seconds. */
+const MAX_STEP = 1 / 30;
+
+/**
+ * Shadow sampling softness — a dimensionless multiplier on the sun's angular
+ * size, per `shaders/lib/shading.glsl`. Not a length: see `penumbraWorld`.
+ */
+const SHADOW_SOFTNESS = 1.6;
+/** Depth bias in the shadow map, metres. */
+const SHADOW_BIAS = 0.05;
+/** Fallback shadow-map texel size when no ShadowSystem is handed in. */
+const FALLBACK_SHADOW_TEXEL = 1 / 2048;
+
+/**
+ * Golden angle π(3 − √5) as a fraction of a turn, to six places.
+ *
+ * The Fibonacci-sphere seed hash. `src/spells/crystals.ts` rounds the same
+ * constant one digit higher (`0.618034`); this file keeps the value it has
+ * always used, so the hash it produces is unchanged.
+ */
+const GOLDEN_ANGLE_FRACTION = 0.618033;
+/** Conventional coprime x-weight in the seed hash, dimensionless. */
+const SEED_X_WEIGHT = 0.137;
+/** Conventional coprime z-weight in the seed hash, dimensionless. */
+const SEED_Z_WEIGHT = 0.311;
+
+/** The slice of `core/gfx.js`'s `Gfx` this module touches. */
+interface GfxLike {
+ scene: THREE.Scene;
+ LAYER: { SKY: number; OPAQUE: number; BLEND: number };
+ addMesh(mesh: THREE.Object3D, layerBit: number, renderOrder: number): THREE.Object3D;
+ /** Fallback samplers for scenes with no sky / no shadow maps. */
+ whiteTex: THREE.Texture;
+ blackTex: THREE.Texture;
+ /** Read only to pass to `whenReady`, which compiles against it. */
+ renderer: THREE.WebGLRenderer;
+ /** The token scene camera, same. */
+ threeCamera: THREE.Camera;
+}
+
+/** The terrain query the spray makes, so a grain can stop on the snow. */
+interface HeightQuery { heightAt(x: number, z: number): number }
+
+/** The sky this module reads lighting from. */
+interface SkyLike {
+ sunDir?: THREE.Vector3;
+ sunRadiance?: THREE.Color;
+ sh?: { R: Float32Array } | Float32Array | null;
+ lut?: THREE.Texture;
+}
+
+/**
+ * The shadow state this module binds as uniforms: the owner's own type, with
+ * the fields this module publishes into typed against how `ShadowSystem`
+ * assigns them (dynamically, under its index signature).
+ */
+type ShadowLike = Omit<ShadowSystem, "matrixValues"> & Partial<Pick<ShadowSystem, "matrixValues">>;
+
+/** One shader uniform: whatever three accepts, held as unknown by shape. */
+type Uniform = { value: unknown };
+
 export class SprayField {
- [key: string]: any;
- /**
-  * @param {import("../core/gfx.js").Gfx} gfx
-  * @param {import("../terrain/terrain.js").Terrain} terrain
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
-  */
- constructor(gfx: any, terrain: any, sky: any, shadows: any) {
+ gfx: GfxLike;
+ terrain: HeightQuery | null;
+ sky: SkyLike | null;
+ shadows: ShadowLike | null;
+ /** Live grain positions, metres. Triples, capacity-major. */
+ pos: Float32Array;
+ /** Live grain velocities, m/s. Triples, capacity-major. */
+ vel: Float32Array;
+ /** Seconds a grain has been alive. */
+ age: Float32Array;
+ /** Seconds a grain will live for. */
+ life: Float32Array;
+ /** Grain radius, metres. */
+ size: Float32Array;
+ /** Per-grain random, 0..1. */
+ seed: Float32Array;
+ /** 0 = powder puff, 1 = heavy clod. Drives edge hardness and opacity. */
+ kind: Float32Array;
+ /** Linear drag coefficient, 1/s. Separate from `kind` on purpose. */
+ drag: Float32Array;
+ /** Index of the next slot to try. Wraps; a live slot is skipped. */
+ _next: number;
+ liveCount: number;
+ /** Texture rows: 0 = (x, y, z, size), 1 = (age01, seed, kind, alpha). */
+ _texData: Float32Array;
+ dataTex: THREE.DataTexture;
+ /** This frame's jittered view-projection. */
+ _vp: THREE.Matrix4;
+ _camPos: THREE.Vector3;
+ _right: THREE.Vector3;
+ _up: THREE.Vector3;
+ mesh: THREE.Mesh & { metadata: { triangles: number; vertices: number } };
+ material: THREE.RawShaderMaterial;
+ _t: number;
+
+ constructor(gfx: GfxLike, terrain: HeightQuery | null, sky: SkyLike | null, shadows: ShadowLike | null) {
   this.gfx = gfx;
   this.terrain = terrain || null;
   this.sky = sky || null;
@@ -67,24 +181,11 @@ export class SprayField {
   this.life = new Float32Array(CAPACITY);
   this.size = new Float32Array(CAPACITY);
   this.seed = new Float32Array(CAPACITY);
-  /** 0 = powder puff, 1 = heavy clod. Drives edge hardness and opacity. */
   this.kind = new Float32Array(CAPACITY);
-  /**
-   * Linear drag coefficient, 1/s. Separate from `kind` on purpose.
-   *
-   * A plume has to look like powder — soft-edged, translucent, puffy —
-   * and fly like a stone, because it is a mass of snow launched off a
-   * wave at eight metres a second rather than a grain drifting down. With
-   * drag welded to appearance, asking for the look costs 5.2/s of drag,
-   * which stops the grain dead in 120 ms and inside the wave that threw
-   * it.
-   */
   this.drag = new Float32Array(CAPACITY);
-  /** Index of the next slot to try. Wraps; a live slot is skipped. */
   this._next = 0;
   this.liveCount = 0;
 
-  // Texture rows: 0 = (x, y, z, size), 1 = (age01, seed, kind, alpha).
   this._texData = new Float32Array(CAPACITY * 2 * 4);
   this.dataTex = new THREE.DataTexture(
    this._texData, CAPACITY, 2, THREE.RGBAFormat, THREE.FloatType
@@ -120,7 +221,11 @@ export class SprayField {
   const vp = this._vp;
   const right = this._right;
   const up = this._up;
-  this.mesh.onBeforeRender = (renderer: any, scene: any, camera: any) => {
+  this.mesh.onBeforeRender = (
+   renderer: THREE.WebGLRenderer,
+   scene: THREE.Scene,
+   camera: THREE.Camera & { projectionMatrix: THREE.Matrix4; matrixWorldInverse: THREE.Matrix4 }
+  ) => {
    vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
    const v = camera.matrixWorldInverse.elements;
    // Billboard basis, straight off the LH view matrix.
@@ -141,7 +246,7 @@ export class SprayField {
   // spell-light slots), so it is typed by shape rather than inferred as a
   // closed object literal. `unknown` because the values are only ever handed
   // to `makeMaterial`/three, never read back through this alias here.
-  const uniforms: Record<string, { value: unknown }> = {
+  const uniforms: Record<string, Uniform> = {
    viewProjection: { value: this._vp },
    cameraPos: { value: this._camPos },
    camRight: { value: this._right },
@@ -160,9 +265,9 @@ export class SprayField {
     value: sh && sh.splitsVec4 ? sh.splitsVec4 : new THREE.Vector4(26, 95, 330, 330),
    },
    cascadeParams: { value: sh && sh.paramData ? sh.paramData : new Float32Array(12) },
-   shadowTexel: { value: sh && sh.texelSize ? sh.texelSize : 1 / 2048 },
-   shadowSoftness: { value: 1.6 },
-   shadowBias: { value: 0.05 },
+   shadowTexel: { value: sh && sh.texelSize ? sh.texelSize : FALLBACK_SHADOW_TEXEL },
+   shadowSoftness: { value: SHADOW_SOFTNESS },
+   shadowBias: { value: SHADOW_BIAS },
 
    fogDensity: { value: S.fogDensity },
    fogHeightFalloff: { value: S.fogHeightFalloff },
@@ -208,7 +313,18 @@ export class SprayField {
   * @param {number} [drag] 1/s. Defaults to the fall-in-place value for a
   *   grain of settling powder; pass something near 1 for anything thrown.
   */
- emit(x: any, y: any, z: any, vx: any, vy: any, vz: any, size: any, life: any, kind: any, drag: any) {
+ emit(
+  x: number, y: number, z: number,
+  vx: number, vy: number, vz: number,
+  /** radius, metres */
+  size: number,
+  /** seconds */
+  life: number,
+  /** 0 powder, 1 clod — appearance only */
+  kind: number,
+  /** 1/s. Omit for the kind-derived default. */
+  drag?: number
+ ) {
   // Find a free slot. Bounded scan: after CAPACITY tries the pool is full
   // and the emission is simply dropped, which at these counts never
   // happens and is the right failure anyway — a hitch is worse than a
@@ -228,8 +344,10 @@ export class SprayField {
   this.life[i] = life;
   this.size[i] = size;
   this.kind[i] = kind;
-  this.drag[i] = drag === undefined ? (kind > 0.5 ? 1.1 : 5.2) : drag;
-  this.seed[i] = (i * 0.618033 + x * 0.137 + z * 0.311) % 1;
+  this.drag[i] = drag === undefined ? (kind > CLOD_KIND ? CLOD_DRAG : POWDER_DRAG) : drag;
+  // Fibonacci-sphere hash: the golden angle as a fraction of a turn, with the
+  // conventional coprime x and z weights.
+  this.seed[i] = (i * GOLDEN_ANGLE_FRACTION + x * SEED_X_WEIGHT + z * SEED_Z_WEIGHT) % 1;
  }
 
  /**
@@ -237,14 +355,16 @@ export class SprayField {
   * @param {number} dt
   * @param {THREE.Vector3} cameraPos
   */
- update(dt: any, cameraPos: any) {
+ update(dt: number, cameraPos: THREE.Vector3) {
   this._t += dt;
   this._camPos.copy(cameraPos);
 
-  const h = Math.min(dt, 1 / 30);
-  const wa = (/** @type {number} */ (S.windDirection) * Math.PI) / 180;
-  const wx = Math.sin(wa) * 2.4 * /** @type {number} */ (S.windStrength);
-  const wz = Math.cos(wa) * 2.4 * /** @type {number} */ (S.windStrength);
+  // Substepped clamp rather than a fixed step: a hitch must not launch a
+  // grain the length of a dune, but slow frames must still advance.
+  const h = Math.min(dt, MAX_STEP);
+  const wa = ((S.windDirection as number) * Math.PI) / 180;
+  const wx = Math.sin(wa) * WIND_SCALE * (S.windStrength as number);
+  const wz = Math.cos(wa) * WIND_SCALE * (S.windStrength as number);
 
   const terrain = this.terrain;
   const d = this._texData;
@@ -273,7 +393,7 @@ export class SprayField {
    const vy = this.vel[o + 1];
    this.vel[o] += (wx - this.vel[o]) * Math.min(1, k * h);
    this.vel[o + 2] += (wz - this.vel[o + 2]) * Math.min(1, k * h);
-   this.vel[o + 1] = vy + (-9.81 - k * (vy + TERMINAL)) * h;
+   this.vel[o + 1] = vy - (GRAVITY + k * (vy + TERMINAL)) * h;
 
    this.pos[o] += this.vel[o] * h;
    this.pos[o + 1] += this.vel[o + 1] * h;
@@ -285,17 +405,17 @@ export class SprayField {
     const g = terrain.heightAt(this.pos[o], this.pos[o + 2]);
     if (this.pos[o + 1] < g) {
      this.pos[o + 1] = g;
-     this.vel[o] *= 0.2; this.vel[o + 1] = 0; this.vel[o + 2] *= 0.2;
+     this.vel[o] *= SETTLE_FRICTION; this.vel[o + 1] = 0; this.vel[o + 2] *= SETTLE_FRICTION;
      // Kill it faster once it is down.
-     this.age[i] += h * 2.5;
+     this.age[i] += h * SETTLE_AGE_MULTIPLIER;
     }
    }
 
    // Puffs expand as they disperse; clods do not.
-   const grow = this.kind[i] > 0.5 ? 1.0 : 1.0 + a01 * 1.3;
+   const grow = this.kind[i] > CLOD_KIND ? 1.0 : 1.0 + a01 * POWDER_GROWTH;
    // Fade in fast, out slowly.
    const alpha =
-    Math.min(1, a01 * 8) * (1 - a01) * (1 - a01);
+    Math.min(1, a01 * FADE_IN_STRENGTH) * (1 - a01) * (1 - a01);
 
    d[to] = this.pos[o];
    d[to + 1] = this.pos[o + 1];
@@ -319,8 +439,8 @@ export class SprayField {
   // Shared objects — sunDir/sunRadiance/shR, the cascade block, the
   // billboard basis, the view-projection — are bound by reference and
   // mutated in place by their owners; only plain numbers move here.
-  u.shadowSoftness.value = 1.6;
-  u.shadowBias.value = 0.05;
+  u.shadowSoftness.value = SHADOW_SOFTNESS;
+  u.shadowBias.value = SHADOW_BIAS;
 
   u.fogDensity.value = S.fogDensity;
   u.fogHeightFalloff.value = S.fogHeightFalloff;

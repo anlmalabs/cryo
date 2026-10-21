@@ -23,15 +23,60 @@ import { whenReady, makeMaterial } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 import { CASCADE_COUNT } from "../render/shadows.js";
 
+import type { Gfx } from "../core/gfx.js";
+import type { Sky } from "../render/sky.js";
+import type { ShadowSystem } from "../render/shadows.js";
+import type { SpellLights } from "./spellLights.js";
+import type { CameraRig } from "../core/camera.js";
+import type { DepthPass } from "../render/depthPass.js";
+
 /** Pool size. Two full formations' worth. */
 export const CRYSTAL_MAX = 96;
 
 /** Vertices per crystal: two rings of six, plus an apex. Matches the include. */
 export const VERTS = 13;
+
 export const RING = 6;
 
 /** How many cascades a 40 cm prism is worth drawing into. */
 export const CRYSTAL_CASCADES = 2;
+
+/**
+ * Seconds a spent prism takes to retreat from full size to nothing.
+ *
+ * Sublimation is a linear shrink rather than a fade, so the prism goes back
+ * into the drift it came out of and nothing pops.
+ */
+export const SUBLIME_SECONDS = 6.0;
+
+/**
+ * Metres the warm-up crystal is planted *above* its ground point.
+ *
+ * It must not intersect the snow: a prism merged into the surface during
+ * warm-up would compile a pipeline whose blend/depth state no longer matches
+ * the first real cast.
+ */
+export const WARM_UP_LIFT = 0.02;
+
+/**
+ * Fractional parts of the Fibonacci-sphere vertex seed.
+ *
+ * The seed is the golden-angle series over the crystal index plus a pair of
+ * standard dimensionless weights on the world x and z, taken mod 1 to give a
+ * stable quasi-random value in [0, 1) that is the same crystal in every frame
+ * and every camera position. No two indices share a value however many
+ * crystals are alive, so a shader can tint or jitter per crystal off the seed
+ * without ever seeing a correlation.
+ *
+ * `GOLDEN_ANGLE` is π(3 − √5) ≈ 2.39996323 expressed as a fraction of a turn,
+ * i.e. the ratio that makes the sequence maximally equidistributed;
+ * `SEED_X_WEIGHT` and `SEED_Z_WEIGHT` are the conventional coprime weights
+ * used to decorrelate the three inputs. See also
+ * `src/vfx/particles.ts`, which uses the same family.
+ */
+export const GOLDEN_ANGLE = 0.618034;
+export const SEED_X_WEIGHT = 0.137;
+export const SEED_Z_WEIGHT = 0.311;
 
 /**
  * Fallback fragment bodies (G1): the depth and prepass fragments are owned by
@@ -40,6 +85,7 @@ export const CRYSTAL_CASCADES = 2;
  * (viewZ, mask) for the prepass — so a missing peer costs nothing but a
  * console warning.
  */
+
 const DEPTH_FRAG_FALLBACK = `precision highp float;
 precision highp int;
 layout(location = 0) out vec4 fragColor;
@@ -57,8 +103,9 @@ void main() {
     fragColor = vec4(vViewZ, vMask, 0.0, 1.0);
 }
 `;
+
 /** @param {string} name @param {string} fallback */
-function shaderOr(name: any, fallback: any) {
+function shaderOr(name: string, fallback: string): string {
  try {
   return getShader(name);
  } catch (err) {
@@ -67,31 +114,66 @@ function shaderOr(name: any, fallback: any) {
  }
 }
 
-/** @param {import("../render/sky.js").Sky} sky @param {import("../core/gfx.js").Gfx} gfx */
-function lutTexture(sky: any, gfx: any) {
- const lut = /** @type {THREE.Texture | { isTexture?: boolean; texture?: THREE.Texture }} */ (sky && sky.lut);
- if (!lut) return gfx.blackTex;
- if (lut.isTexture) return /** @type {THREE.Texture} */ (lut);
- if (lut.texture) return lut.texture;
- return gfx.blackTex;
+/**
+ * The slice of `Sky` these materials bind.
+ *
+ * `lut` is either the texture itself or a render-target wrapper carrying one,
+ * because a peer may expose the raw texture or the target it was rendered to.
+ */
+interface LutSource {
+ lut?: THREE.Texture | { texture?: THREE.Texture };
+ sunDir?: THREE.Vector3;
+ sunRadiance?: THREE.Color;
+ sh?: Float32Array;
 }
 
-/** @param {import("../render/shadows.js").ShadowSystem} shadows @param {number} i @param {import("../core/gfx.js").Gfx} gfx */
-function cascadeTexture(shadows: any, i: any, gfx: any) {
+/** @param {LutSource | null | undefined} sky @param {Gfx} gfx */
+function lutTexture(sky: LutSource | null | undefined, gfx: Gfx): THREE.Texture {
+ const lut = sky && sky.lut;
+ if (lut instanceof THREE.Texture) return lut;
+ return (lut && lut.texture) || gfx.blackTex;
+}
+
+/** @param {ShadowSystem | null | undefined} shadows @param {number} i @param {Gfx} gfx */
+function cascadeTexture(
+ shadows: ShadowSystem | null | undefined,
+ i: number,
+ gfx: Gfx,
+): THREE.Texture {
  const map = shadows && shadows.maps && shadows.maps[i];
- return map || gfx.blackTex;
+ return map ?? gfx.blackTex;
 }
 
 export class CrystalField {
- [key: string]: any;
- /**
-  * @param {import("../core/gfx.js").Gfx} gfx
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
-  * @param {import("./spellLights.js").SpellLights} lights
-  * @param {import("../core/camera.js").CameraRig} rig
-  */
- constructor(gfx: any, sky: any, shadows: any, lights: any, rig: any) {
+ gfx!: Gfx;
+ sky!: Sky | null;
+ shadows!: ShadowSystem | null;
+ lights!: SpellLights;
+ rig!: CameraRig | null;
+ _texData!: Float32Array;
+ dataTex!: THREE.DataTexture;
+ age!: Float32Array;
+ life!: Float32Array;
+ /** Seconds the crystal spends growing from nothing to full size. */
+ grow!: Float32Array;
+ alive!: Uint8Array;
+ _next = 0;
+ liveCount = 0;
+ _camPos!: THREE.Vector3;
+ _dirty = true;
+ mesh!: THREE.Mesh & { metadata: { triangles: number; vertices: number } };
+ material!: THREE.RawShaderMaterial;
+ /** @type {THREE.RawShaderMaterial[]} */
+ _depthMats!: THREE.RawShaderMaterial[];
+ prepassMat!: THREE.RawShaderMaterial | undefined;
+
+ constructor(
+  gfx: Gfx,
+  sky: Sky | null,
+  shadows: ShadowSystem | null,
+  lights: SpellLights,
+  rig: CameraRig | null,
+ ) {
   this.gfx = gfx;
   this.sky = sky;
   this.shadows = shadows;
@@ -141,7 +223,7 @@ export class CrystalField {
   this._depthMats = [];
   if (shadows && shadows.registerCaster) {
    shadows.registerCaster(
-    this.mesh, (c: any) => this._makeDepthMaterial(c), CRYSTAL_CASCADES
+    this.mesh, (c: number) => this._makeDepthMaterial(c), CRYSTAL_CASCADES
    );
   }
  }
@@ -218,8 +300,9 @@ export class CrystalField {
    side: THREE.DoubleSide,
   });
  }
+
  /** @param {number} cascade */
- _makeDepthMaterial(cascade: any) {
+ _makeDepthMaterial(cascade: number) {
   const mat = makeMaterial({
    name: "crystalDepth" + cascade,
    vertex: getShader("crystalDepthVertexShader"),
@@ -243,9 +326,9 @@ export class CrystalField {
   * snow, so the reflection pass can early-out on it and cost nothing on every
   * frame where nobody has cast Crystallise.
   *
-  * @param {import("../render/depthPass.js").DepthPass} depth
+  * @param {DepthPass} depth
   */
- registerPrepass(depth: any) {
+ registerPrepass(depth: DepthPass) {
   const mat = makeMaterial({
    name: "crystalPrepass",
    vertex: getShader("crystalPrepassVertexShader"),
@@ -274,7 +357,12 @@ export class CrystalField {
   * @param {number} growSeconds time from nothing to full size
   * @param {number} life seconds before it starts sublimating
   */
- plant(x: any, y: any, z: any, ax: any, ay: any, az: any, height: any, radius: any, growSeconds: any, life: any) {
+ plant(
+  x: number, y: number, z: number,
+  ax: number, ay: number, az: number,
+  height: number, radius: number,
+  growSeconds: number, life: number,
+ ) {
   let i = this._next;
   for (let n = 0; n < CRYSTAL_MAX; n++) {
    if (!this.alive[i]) break;
@@ -294,7 +382,8 @@ export class CrystalField {
   o += w;
   d[o] = ax; d[o + 1] = ay; d[o + 2] = az; d[o + 3] = radius;
   o += w;
-  d[o] = 0; d[o + 1] = (i * 0.618034 + x * 0.137 + z * 0.311) % 1;
+  d[o] = 0;
+  d[o + 1] = (i * GOLDEN_ANGLE + x * SEED_X_WEIGHT + z * SEED_Z_WEIGHT) % 1;
   d[o + 2] = 0; d[o + 3] = 0;
 
   this.age[i] = 0;
@@ -309,7 +398,7 @@ export class CrystalField {
   * @param {number} dt
   * @param {THREE.Vector3} cameraPos
   */
- update(dt: any, cameraPos: any) {
+ update(dt: number, cameraPos: THREE.Vector3) {
   this._camPos.copy(cameraPos);
 
   const d = this._texData;
@@ -331,7 +420,7 @@ export class CrystalField {
    } else {
     // Sublimation: the prism retreats rather than fading, so it goes
     // back into the drift it came out of. Nothing here pops.
-    const t = (a - life) / 6.0;
+    const t = (a - life) / SUBLIME_SECONDS;
     if (t >= 1) {
      this.alive[i] = 0;
      d[growRow + i * 4] = 0;
@@ -346,7 +435,7 @@ export class CrystalField {
   }
 
   this.liveCount = live;
-  this.mesh.visible = live > 0 && S.showSpells !== false;
+  this.mesh.visible = live > 0 && S.showSpells;
 
   if (this.mesh.visible || this._dirty) {
    this.dataTex.needsUpdate = true;
@@ -401,13 +490,22 @@ export class CrystalField {
   * cost onto the first cast, where it measured 156 ms in the original.
  * @param {number} x @param {number} y @param {number} z
  */
- async warmUp(x: any, y: any, z: any) {
-  this.plant(x, y + 0.02, z, 0.1, 1, 0.05, 0.6, 0.09, 0.2, 999);
+ async warmUp(x: number, y: number, z: number) {
+  this.plant(
+   x, y + WARM_UP_LIFT, z,
+   0.1, 1, 0.05,
+   0.6, 0.09,
+   0.2, 999,
+  );
   this.update(0.21, this._camPos);
   this.mesh.visible = true;
   this._pushUniforms();
 
   await whenReady(this.gfx, this.material, "crystal material");
+  // Deliberately serial: `whenReady` compiles through `gpuUtil`'s single
+  // shared `_compileScene`, adding a mesh and removing it again around each
+  // call. Two of these in flight at once would strip out a mesh the other has
+  // not compiled yet, so the awaits have to be sequenced.
   for (let i = 0; i < this._depthMats.length; i++) {
    await whenReady(this.gfx, this._depthMats[i], this._depthMats[i].name);
   }

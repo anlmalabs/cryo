@@ -26,21 +26,89 @@ import * as THREE from "three";
 
 import { Figure, BONE_COUNT } from "./figure.js";
 import { makePanels, ClothSolver } from "./cloth.js";
+import type { ClothPanel } from "./cloth.js";
 import { buildBody, buildFur, buildClothMesh } from "./build.js";
 import { S } from "../core/settings.js";
 import { makeMaterial, whenReady } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 import { CASCADE_COUNT } from "../render/shadows.js";
+import type { ShadowSystem } from "../render/shadows.js";
 import { SPELL_LIGHT_UNIFORMS } from "../spells/spellLights.js";
+import type { Gfx } from "../core/gfx.js";
+import type { Terrain } from "../terrain/terrain.js";
+import type { Sky } from "../render/sky.js";
+import type { DepthPass } from "../render/depthPass.js";
+import type { CharacterController } from "./controller.js";
 
 /** Transform texture geometry. Width covers the widest of bones or panel cols. */
 const TEX_W = 48;
+
 const TEX_H = 64;
+
 /** First texture row available to cloth panels; 0-3 are the bone matrices. */
 const CLOTH_ROW0 = 4;
 
 /** How many cascades the figure casts into. See `ShadowSystem.registerCaster`. */
 const CHAR_CASCADES = 2;
+
+/** How many material slots the palette uploads. Two vec4 arrays, one per part. */
+const PALETTE_SLOTS = 8;
+
+/** RGBA floats per palette slot. */
+const PALETTE_FLOATS = 4;
+
+/** Byte layout of the palette uniforms: 8 slots x 4 floats. */
+const PALETTE_STRIDE = PALETTE_SLOTS * PALETTE_FLOATS;
+
+/** Draw-list render order for the opaque character meshes (§4.4). */
+const BODY_RENDER_ORDER = 10;
+
+/** The fur sorts last within the opaque group — its `discard` wants solid depth laid down first. */
+const FUR_RENDER_ORDER = 10.5;
+
+/**
+ * Shadow-map texel size of the fallback (no `ShadowSystem`) stub: one texel of
+ * a 2048² map, so a stubbed lookup samples the whole cascade rather than a dot.
+ */
+const STUB_SHADOW_TEXEL = 1 / 2048;
+
+/** Cascade split distances of the fallback stub: near, mid, far, far. Metres. */
+const STUB_SPLITS = [26, 95, 330, 330];
+
+/** Threads per metre of the coarse hand-woven wool in the fabric shader. */
+const WEAVE_DENSITY = 210;
+
+/** Shell-fur strands per metre of hem. */
+const FUR_DENSITY = 250;
+
+/**
+ * Fur droop, as tip travel in metres.
+ *
+ * Three terms: the wind laid flat, the craft's own forward acceleration
+ * thrown the other way, and gravity hard-wired to the vertical. All three are
+ * scaled to metres so the droop stays a small, physical displacement at any
+ * speed.
+ */
+/** Wind term, metres per (rad/s of wind). */
+const FUR_WIND_TRAVEL = 0.006;
+
+/** Velocity term, metres per (m/s of character velocity). */
+const FUR_VEL_TRAVEL = 0.0016;
+
+/** Acceleration term, metres per (m/s²) — the sharpest response of the three. */
+const FUR_ACC_TRAVEL = 0.00018;
+
+/** Rest droop with no wind and no motion, metres. */
+const FUR_REST_DROOP = -0.018;
+
+/** Floats per panel in `_panelParams`: rowBase, cols, rows, unused. */
+const PANEL_PARAM_FLOATS = 4;
+
+/** Maximum panel count `_panelParams` is sized for. */
+const PANEL_PARAM_PANELS = 6;
+
+/** Fur-droop wind scale: how much of the configured wind leaning reaches the tips. */
+const FUR_WIND_SCALE = 0.6;
 
 /**
  * Material palette. Eight slots, uploaded as two vec4 arrays so every value is
@@ -103,13 +171,21 @@ const _furCol = new THREE.Color(0.74, 0.755, 0.795);
  * chain has jittered the projection and `gfx.syncTokenCamera` has copied it.
  */
 const _viewProjection = new THREE.Matrix4();
-/** @param {unknown} renderer @param {unknown} scene @param {unknown} camera */
-function _refreshViewProjection(renderer: any, scene: any, camera: any) {
- _viewProjection.multiplyMatrices((/** @type {THREE.Camera} */ (camera)).projectionMatrix, (/** @type {THREE.Camera} */ (camera)).matrixWorldInverse);
+
+/**
+ * `onBeforeRender` hook: rebuild the shared `viewProjection` from the token
+ * camera. Three passes the renderer and the scene too; neither is used here,
+ * so they keep the underscore names rather than disappearing from the arity.
+ * @param {unknown} _renderer
+ * @param {unknown} _scene
+ * @param {THREE.Camera} camera
+ */
+function _refreshViewProjection(_renderer: unknown, _scene: unknown, camera: THREE.Camera) {
+ _viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
 }
 
 /** @param {string} name @param {string} fallback */
-function shaderOr(name: any, fallback: any) {
+function shaderOr(name: string, fallback: string) {
  try {
   return getShader(name);
  } catch (err) {
@@ -143,16 +219,85 @@ void main() {
 }
 `;
 
+/** One uniform slot: the value objects shared across character materials. */
+type Uniforms = Record<string, { value: unknown }>;
+
+/**
+ * The build metadata `finishSkinned` attaches to every character mesh. Three
+ * has no such field, so the builder casts and we name the shape once.
+ */
+export interface CharacterMeshMetadata {
+ /** Triangles the mesh draws, for the perf HUD. */
+ triangles: number;
+ /** Vertex count of the solid halves; absent on the shell-fur mesh. */
+ vertices?: number;
+ /** True on the shell-fur mesh, which wires no solid geometry. */
+ fur?: boolean;
+}
+
+/** A character mesh carries the build metadata `finishSkinned` attaches. */
+type CharacterMesh = THREE.Mesh & { metadata: CharacterMeshMetadata };
+
 export class Character {
- [key: string]: any;
+ /** @type {import("../core/gfx.js").Gfx} */
+ gfx!: Gfx;
+ /** @type {import("../terrain/terrain.js").Terrain} */
+ terrain!: Terrain;
+ /** @type {import("../render/sky.js").Sky|null} */
+ sky!: Sky | null;
+ /** @type {import("../render/shadows.js").ShadowSystem|null} */
+ shadows!: ShadowSystem | null;
+ /** @type {import("./controller.js").CharacterController} */
+ controller!: CharacterController;
+ /** @type {import("./figure.js").Figure} */
+ figure!: Figure;
+ /** @type {import("./cloth.js").ClothPanel[]} */
+ panels!: ClothPanel[];
+ /** @type {import("./cloth.js").ClothSolver} */
+ solver!: ClothSolver;
+
+ /** Transform-texture backing store, RGBA float, one row per panel row. */
+ _texData!: Float32Array;
+ /** Flat (rowBase, cols, rows, 0) per panel, for the vertex shaders. */
+ _panelParams!: Float32Array;
+ charTex!: THREE.DataTexture;
+ _matAlbedo!: Float32Array;
+ _matParams!: Float32Array;
+
+ _cameraPos!: THREE.Vector3;
+ _lut!: unknown;
+ _sunDir!: THREE.Vector3;
+ _sunRadiance!: THREE.Color;
+ _shR!: Float32Array;
+ _cascadeTex!: THREE.Texture[];
+ _cascadeMatrices!: THREE.Matrix4[];
+ _cascadeParams!: Float32Array;
+ _splits!: THREE.Vector4;
+ _shadowTexel!: number;
+
+ bodyMesh!: CharacterMesh;
+ clothMesh!: CharacterMesh;
+ furMesh!: CharacterMesh;
+ bodyMat!: THREE.RawShaderMaterial;
+ clothMat!: THREE.RawShaderMaterial;
+ furMat!: THREE.RawShaderMaterial;
+
+ _depthMats!: THREE.RawShaderMaterial[];
+ _prepassMats!: THREE.RawShaderMaterial[] | null;
+ triangles!: number;
+ _mats!: THREE.RawShaderMaterial[];
+ _fabricMats!: THREE.RawShaderMaterial[];
+ _needSettle!: boolean;
+ _visible!: boolean;
+
  /**
   * @param {import("../core/gfx.js").Gfx} gfx
   * @param {import("../terrain/terrain.js").Terrain} terrain
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
+  * @param {import("../render/sky.js").Sky|null} sky
+  * @param {import("../render/shadows.js").ShadowSystem|null} shadows
   * @param {import("./controller.js").CharacterController} controller
   */
- constructor(gfx: any, terrain: any, sky: any, shadows: any, controller: any) {
+ constructor(gfx: Gfx, terrain: Terrain, sky: Sky | null, shadows: ShadowSystem | null, controller: CharacterController) {
   this.gfx = gfx;
   this.terrain = terrain;
   this.sky = sky;
@@ -167,7 +312,7 @@ export class Character {
   this._texData = new Float32Array(TEX_W * TEX_H * 4);
   let row = CLOTH_ROW0;
   /** Flat (rowBase, cols, rows, 0) per panel, for the vertex shaders. */
-  this._panelParams = new Float32Array(6 * 4);
+  this._panelParams = new Float32Array(PANEL_PARAM_PANELS * PANEL_PARAM_FLOATS);
   for (let i = 0; i < this.panels.length; i++) {
    const p = this.panels[i];
    if (p.cols > TEX_W) throw new Error(`panel ${p.name} is ${p.cols} columns wide, wider than the transform texture's ${TEX_W} — raise TEX_W above ${p.cols} or reduce that panel's \`cols\`.`);
@@ -194,10 +339,10 @@ export class Character {
   this.charTex.needsUpdate = true;
 
   // ---- palette ------------------------------------------------------
-  this._matAlbedo = new Float32Array(32);
-  this._matParams = new Float32Array(32);
-  for (let i = 0; i < 8; i++) {
-   for (let k = 0; k < 4; k++) {
+  this._matAlbedo = new Float32Array(PALETTE_STRIDE);
+  this._matParams = new Float32Array(PALETTE_STRIDE);
+  for (let i = 0; i < PALETTE_SLOTS; i++) {
+   for (let k = 0; k < PALETTE_FLOATS; k++) {
     this._matAlbedo[i * 4 + k] = PALETTE[i][k];
     this._matParams[i * 4 + k] = PARAMS[i][k];
    }
@@ -224,10 +369,15 @@ export class Character {
    : new Float32Array(12);
   this._splits = shadows && shadows.splitsVec4
    ? shadows.splitsVec4
-   : new THREE.Vector4(26, 95, 330, 330);
-  this._shadowTexel = shadows && shadows.texelSize ? shadows.texelSize : 1 / 2048;
+   : new THREE.Vector4(STUB_SPLITS[0], STUB_SPLITS[1], STUB_SPLITS[2], STUB_SPLITS[3]);
+  this._shadowTexel = shadows && shadows.texelSize ? shadows.texelSize : STUB_SHADOW_TEXEL;
 
   // ---- meshes and materials -----------------------------------------
+  // The builders return a bare `THREE.Mesh` today, although every one of them
+  // attaches its triangle/vertex/fur counts to `metadata` on the way out
+  // (`finishSkinned`). The declared return type does not say so yet, so the
+  // reads below stay honest by trusting the declared type — see
+  // `CharacterMeshMetadata` and the note on `triangles`.
   this.bodyMesh = buildBody(gfx);
   this.clothMesh = buildClothMesh(gfx, this.panels);
   this.furMesh = buildFur(gfx);
@@ -243,9 +393,9 @@ export class Character {
   // Opaque scene group (§4.4): body and cloth at 10; the fur draws last
   // within the group — its `discard` disables early-Z, so it wants every
   // opaque depth already laid down when it runs.
-  gfx.addMesh(this.bodyMesh, gfx.LAYER.OPAQUE, 10);
-  gfx.addMesh(this.clothMesh, gfx.LAYER.OPAQUE, 10);
-  gfx.addMesh(this.furMesh, gfx.LAYER.OPAQUE, 10.5);
+  gfx.addMesh(this.bodyMesh, gfx.LAYER.OPAQUE, BODY_RENDER_ORDER);
+  gfx.addMesh(this.clothMesh, gfx.LAYER.OPAQUE, BODY_RENDER_ORDER);
+  gfx.addMesh(this.furMesh, gfx.LAYER.OPAQUE, FUR_RENDER_ORDER);
 
   for (const m of [this.bodyMesh, this.clothMesh, this.furMesh]) {
    m.onBeforeRender = _refreshViewProjection;
@@ -255,10 +405,10 @@ export class Character {
   this._depthMats = [];
   if (shadows && shadows.registerCaster) {
    shadows.registerCaster(
-    this.bodyMesh, (c: any) => this._makeDepthMaterial("charDepth", c, false), CHAR_CASCADES
+    this.bodyMesh, (c: number) => this._makeDepthMaterial("charDepth", c, false), CHAR_CASCADES
    );
    shadows.registerCaster(
-    this.clothMesh, (c: any) => this._makeDepthMaterial("clothDepth", c, true), CHAR_CASCADES
+    this.clothMesh, (c: number) => this._makeDepthMaterial("clothDepth", c, true), CHAR_CASCADES
    );
   }
   // Fur is not registered as a caster. Its shadow lands inside the hood's
@@ -267,9 +417,9 @@ export class Character {
   // order of magnitude softer than that.
 
   this.triangles =
-   /** @type {{ metadata: { triangles: number } }} */ (/** @type {unknown} */ (this.bodyMesh)).metadata.triangles +
-   /** @type {{ metadata: { triangles: number } }} */ (/** @type {unknown} */ (this.clothMesh)).metadata.triangles +
-   /** @type {{ metadata: { triangles: number } }} */ (/** @type {unknown} */ (this.furMesh)).metadata.triangles;
+   this.bodyMesh.metadata.triangles +
+   this.clothMesh.metadata.triangles +
+   this.furMesh.metadata.triangles;
 
   this._mats = [this.bodyMat, this.clothMat, this.furMat];
   this._fabricMats = [this.bodyMat, this.clothMat];
@@ -284,7 +434,7 @@ export class Character {
   * objects* across materials — the rig/sky/shadow systems mutate them in
   * place and Three re-uploads per draw, so `sync` never copies matrices.
  /** @returns {Record<string, { value: unknown }>} */
- _sharedUniforms(): Record<string, { value: unknown }> {
+ _sharedUniforms(): Uniforms {
   return {
    viewProjection: { value: _viewProjection },
    cameraPos: { value: this._cameraPos },
@@ -319,7 +469,7 @@ export class Character {
   * vertex program — the fabric shading, the shadow lookup and the aerial
   * perspective are literally the same code.
 /** @param {string} name @param {string} vertex @param {string} fragment @param {boolean} isCloth */
- _makeSurfaceMaterial(name: any, vertex: any, fragment: any, isCloth: any) {
+ _makeSurfaceMaterial(name: string, vertex: string, fragment: string, isCloth: boolean): THREE.RawShaderMaterial {
   const uniforms = this._sharedUniforms();
   uniforms.matAlbedo = { value: this._matAlbedo };
   uniforms.matParams = { value: this._matParams };
@@ -327,7 +477,7 @@ export class Character {
   // Threads per metre. Coarse hand-woven wool, which is what puts the
   // weave right at the edge of visibility at the distance the figure
   // is normally framed — present in a close-up, gone by ten metres.
-  uniforms.weaveDensity = { value: 210 };
+  uniforms.weaveDensity = { value: WEAVE_DENSITY };
   uniforms.screenSize = { value: _screen };
   for (const key of SPELL_LIGHT_UNIFORMS) {
    uniforms[key] = { value: key === "spellLightCount" ? 0 : new Float32Array(16) };
@@ -349,7 +499,7 @@ export class Character {
  _makeFurMaterial() {
   const uniforms = this._sharedUniforms();
   uniforms.furDroop = { value: _droop };
-  uniforms.furDensity = { value: 250 };
+  uniforms.furDensity = { value: FUR_DENSITY };
   uniforms.furColor = { value: _furCol };
 
   return makeMaterial({
@@ -361,8 +511,8 @@ export class Character {
   });
  }
  /** @param {string} vertex @param {number} cascade @param {boolean} isCloth */
- _makeDepthMaterial(vertex: any, cascade: any, isCloth: any) {
-  const uniforms: Record<string, { value: unknown }> = {
+ _makeDepthMaterial(vertex: string, cascade: number, isCloth: boolean): THREE.RawShaderMaterial {
+  const uniforms: Uniforms = {
    // One material instance per cascade, each holding its own matrix —
    // the ShadowSystem writes into it every refit. No mid-pass juggling.
    lightViewProjection: { value: new THREE.Matrix4() },
@@ -390,13 +540,13 @@ export class Character {
   *
   * @param {import("../render/depthPass.js").DepthPass} depth
   */
- registerPrepass(depth: any) {
-  this._prepassMats = /** @type {THREE.Material[]} */ ([]);
+ registerPrepass(depth: DepthPass | null) {
+  this._prepassMats = [];
   for (const spec of [
    { mesh: this.bodyMesh, vertex: "charPrepass", cloth: false },
    { mesh: this.clothMesh, vertex: "clothPrepass", cloth: true },
   ]) {
-   const uniforms: Record<string, { value: unknown }> = {
+   const uniforms: Uniforms = {
     viewProjection: { value: _viewProjection },
     charTex: { value: this.charTex },
    };
@@ -413,7 +563,7 @@ export class Character {
   }
  }
  /** @param {boolean} v */
- setVisible(v: any) {
+ setVisible(v: boolean) {
   this._visible = !!v;
   this.bodyMesh.visible = this._visible;
   this.clothMesh.visible = this._visible;
@@ -430,7 +580,7 @@ export class Character {
   *
   * @param {number} dt
   */
- update(dt: any) {
+ update(dt: number) {
   const ch = this.controller;
   this.figure.update(dt, ch);
   if (this._needSettle) {
@@ -452,7 +602,7 @@ export class Character {
   *
   * @param {THREE.Vector3} cameraPos
   */
- sync(cameraPos: any) {
+ sync(cameraPos: THREE.Vector3) {
   this._cameraPos.copy(cameraPos);
   this._pushUniforms();
  }
@@ -526,11 +676,13 @@ export class Character {
   // Fur droop: gravity, plus the apparent wind, plus the character's own
   // acceleration thrown the other way. Scaled to metres of tip travel.
   const a = (/** @type {number} */ (S.windDirection) * Math.PI) / 180;
-  const ws = 0.6 * /** @type {number} */ (S.windStrength);
+  const ws = FUR_WIND_SCALE * /** @type {number} */ (S.windStrength);
   _droop.set(
-   Math.sin(a) * ws * 0.006 - ch.velocity.x * 0.0016 - ch.acceleration.x * 0.00018,
-   -0.018,
-   Math.cos(a) * ws * 0.006 - ch.velocity.z * 0.0016 - ch.acceleration.z * 0.00018
+   Math.sin(a) * ws * FUR_WIND_TRAVEL
+   - ch.velocity.x * FUR_VEL_TRAVEL - ch.acceleration.x * FUR_ACC_TRAVEL,
+   FUR_REST_DROOP,
+   Math.cos(a) * ws * FUR_WIND_TRAVEL
+   - ch.velocity.z * FUR_VEL_TRAVEL - ch.acceleration.z * FUR_ACC_TRAVEL
   );
 
   // Everything zero-copy (sunDir, shR, cascade matrices/params/splits,
@@ -559,15 +711,29 @@ export class Character {
   await whenReady(this.gfx, this.bodyMat, "character body material");
   await whenReady(this.gfx, this.clothMat, "character cloth material");
   await whenReady(this.gfx, this.furMat, "character fur material");
-  for (let i = 0; i < this._depthMats.length; i++) {
-   const m = this._depthMats[i];
+  await this._warmMaterials(this._depthMats);
+  if (this._prepassMats) await this._warmMaterials(this._prepassMats);
+ }
+
+ /**
+  * Compile a list of materials one at a time, in order.
+  *
+  * Sequential by construction, not by oversight: `whenReady` ends in
+  * `compileMaterial` (gpuUtil.ts), which adds a probe mesh to one
+  * *module-scope shared* scene and removes it in its own `.finally()`.
+  * Compiling two materials concurrently would race those add/remove pairs
+  * on that one scene — the second material can compile while the first's
+  * probe mesh is being torn down, which is an intermittent GL-side
+  * corruption that no typecheck can see. `whenReady` also races a watchdog
+  * per material, so `Promise.all` would discard the survivors' compile work
+  * the moment one timed out.
+  *
+  * @param {readonly THREE.RawShaderMaterial[]} mats
+  */
+ private async _warmMaterials(mats: readonly THREE.RawShaderMaterial[]): Promise<void> {
+  for (let i = 0; i < mats.length; i++) {
+   const m = mats[i];
    await whenReady(this.gfx, m, m.name);
-  }
-  if (this._prepassMats) {
-   for (let i = 0; i < this._prepassMats.length; i++) {
-    const m = this._prepassMats[i];
-    await whenReady(this.gfx, m, m.name);
-   }
   }
  }
 

@@ -21,9 +21,10 @@ import { composeShader } from "../shaders/registry.js";
  * `name`/`vertex`/`fragment`/`uniforms` is spread onto the
  * `RawShaderMaterialParameters` bag as a material flag. It does NOT validate
  * those keys — a typo (`transparnet`) is passed through unchecked, exactly as
- * the original `& Record<string, any>` JSDoc did. The part that IS recovered
- * versus that JSDoc is `uniforms`: three's own `IUniform` defaults its value to
- * `any`, so this catches a non-uniform passed as a uniform value.
+ * the original `& Record<string, unknown>` JSDoc did. The part that IS
+ * recovered versus that JSDoc is `uniforms`: unlike a bare record of uniforms,
+ * this narrows each value to `{ value: … }`, so it catches a material flag
+ * passed in the uniforms slot as well as a bare uniform value passed there.
  */
 interface MaterialOpts {
  /** Optional label; `mat.name` falls back to `""`. */
@@ -92,13 +93,30 @@ void main() {
 }
 `;
 
+/** One fullscreen triangle drawn with the caller's GLSL body. */
+interface FullscreenPassOpts {
+ /** Label used in watchdog messages; `mat.name` falls back to `"fullscreen"`. */
+ name?: string;
+ /** Raw GLSL ES 3.0 body (no `#version` line); chunks are resolved here. */
+ fragment: string;
+ /** Named uniforms, passed straight through to the material. */
+ uniforms?: Record<string, { value: unknown }>;
+}
+
 export class FullscreenPass {
- [key: string]: any;
+ /** The device layer; owned by `core/gfx.js`. */
+ gfx: GfxLike;
+ /** Label used in watchdog messages. */
+ name: string;
+ _material: THREE.RawShaderMaterial;
+ _mesh: THREE.Mesh;
+ _scene: THREE.Scene;
+ _camera: THREE.Camera;
  /**
-  * @param {import("./gfx.js").Gfx} gfx
-  * @param {{name?: string, fragment: string, uniforms?: Record<string, {value:any}>}} opts
+  * @param {GfxLike} gfx
+  * @param {{name?: string, fragment: string, uniforms?: Record<string, {value: unknown}>}} opts
   */
- constructor(gfx: any, opts: any) {
+ constructor(gfx: GfxLike, opts: FullscreenPassOpts) {
   this.gfx = gfx;
   this.name = opts.name || "fullscreen";
 
@@ -129,7 +147,7 @@ export class FullscreenPass {
   * Draw the triangle once into `target` (or the canvas when null).
   * @param {THREE.WebGLRenderTarget|null} target
   */
- render(target: any) {
+ render(target: THREE.WebGLRenderTarget | null) {
   const r = this.gfx.renderer;
   r.setRenderTarget(target || null);
   r.render(this._scene, this._camera);
@@ -142,8 +160,15 @@ const WATCHDOG_MS = 25000;
 
 // Shared scaffolding for compiling a bare material.
 let _compileScene: THREE.Scene | null = null;
-/** @param {any} gfx @param {any} material */
-function compileMaterial(gfx: any, material: any) {
+/** The slice of `core/gfx.js`'s `Gfx` the warm-up path touches. */
+interface GfxLike {
+ renderer: THREE.WebGLRenderer;
+ scene: THREE.Scene;
+ threeCamera: THREE.Camera;
+}
+
+/** @param {GfxLike} gfx @param {THREE.Material} material */
+function compileMaterial(gfx: GfxLike, material: THREE.Material) {
  if (!_compileScene) _compileScene = new THREE.Scene();
  const scene = _compileScene;
  const mesh = new THREE.Mesh(triGeometry(), material);
@@ -156,19 +181,48 @@ function compileMaterial(gfx: any, material: any) {
 }
 
 /**
+ * True for anything three would accept as a material. `isMaterial` is a
+ * property three sets on the prototype, so this matches materials produced
+ * anywhere in the process — including ones reconstructed across a module
+ * boundary that `instanceof` would reject and this path would then skip.
+ */
+function isMaterial(v: unknown): v is THREE.Material {
+ if (typeof v !== "object" || v === null || !("isMaterial" in v)) return false;
+ return v.isMaterial === true;
+}
+
+/** True for a wrapper carrying a real material on `.material`. */
+function hasMaterial(v: unknown): v is { material: THREE.Material } {
+ if (typeof v !== "object" || v === null || !("material" in v)) return false;
+ return isMaterial(v.material);
+}
+
+/**
+ * A thing the warm-up path can compile: the pass itself, a bare material, or a
+ * subsystem wrapper carrying one on `.material`. Anything else is a stub peer
+ * with nothing to compile, which the watchdog tolerates.
+ */
+type Compilable =
+ | FullscreenPass
+ | THREE.Material
+ | { material: THREE.Material }
+ | null
+ | undefined;
+
+/**
  * Compile whatever `materialOrPass` is, behind a labelled 25 s watchdog.
  *
  * Accepts a `FullscreenPass`, a raw material, or any object carrying a
  * `.material` (a subsystem pass wrapper). When `drawFn` is given it is awaited
  * instead — for passes whose compilation needs a real draw.
  *
- * @param {import("./gfx.js").Gfx} gfx
- * @param {any} materialOrPass
+ * @param {GfxLike} gfx
+ * @param {Compilable} materialOrPass
  * @param {string} label used in the timeout message
- * @param {() => any} [drawFn]
+ * @param {() => unknown} [drawFn]
  * @returns {Promise<void>}
  */
-export function whenReady(gfx: any, materialOrPass: any, label: any, drawFn?: () => unknown) {
+export function whenReady(gfx: GfxLike, materialOrPass: Compilable, label: string, drawFn?: () => unknown) {
  // DOM lib returns a number from setTimeout; node's typings return a Timeout.
  // `window.setTimeout` is the browser call this actually makes, so number.
  let timer: number | null = null;
@@ -192,11 +246,13 @@ export function whenReady(gfx: any, materialOrPass: any, label: any, drawFn?: ()
    await gfx.renderer.compileAsync(obj._scene, obj._camera);
    return;
   }
-  if (obj.isMaterial) {
+  // Narrowing through the guards keeps the original truthiness check on
+  // `isMaterial` — the same set of materials the original code compiled.
+  if (isMaterial(obj)) {
    await compileMaterial(gfx, obj);
    return;
   }
-  if (obj.material && obj.material.isMaterial) {
+  if (hasMaterial(obj)) {
    await compileMaterial(gfx, obj.material);
    return;
   }
@@ -212,7 +268,7 @@ export function whenReady(gfx: any, materialOrPass: any, label: any, drawFn?: ()
  * @param {THREE.WebGLRenderTarget|null} target
  * @param {string} [label]
  */
-export async function bakeOnce(pass: any, target: any, label: any) {
+export async function bakeOnce(pass: FullscreenPass, target: THREE.WebGLRenderTarget | null, label?: string) {
  await whenReady(pass.gfx, pass, label || pass.name);
  pass.render(target);
 }
@@ -221,6 +277,6 @@ export async function bakeOnce(pass: any, target: any, label: any) {
  * Compile every material currently in the main scene.
  * @param {import("./gfx.js").Gfx} gfx
  */
-export function compileAll(gfx: any) {
+export function compileAll(gfx: GfxLike) {
  return gfx.renderer.compileAsync(gfx.scene, gfx.threeCamera);
 }

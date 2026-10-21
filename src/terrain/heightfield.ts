@@ -23,6 +23,7 @@
  */
 
 import * as THREE from "three";
+import type { Gfx } from "../core/gfx.js";
 import { S } from "../core/settings.js";
 import { FullscreenPass, bakeOnce } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
@@ -34,10 +35,56 @@ export const AUX_RES = 2048;
 /** Half-extent the player is kept inside, leaving margin for the far rings. */
 export const PLAY_RADIUS = 620;
 
+/**
+ * CPU mirror decimation: the readback keeps every other texel in both axes,
+ * so the mirror is HEIGHT_RES/CPU_DECIMATION square. 1 m spacing is ample
+ * for grounding and holds 67 MB resident instead of 268 MB.
+ */
+const CPU_DECIMATION = 2;
+
+/** Sides of the bicubic B-spline footprint, in texels — 4x4 taps. */
+const BSPLINE_TAPS = 4;
+
+/** Half a texel, so a texel-centre sample is not read off its edge. */
+const HALF_TEXEL = 0.5;
+
+/** Numerator of the 2x2 box average: four taps summed, divided by four. */
+const BOX_TAPS = 4;
+
 export class Heightfield {
-  [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
+ /** The device layer that owns the bake targets. */
+ gfx: Gfx;
+ /** World coordinate of the field's low corner, metres. */
+ origin: THREE.Vector2;
+ /** World extent of the field's side, metres. */
+ size: number;
+ /** World metres per height texel. */
+ texelWorld: number;
+ /** The CPU mirror of the height channel, or null before `bake()`. */
+ heightCPU: Float32Array | null;
+ /** Resolution of the CPU mirror in texels per side. */
+ cpuRes: number;
+ /** World metres per CPU-mirror texel. */
+ cpuTexel: number;
+ /** Measured relief, filled in by `_readback`. */
+ minHeight: number;
+ maxHeight: number;
+ /** Set by `_readback` when the GPU→CPU mirror fails. */
+ readbackError: string | null;
+ /** RG32F: height in R, the rock mask in G. */
+ _heightRT: THREE.WebGLRenderTarget;
+ /** The height channel, bound as `heightTex`. */
+ heightTex: THREE.Texture;
+ /** RGBA16F: the channels the terrain derives its splat from. */
+ _auxRT: THREE.WebGLRenderTarget;
+ /** The derived channels, bound as `auxTex`. */
+ auxTex: THREE.Texture;
+ /** The bake that writes the height channel. */
+ _heightPass: FullscreenPass;
+ /** The bake that derives the aux channels from it. */
+ _auxPass: FullscreenPass;
+
+ constructor(gfx: Gfx) {
   this.gfx = gfx;
   this.origin = new THREE.Vector2(-WORLD_SIZE / 2, -WORLD_SIZE / 2);
   this.size = WORLD_SIZE;
@@ -158,7 +205,7 @@ export class Heightfield {
   // field, which then shows up as the character sinking into slopes.
   const stride = Math.max(1, Math.round(src.length / (HEIGHT_RES * HEIGHT_RES)));
 
-  // Keep only R, at half resolution: 1 m spacing is ample for grounding
+  // Keep only R, at reduced resolution: 1 m spacing is ample for grounding
   // and avoids holding 67 MB resident forever.
   //
   // Averaged as a 2x2 box rather than point-sampled. Point-sampling texel
@@ -166,17 +213,17 @@ export class Heightfield {
   // as though it sat at (x + 0.5), and a quarter-texel shift on a steep
   // dune face sinks the character into the surface. The box filter lands
   // the sample exactly on the centre `heightAt` assumes.
-  const res = HEIGHT_RES / 2;
+  const res = HEIGHT_RES / CPU_DECIMATION;
   const dst = new Float32Array(res * res);
   for (let y = 0; y < res; y++) {
-   const r0 = y * 2 * HEIGHT_RES;
-   const r1 = (y * 2 + 1) * HEIGHT_RES;
+   const r0 = y * CPU_DECIMATION * HEIGHT_RES;
+   const r1 = (y * CPU_DECIMATION + 1) * HEIGHT_RES;
    for (let x = 0; x < res; x++) {
-    const c0 = x * 2;
+    const c0 = x * CPU_DECIMATION;
     const c1 = c0 + 1;
     dst[y * res + x] =
      (src[(r0 + c0) * stride] + src[(r0 + c1) * stride] +
-      src[(r1 + c0) * stride] + src[(r1 + c1) * stride]) * 0.25;
+      src[(r1 + c0) * stride] + src[(r1 + c1) * stride]) / BOX_TAPS;
    }
   }
 
@@ -205,13 +252,15 @@ export class Heightfield {
   * is drawn.
   * @param {number} x @param {number} z
   */
- heightAt(x: any, z: any) {
+ heightAt(x: number, z: number) {
   const h = this.heightCPU;
   if (!h) return 0;
   const res = this.cpuRes;
 
-  const fx = ((x - this.origin.x) / this.size) * res - 0.5;
-  const fz = ((z - this.origin.y) / this.size) * res - 0.5;
+  // Shift from texel *corner* to texel *centre*: the bicubic weights are
+  // defined around the sample point, and the GPU bake samples texel centres.
+  const fx = ((x - this.origin.x) / this.size) * res - HALF_TEXEL;
+  const fz = ((z - this.origin.y) / this.size) * res - HALF_TEXEL;
 
   const ix = Math.floor(fx);
   const iz = Math.floor(fz);
@@ -225,11 +274,11 @@ export class Heightfield {
   bsplineWeights(tz, wz);
 
   let sum = 0;
-  for (let j = 0; j < 4; j++) {
+  for (let j = 0; j < BSPLINE_TAPS; j++) {
    const zz = clampi(iz - 1 + j, 0, res - 1);
    const row = zz * res;
    let rowSum = 0;
-   for (let i = 0; i < 4; i++) {
+   for (let i = 0; i < BSPLINE_TAPS; i++) {
     const xx = clampi(ix - 1 + i, 0, res - 1);
     rowSum += h[row + xx] * wx[i];
    }
@@ -242,7 +291,7 @@ export class Heightfield {
   * Surface normal from the same reconstruction, by central difference.
   * @param {number} x @param {number} z @param {THREE.Vector3} out
   */
- normalAt(x: any, z: any, out: any) {
+ normalAt(x: number, z: number, out: THREE.Vector3) {
   const e = this.cpuTexel || 1;
   const hx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
   const hz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
@@ -252,7 +301,7 @@ export class Heightfield {
  }
 
  /** Clamp a world position to the playable area, in place. */
-    /** @param {any} v */ clampToPlayArea(v: any) {
+ clampToPlayArea(v: THREE.Vector3) {
   const r = PLAY_RADIUS;
   const d = Math.hypot(v.x, v.z);
   if (d > r) {
@@ -272,7 +321,8 @@ export class Heightfield {
 const _w = new Float32Array(4);
 const _w2 = new Float32Array(4);
 
-    /** @param {number} t @param {any} out */ function bsplineWeights(t: any, out: any) {
+/** @param {number} t @param {Float32Array} out */
+function bsplineWeights(t: number, out: Float32Array) {
  const t2 = t * t;
  const t3 = t2 * t;
  out[0] = (1 - 3 * t + 3 * t2 - t3) / 6;
@@ -281,6 +331,7 @@ const _w2 = new Float32Array(4);
  out[3] = t3 / 6;
 }
 
-    /** @param {any} v @param {any} lo @param {any} hi */ function clampi(v: any, lo: any, hi: any) {
- return v < lo ? lo : v > hi ? hi : v;
+/** @param {number} v @param {number} lo @param {number} hi */
+function clampi(v: number, lo: number, hi: number) {
+ return Math.min(hi, Math.max(lo, v));
 }

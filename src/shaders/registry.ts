@@ -66,8 +66,9 @@ export function registerShaders() {
   console.warn("[shaders] unrecognised shader filename:", path);
  }
 }
+
 /** @param {string} name @param {string} src @param {string} path */
-function store(name: any, src: any, path: any) {
+function store(name: string, src: string, path: string) {
  if (name in SHADERS) {
   console.warn("[shaders] duplicate shader name:", name, "from", path);
  }
@@ -80,7 +81,7 @@ function store(name: any, src: any, path: any) {
  * @param {string} name
  * @returns {string}
  */
-export function getShader(name: any) {
+export function getShader(name: string) {
  registerShaders();
  const src = SHADERS[name];
  if (src === undefined) {
@@ -99,7 +100,7 @@ const INCLUDE_RE = /#include\s*<(\w+)>/g;
  * @param {string} source
  * @returns {string}
  */
-export function composeShader(source: any) {
+export function composeShader(source: string) {
  registerShaders();
  return resolve(source, new Set());
 }
@@ -108,8 +109,8 @@ export function composeShader(source: any) {
  * @param {Set<string>} seen
  * @returns {string}
  */
-function resolve(src: any, seen: any) {
- return src.replace(INCLUDE_RE, (_full: any, name: any) => {
+function resolve(src: string, seen: Set<string>) {
+ return src.replace(INCLUDE_RE, (_full: string, name: string) => {
   if (seen.has(name)) return "";
   seen.add(name);
   const lib = INCLUDES[name];

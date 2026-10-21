@@ -19,6 +19,7 @@
  */
 
 import * as THREE from "three";
+import type { Gfx } from "../core/gfx.js";
 import { S } from "../core/settings.js";
 import { FullscreenPass, whenReady } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
@@ -40,10 +41,58 @@ const MAX_BRUSHES = 96;
 /** Seconds of relaxation banked before it is worth applying. See `_relaxOwed`. */
 const RELAX_STEP = 0.4;
 
+/**
+ * Rim-seed decorrelation factors. Distinct irrational phases for X and Z, so
+ * a line of footprints never repeats one silhouette.
+ */
+const SEED_X = 0.37;
+const SEED_Z = 0.71;
+
+/** Period the seed is taken modulo, in world units. */
+const SEED_MOD = 100;
+
+/** How many brush radii beyond the window a brush can still reach, for the
+ *  early-out test. A brush centred just outside still wraps in. */
+const REACH_RADII = 2;
+
+/** Half of 1.0 — the window is sized by its full extent, so this halves it. */
+const HALF = 0.5;
+
 export class DeformationField {
-  [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
+ /** The device layer that owns the state targets. */
+ gfx: Gfx;
+ /** Texture width in texels; the sim runs square. */
+ res: number;
+ /** World extent of the window's side, metres. */
+ size: number;
+ /** World metres per texel. */
+ texel: number;
+ /** Window centre this frame, texel-snapped. */
+ center: THREE.Vector2;
+ /** Where the window sat last frame, so the shader can scroll it. */
+ _prevCenter: THREE.Vector2;
+ /** Brush staging data, written by `brush` and uploaded each frame. */
+ _brushData: Float32Array;
+ /** Brushes queued this frame. */
+ _brushCount: number;
+ /** Set when `brush` has staged something the pass must see. */
+ _brushDirty: boolean;
+ /** The brush table, bound as `brushTex`. */
+ brushTex: THREE.DataTexture;
+ /** The ping-pong state targets. */
+ _targets: THREE.WebGLRenderTarget[];
+ /** Which target the next pass writes into. */
+ _write: number;
+ /** The toroidal simulation pass. */
+ _pass: FullscreenPass;
+ /** Seconds of relaxation owed but not yet spent. */
+ _relaxOwed: number;
+ /** The texture holding this frame's state. Bound by the terrain. */
+ texture: THREE.Texture;
+ /** Set once the pass has compiled, behind the loading screen. */
+ _warmed: boolean;
+
+ constructor(gfx: Gfx) {
   this.gfx = gfx;
   // Read ONCE: presets must be applied before construction (see main.js).
   this.res = Math.max(512, /** @type {number} */(S.deformResolution) | 0);
@@ -122,7 +171,7 @@ export class DeformationField {
  }
 
  /** @param {number} i */
- _makeTarget(i: any) {
+ _makeTarget(i: number): THREE.WebGLRenderTarget {
   return this.gfx.makeRenderTarget("deform" + i, this.res, this.res, {
    type: THREE.HalfFloatType,
    format: THREE.RGBAFormat,
@@ -139,6 +188,11 @@ export class DeformationField {
   * Positions are absolute world metres — the shader wraps them into the
   * window itself, so callers never think about the toroid.
   *
+  * The ten values are positional, in the order the shader's three texture
+  * rows read them: x, z, radius, depth, berm, compression, ice, yaw,
+  * elongation, edge. `yaw`, `elongation` and `edge` are optional — 0, 1
+  * and 1 respectively when omitted.
+  *
   * @param {number} x world X
   * @param {number} z world Z
   * @param {number} radius metres, across the short axis
@@ -150,12 +204,16 @@ export class DeformationField {
   * @param {number} [elongation] long-axis multiple of `radius`, 1 = round
   * @param {number} [edge] 0..1 rim roughness; 0 is a clean bevel
   */
- brush(x: any, z: any, radius: any, depth: any, berm: any, compression: any, ice: any, yaw: any, elongation: any, edge: any) {
+ brush(
+  x: number, z: number, radius: number, depth: number, berm: number,
+  compression: number, ice: number, yaw?: number, elongation?: number,
+  edge?: number
+ ) {
   if (this._brushCount >= MAX_BRUSHES) return;
   if (radius <= 0) return;
 
   // Outside the window entirely — nothing it could write to.
-  const halfPlus = this.size * 0.5 + radius * 2;
+  const halfPlus = this.size * HALF + radius * REACH_RADII;
   if (Math.abs(x - this.center.x) > halfPlus) return;
   if (Math.abs(z - this.center.y) > halfPlus) return;
 
@@ -180,7 +238,7 @@ export class DeformationField {
   d[stride * 2 + a + 2] = edge === undefined ? 1 : edge;
   // Decorrelates the rim wobble and the berm granularity between brushes,
   // so a line of footprints does not repeat one silhouette.
-  d[stride * 2 + a + 3] = (x * 0.37 + z * 0.71) % 100;
+  d[stride * 2 + a + 3] = (x * SEED_X + z * SEED_Z) % SEED_MOD;
 
   this._brushDirty = true;
  }
@@ -192,7 +250,7 @@ export class DeformationField {
   * @param {number} dt seconds
   * @param {{x:number, z:number}} focus world position the window follows
   */
- update(dt: any, focus: any) {
+ update(dt: number, focus: { x: number; z: number }): THREE.Texture {
   this._prevCenter.copy(this.center);
 
   // Snap to texel boundaries. Without this the toroidal mapping shifts by

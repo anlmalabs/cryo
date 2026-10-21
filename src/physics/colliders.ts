@@ -54,22 +54,55 @@
  *  is a tenth of a millimetre — far under anything the sim can express. */
 const EPS2 = 1e-8;
 
+/** What a capsule can be an instance of. The struck surface a contact report
+ *  needs, and nothing else — see `MACHINE_KINDS` in the pass for the subset
+ *  that decides armour-and-servo vs fuel-and-fire. */
+export type CapsuleKind = "leg" | "body" | "head" | "atst" | "wreck" | "";
+
+/** A capsule: a segment ax→by→bz with a radius. Metres, world space. */
+export interface Capsule {
+ ax: number; ay: number; az: number;   // segment bottom / tail, metres
+ bx: number; by: number; bz: number;   // segment top / nose, metres
+ r: number;                           // radius, metres
+ kind: CapsuleKind;
+ walker: CapsuleOwner | null;         // back-ref for reactions (stumble, wreck)
+ live: boolean;                       // dead entries are skipped by every query
+}
+
+/** The least a capsule's `walker` back-reference has to offer: the pass calls
+ *  `stumble` on whatever it finds there, and a walker and a wreck slot both
+ *  answer differently to being hit. Structurally declared rather than imported
+ *  so the algebra stays decoupled from the herds. */
+export interface CapsuleOwner {
+ stumble?(normalSpeed: number, side: number): void;
+}
+
+/** The result of one sweep. The caller owns and reuses it — see the pass, which
+ *  keeps two of these for the frame path and rewrites both in place. */
+export interface SweepHit {
+ t: number;                            // 0..1 along the motion at first contact
+ nx: number; ny: number; nz: number;   // unit normal, away from the obstacle
+ px: number; py: number; pz: number;   // contact point on the obstacle surface
+ cap: Capsule | null;                  // the capsule hit; null for the sphere test
+}
+
 /**
  * Build the capsule pool: n preallocated, reusable collider slots. The pass
  * rewrites these in place every frame (walkers move, sliders resize them) and
  * flags the tail of the pool dead with `live = false` — nothing is ever
  * created or freed after this call.
- * @param {number} n
+ *
+ * n: how many slots. The pass sizes for the worst the sliders can ask for.
  */
-export function makeCapsulePool(n: any) {
- const pool = new Array(n);
+export function makeCapsulePool(n: number): Capsule[] {
+ const pool: Capsule[] = new Array(n);
  for (let i = 0; i < n; i++) {
   pool[i] = {
    ax: 0, ay: 0, az: 0,   // segment bottom / tail, world metres
    bx: 0, by: 0, bz: 0,   // segment top / nose
    r: 1,                  // radius, metres
-   kind: "",              // 'leg' | 'body' | 'head' | 'atst' | 'wreck'
-   walker: null,          // back-ref for reactions (stumble, wreck slot)
+   kind: "",              // "" = unoccupied slot; the pass writes the real kind
+   walker: null,          // null = not attached to a herd member or wreck slot
    live: false,           // dead entries are skipped by every query
   };
  }
@@ -86,17 +119,14 @@ export function makeCapsulePool(n: any) {
  *               sphere — the direction to depenetrate and reflect along
  *   px,py,pz    contact point on the capsule surface
  *   cap         the capsule hit
- * @param {number} px
- * @param {number} py
- * @param {number} pz
- * @param {number} mx
- * @param {number} my
- * @param {number} mz
- * @param {{ax:number,ay:number,az:number,bx:number,by:number,bz:number,r:number,kind:string,walker:any,live:boolean}} cap
- * @param {number} r
- * @param {{t:number,nx:number,ny:number,nz:number,px:number,py:number,pz:number,cap:any}} out
  */
-export function sweptSphereVsCapsule(px: any, py: any, pz: any, mx: any, my: any, mz: any, cap: any, r: any, out: any) {
+export function sweptSphereVsCapsule(
+ px: number, py: number, pz: number,   // sphere centre at frame start, metres
+ mx: number, my: number, mz: number,   // sphere motion over the frame, metres
+ cap: Capsule,                        // the capsule under test
+ r: number,                           // sphere radius, metres
+ out: SweepHit                        // written on a hit; untouched otherwise
+): boolean {
  // Axis d = b − a. A degenerate capsule (both endpoints in one place) is a
  // sphere; hand it to the sphere test rather than dividing by |d|².
  const dx = cap.bx - cap.ax, dy = cap.by - cap.ay, dz = cap.bz - cap.az;
@@ -115,8 +145,18 @@ export function sweptSphereVsCapsule(px: any, py: any, pz: any, mx: any, my: any
  const fd = fx * dx + fy * dy + fz * dz;   // axial coordinate of p, times |d|
 
  // --- already overlapping? Closest point on the segment to p, then compare
- // squared distance against R². This must come first: the sweep quadratics
- // below assume a clean start and would report the *exit*, not the fix.
+ // squared distance against R². This has to run before the sweep quadratics
+ // below, and the reason is that an overlap is a different question: a sphere
+ // already inside the inflated capsule has *no* root in [0,1] to find — the
+ // quadratics solve for the surface it crossed on the way in, which is a
+ // negative t and so is filtered out by every `t >= 0` guard below. Run alone
+ // on an already-overlapping pair they would therefore either miss entirely
+ // (fall through to "no overlap and no motion") or, for a body partly inside
+ // and flying deeper, report the far crossing at t ≈ 1 — the exit. That is a
+ // phantom contact one whole frame late on a pair that has been stuck
+ // together since the last frame. So the overlap test reports t = 0 and the
+ // depenetration normal, which is exactly what the caller needs to push it
+ // out, and the quadratics only ever see a clean start.
  {
   let s = fd / dd;
   if (s < 0) s = 0; else if (s > 1) s = 1;
@@ -134,12 +174,12 @@ export function sweptSphereVsCapsule(px: any, py: any, pz: any, mx: any, my: any
     // is one it can act on. That cross vanishes exactly when the axis is
     // vertical (every leg), where *any* horizontal direction is
     // perpendicular; +x will do.
-    ex = -dz; ey = 0; ez = dx;
+    ex = -dz; ey = 0; ez = dx;   // (−dz, 0, dx): a horizontal perpendicular
     const h2 = ex * ex + ez * ez;
     if (h2 > EPS2) {
      const inv = 1 / Math.sqrt(h2);
      ex *= inv; ez *= inv;
-    } else { ex = 1; ey = 0; ez = 0; }
+    } else { ex = 1; ey = 0; ez = 0; }   // axis vertical: +x will do
    }
    out.t = 0;
    out.nx = ex; out.ny = ey; out.nz = ez;
@@ -215,7 +255,8 @@ export function sweptSphereVsCapsule(px: any, py: any, pz: any, mx: any, my: any
  if (e2 > EPS2) {
   const inv = 1 / Math.sqrt(e2);
   ex *= inv; ey *= inv; ez *= inv;
- } else { ex = 0; ey = 1; ez = 0; }
+ } else { ex = 0; ey = 1; ez = 0; }   // centre on the axis again: +y serves as well as
+ // any other axis, and a NaN normal does not
 
  out.t = best;
  out.nx = ex; out.ny = ey; out.nz = ez;
@@ -235,20 +276,15 @@ export function sweptSphereVsCapsule(px: any, py: any, pz: any, mx: any, my: any
  * yields t = 0 with a depenetration normal (a fabricated horizontal one if the
  * centres coincide exactly), zero motion yields overlap-or-nothing, no NaNs,
  * no allocation.
- * @param {number} px
- * @param {number} py
- * @param {number} pz
- * @param {number} mx
- * @param {number} my
- * @param {number} mz
- * @param {number} cx
- * @param {number} cy
- * @param {number} cz
- * @param {number} cr
- * @param {number} r
- * @param {{t:number,nx:number,ny:number,nz:number,px:number,py:number,pz:number,cap:any}} out
  */
-export function sweptSphereVsSphere(px: any, py: any, pz: any, mx: any, my: any, mz: any, cx: any, cy: any, cz: any, cr: any, r: any, out: any) {
+export function sweptSphereVsSphere(
+ px: number, py: number, pz: number,   // moving sphere centre at frame start, metres
+ mx: number, my: number, mz: number,   // relative motion: self minus other, metres
+ cx: number, cy: number, cz: number,   // other sphere centre, metres
+ cr: number,                          // other sphere radius, metres
+ r: number,                           // self sphere radius, metres
+ out: SweepHit                        // written on a hit; `cap` set to null
+): boolean {
  const R = r + cr;
  const R2 = R * R;
  let fx = px - cx, fy = py - cy, fz = pz - cz;

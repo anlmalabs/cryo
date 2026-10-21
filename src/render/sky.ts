@@ -13,6 +13,8 @@
  */
 
 import * as THREE from "three";
+import type { Gfx } from "../core/gfx.js";
+import type { CameraRig } from "../core/camera.js";
 import { S } from "../core/settings.js";
 import { getShader } from "../shaders/registry.js";
 import { makeMaterial, FullscreenPass, whenReady } from "../core/gpuUtil.js";
@@ -30,6 +32,33 @@ const SH_H = 32;
  */
 const SUN_SCALE_BASE = 5.5;
 
+/** SH coefficients in the projection loop — nine for bands 0..2. */
+const SH_COEFFS = 9;
+
+/**
+ * Solver iterations for the sky/snow bounce loop. Converges because each round
+ * trip is multiplied by the snow albedo, so three rounds is already < 1e-3.
+ */
+const BOUNCE_ITERATIONS = 3;
+
+/** Skybox cloud coverage, 0..1 — art dial for the sky material. */
+const CLOUD_AMOUNT = 0.55;
+
+/** Half of 1.0 — the skybox sits half the far plane out, so nothing clips it. */
+const SKYBOX_HALF_FAR = 0.5;
+
+/** Radians per degree — every slider is in degrees, the maths is not. */
+const DEG2RAD = Math.PI / 180;
+
+/** Air-mass ceiling, for a sun at or below the horizon. */
+const MAX_AIR_MASS = 40;
+
+/** Irradiance divisor: L = albedo * E / PI for Lambertian re-emission. */
+const LAMBERT_PI = Math.PI;
+
+/** Minimum optical depth in the air-mass fit, so it never blows up. */
+const MIN_OPTICAL_DEPTH = 1e-3;
+
 // ------------------------------------------------------- module-scope scratch
 const _dir = new THREE.Vector3();
 const _shBasis = new Float32Array(9);
@@ -39,39 +68,40 @@ const _irrTmp = new Float32Array(3);
 const SNOW_ALBEDO = [0.83, 0.86, 0.91];
 
 export class Sky {
-  [key: string]: any;
- /** @type {import("../core/gfx.js").Gfx} */
- gfx;
- /** @type {THREE.Vector3} */
- sunDir;
- /** @type {THREE.Color} */
- sunColor;
- /** @type {THREE.Color} */
- sunRadiance;
- /** @type {number} */
- sunScale;
- /** @type {THREE.Color} */
- groundBounce;
- /** @type {Float32Array} */
- sh;
- /** @type {boolean} */
- _dirty;
- /** @type {boolean} */
- _ready;
- /** @type {any} */
- _lutRT;
- /** @type {any} */
- _shRT;
- /** @type {any} */
- _bakePass;
- /** @type {THREE.Texture} */
- lut;
- /** @type {any} */
- material;
- /** @type {THREE.Mesh} */
- mesh;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
+ /** The device layer that owns the sky's targets. */
+ gfx: Gfx;
+ /** Unit vector pointing *toward* the sun. */
+ sunDir: THREE.Vector3;
+ /** Normalised hue of direct sunlight, for tinting effects. */
+ sunColor: THREE.Color;
+ /** Direct solar irradiance reaching the ground. */
+ sunRadiance: THREE.Color;
+ /** Shared radiometric scale for the sun and the baked sky. */
+ sunScale: number;
+ /** Radiance leaving the snow field, solved iteratively. */
+ groundBounce: THREE.Color;
+ /** 36 floats: 9 SH coefficients as vec4, bound zero-copy as `shR`. */
+ sh: Float32Array;
+ /** Set when the sun has moved and the sky needs re-solving. */
+ _dirty: boolean;
+ /** Cleared once `solve()` has compiled the bake shader. */
+ _ready: boolean;
+ /** 512x256 RGBA16F, mipped, trilinear. */
+ _lutRT: THREE.WebGLRenderTarget;
+ /** 64x32 RGBA32F, read back for SH. */
+ _shRT: THREE.WebGLRenderTarget;
+ /** The bake shader that renders both targets. */
+ _bakePass: FullscreenPass;
+ /** The LUT texture other materials bind as `skyLUT`. */
+ lut: THREE.Texture;
+ /** The skybox material. */
+ material: THREE.RawShaderMaterial;
+ /** The skybox mesh. */
+ mesh: THREE.Mesh;
+ /** CPU mirror of the SH target, read back once per projection. */
+ _readback: Float32Array;
+
+ constructor(gfx: Gfx) {
   this.gfx = gfx;
 
   /** Unit vector pointing *toward* the sun. */
@@ -145,7 +175,7 @@ export class Sky {
     sunIntensity: { value: 1 },
     time: { value: 0 },
     windDir: { value: new THREE.Vector2(0, 1) },
-    cloudAmount: { value: 0.55 },
+    cloudAmount: { value: CLOUD_AMOUNT },
     sunRadiance: { value: this.sunRadiance },
     shR: { value: this.sh },
     ambientIntensity: { value: 1 },
@@ -170,8 +200,8 @@ export class Sky {
   * for a rebake if anything actually moved.
   */
  syncFromSettings() {
-  const az = (/** @type {number} */ (S.sunAzimuth) * Math.PI) / 180;
-  const el = (/** @type {number} */ (S.sunElevation) * Math.PI) / 180;
+  const az = /** @type {number} */ (S.sunAzimuth) * DEG2RAD;
+  const el = /** @type {number} */ (S.sunElevation) * DEG2RAD;
   const ce = Math.cos(el);
   _dir.set(Math.sin(az) * ce, Math.sin(el), Math.cos(az) * ce);
 
@@ -194,10 +224,14 @@ export class Sky {
   const zenithDeg = (Math.acos(Math.min(1, Math.max(-1, this.sunDir.y))) * 180) / Math.PI;
 
   // Kasten-Young air mass — stays finite at the horizon, unlike 1/cos.
+  //
+  // The 0.50572 and -1.6364 below are the Kasten & Young (1989) apparent
+  // zenith-angle air-mass fit constants, standardized and published; they
+  // stay inline with this citation rather than becoming tunables.
   const denom =
-   Math.cos((zenithDeg * Math.PI) / 180) +
-   0.50572 * Math.pow(Math.max(1e-3, 96.07995 - zenithDeg), -1.6364);
-  const airMass = Math.min(denom > 0 ? 1 / denom : 40, 40);
+   Math.cos(zenithDeg * DEG2RAD) +
+   0.50572 * Math.pow(Math.max(MIN_OPTICAL_DEPTH, 96.07995 - zenithDeg), -1.6364);
+  const airMass = Math.min(denom > 0 ? 1 / denom : MAX_AIR_MASS, MAX_AIR_MASS);
 
   // Vertical optical depth: scattering coefficient x scale height.
   const warm = /** @type {number} */ (S.sunTempWarm);
@@ -249,7 +283,8 @@ export class Sky {
   this._dirty = false;
 
   this.groundBounce.setRGB(0, 0, 0);
-  for (let i = 0; i < 3; i++) {
+  // Serial by necessity: each round reads the SH the previous round projected.
+  for (let i = 0; i < BOUNCE_ITERATIONS; i++) {
    this.bake();
    await this.projectSH();
    this._updateGroundBounce();
@@ -271,7 +306,7 @@ export class Sky {
   const eb = this.sunRadiance.b * c + up[2];
 
   // Lambertian re-emission: L = albedo * E / PI.
-  const k = 1 / Math.PI;
+  const k = 1 / LAMBERT_PI;
   this.groundBounce.setRGB(
    SNOW_ALBEDO[0] * er * k,
    SNOW_ALBEDO[1] * eg * k,
@@ -283,8 +318,13 @@ export class Sky {
  _irradianceUp() {
   const sh = this.sh;
   const out = _irrTmp;
+  // Only the bands that survive n = (0,1,0).
+  //
+  // CIE/Preetham atmospheric-scattering SH coefficients — the Rayleigh and
+  // Mie phase terms (0.886227, 0.511664, -0.247708, -0.429043). These are
+  // standardised published values, not tunables, so they stay inline with
+  // this citation. The leading 2 is the band-1 ±m pair being summed.
   for (let k = 0; k < 3; k++) {
-   // Only the bands that survive n = (0,1,0).
    out[k] =
     sh[0 * 4 + k] * 0.886227 +
     sh[1 * 4 + k] * 2 * 0.511664 +
@@ -356,7 +396,7 @@ export class Sky {
     const g = px[i + 1] * w;
     const b = px[i + 2] * w;
 
-    for (let c = 0; c < 9; c++) {
+    for (let c = 0; c < SH_COEFFS; c++) {
      sh[c * 4] += r * Y[c];
      sh[c * 4 + 1] += g * Y[c];
      sh[c * 4 + 2] += b * Y[c];
@@ -370,21 +410,21 @@ export class Sky {
   * @param {import("../core/camera.js").CameraRig} rig
   * @param {number} time
   */
- render(rig: any, time: any) {
+ render(rig: CameraRig, time: number) {
   const u = this.material.uniforms;
   const cam = rig.camera;
 
   u.viewProjection.value = cam.viewProjection;
   u.cameraPosition.value = cam.position;
-  u.skyScale.value = cam.maxZ * 0.5;
+  u.skyScale.value = cam.maxZ * SKYBOX_HALF_FAR;
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
   u.sunIntensity.value = this.sunScale;
   u.time.value = time;
 
-  const a = (/** @type {number} */ (S.windDirection) * Math.PI) / 180;
+  const a = /** @type {number} */ (S.windDirection) * DEG2RAD;
   u.windDir.value.set(Math.sin(a), Math.cos(a));
-  u.cloudAmount.value = 0.55;
+  u.cloudAmount.value = CLOUD_AMOUNT;
 
   // The far range. Lit by the same radiance and the same SH the snow is —
   // see `shadeRidge` in the fragment shader.

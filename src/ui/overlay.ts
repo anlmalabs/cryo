@@ -13,7 +13,17 @@ import type { PresetName, SettingKey } from "../core/settings.js";
 import type { CameraRig } from "../core/camera.js";
 import type { CharacterController } from "../character/controller.js";
 import type { Gfx } from "../core/gfx.js";
-import { stats, systemMs, FrameGraph, spikes, resetSpikes } from "../core/perf.js";
+import {
+ stats,
+ systemMs,
+ FrameGraph,
+ spikes,
+ resetSpikes,
+ perfTier,
+ perfTierWithWarn,
+ FPS_LOW_WARN,
+} from "../core/perf.js";
+import { fpsTierSuffix } from "./fpsTier.js";
 
 const CSS = `
 #ov {
@@ -110,6 +120,33 @@ interface OverlayRefs {
  character?: CharacterController;
  actions?: Record<string, () => void>;
 }
+
+/** Readout refresh cadences, ms of accumulated frame time between redraws. */
+const GRAPH_PERIOD_MS = 50; // 20 Hz
+const CAM_PERIOD_MS = 100; // 10 Hz
+const TEXT_PERIOD_MS = 250; // 4 Hz
+
+/** Surf speed below which the character readout omits its `surf` tag, m/s. */
+const SURF_EPS = 0.01;
+
+/** An action row's label reverts this long after it fires, ms. */
+const FLASH_MS = 900;
+/** Longer hold for the pose button, whose target is further from the cursor. */
+const POSE_FLASH_MS = 1200;
+
+/** `toFixed` precision for the settings readout, by the slider's own step. */
+const STEP_ROUND = 1; // whole numbers
+const STEP_HUNDREDTH = 0.01; // two decimals
+const STEP_THOUSANDTH = 0.001; // three decimals
+
+/** Counts at which `fmtK` switches suffixes. */
+const K_AT = 1e3;
+const M_AT = 1e6;
+/** Radix of a `#rrggbb` colour string, and its per-channel byte length. */
+const HEX_RADIX = 16;
+const HEX_CHANNEL_LEN = 2;
+/** Top of a normalised colour channel, as the integer it maps onto. */
+const BYTE_MAX = 255;
 
 export class Overlay {
  /** The panel itself. */
@@ -369,15 +406,25 @@ export class Overlay {
       // Only the numeric channels clamp; a boolean or enum channel has no
       // hue to clamp and reads as off.
       const n = typeof v === "number" ? Math.min(1, Math.max(0, v)) : 0;
-      return Math.round(n * 255).toString(16).padStart(2, "0");
+      return Math.round(n * BYTE_MAX)
+       .toString(HEX_RADIX)
+       .padStart(HEX_CHANNEL_LEN, "0");
      };
      return "#" + h(it.kr) + h(it.kg) + h(it.kb);
     };
     c.value = toHex();
     c.oninput = () => {
-     set(it.kr, parseInt(c.value.slice(1, 3), 16) / 255);
-     set(it.kg, parseInt(c.value.slice(3, 5), 16) / 255);
-     set(it.kb, parseInt(c.value.slice(5, 7), 16) / 255);
+     // Channel `i` of `#rrggbb`: the two hex digits after the leading "#".
+     const gb = (i: number) => {
+      const at = 1 + i * HEX_CHANNEL_LEN;
+      return parseInt(
+       c.value.slice(at, at + HEX_CHANNEL_LEN),
+       HEX_RADIX
+      ) / BYTE_MAX;
+     };
+     set(it.kr, gb(0));
+     set(it.kg, gb(1));
+     set(it.kb, gb(2));
      this._syncWidgets();
     };
     row.appendChild(c);
@@ -401,7 +448,7 @@ export class Overlay {
      fn();
      const old = btn.textContent;
      btn.textContent = it.done || "done";
-     setTimeout(() => (btn.textContent = old), 900);
+     setTimeout(() => (btn.textContent = old), FLASH_MS);
     };
     row.appendChild(btn);
    } else if (it.t === "e") {
@@ -449,7 +496,7 @@ export class Overlay {
   if (!this.visible) return;
 
   this._graphAcc += dtMs;
-  if (this._graphAcc >= 50) {
+  if (this._graphAcc >= GRAPH_PERIOD_MS) {
    this._graphAcc = 0;
    this.graph.draw();
   }
@@ -457,13 +504,13 @@ export class Overlay {
   // Camera refreshes faster than the perf numbers — at 4 Hz you can't tell
   // which way you nudged the rig.
   this._camAcc += dtMs;
-  if (this._camAcc >= 100) {
+  if (this._camAcc >= CAM_PERIOD_MS) {
    this._camAcc = 0;
    this._updateCamera();
   }
 
   this._acc += dtMs;
-  if (this._acc < 250) return;
+  if (this._acc < TEXT_PERIOD_MS) return;
   this._acc = 0;
 
   const r = this.readouts;
@@ -479,8 +526,12 @@ export class Overlay {
   this._txt(r.spikes, String(spikes.count));
   this._txt(r.res, gfx.renderWidth + "x" + gfx.renderHeight);
 
-  r.fps_row.className = "num" + (stats.fps < 60 ? " bad" : stats.fps < 88 ? " warn" : "");
-  r.fpsLow_row.className = "num" + (stats.fpsLow < 60 ? " bad" : stats.fpsLow < 75 ? " warn" : "");
+  // The headline row rides the shared ladder exactly, so the meter and the
+  // panel cannot disagree about what counts as a bad frame. The 1% low row
+  // does NOT: it is the worst 1% of frames, graded on a lower bar. Both
+  // boundaries are named in core/perf.ts and unify only through `perfTier`.
+  r.fps_row.className = "num" + fpsTierSuffix(perfTier(stats.fps));
+  r.fpsLow_row.className = "num" + fpsTierSuffix(perfTierWithWarn(stats.fpsLow, FPS_LOW_WARN));
   r.spikes_row.className = "num" + (spikes.count > 0 ? " warn" : "");
 
   // Per-system costs — rows are created lazily and then only mutated.
@@ -528,7 +579,7 @@ export class Overlay {
    this._txt(
     r.chrMot,
     c.speed.toFixed(2) + " m/s  " + wrapDeg(c.facing * RAD).toFixed(0) + "°" +
-    (c.surf > 0.01 ? "  surf " + c.surf.toFixed(2) : "")
+    (c.surf > SURF_EPS ? "  surf " + c.surf.toFixed(2) : "")
    );
   } else {
    this._txt(r.chrPos, "—");
@@ -568,7 +619,7 @@ export class Overlay {
   const done = (ok: boolean) => {
    btn.textContent = ok ? "copied" : "see console";
    if (!ok) console.log(text);
-   setTimeout(() => (btn.textContent = "copy pose"), 1200);
+   setTimeout(() => (btn.textContent = "copy pose"), POSE_FLASH_MS);
   };
   // Clipboard access can be refused (no focus, insecure context); the
   // console fallback still gets the pose out.
@@ -669,9 +720,9 @@ function fmtNum(v: unknown, step: number): string {
  // Guard: a non-number or non-finite reads as 0 instead of "NaN" or a crash.
  // The step still decides the precision, exactly as it does for a real value.
  const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
- if (step >= 1) return n.toFixed(0);
- if (step >= 0.01) return n.toFixed(2);
- if (step >= 0.001) return n.toFixed(3);
+ if (step >= STEP_ROUND) return n.toFixed(0);
+ if (step >= STEP_HUNDREDTH) return n.toFixed(2);
+ if (step >= STEP_THOUSANDTH) return n.toFixed(3);
  return n.toFixed(4);
 }
 /**
@@ -680,7 +731,7 @@ function fmtNum(v: unknown, step: number): string {
  * @param {number} n
  */
 function fmtK(n: number): string {
- if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
- if (n >= 1e3) return (n / 1e3).toFixed(0) + "k";
+ if (n >= M_AT) return (n / M_AT).toFixed(2) + "M";
+ if (n >= K_AT) return (n / K_AT).toFixed(0) + "k";
  return String(n);
 }

@@ -16,8 +16,8 @@
  * because it is still the right answer for the gap between adding an asset and
  * uploading it anywhere.
  *
- * One base, resolved once. Both loaders — `audio/engine.js` for the manifest and
- * `walkers/walkerAsset.js` for the model — call `asset()` with the same paths
+ * One base, resolved once. Both loaders — `audio/engine.ts` for the manifest and
+ * `walkers/modelAsset.ts` for the model — call `asset()` with the same paths
  * they would have used relative to `public/`, so the layout on any store
  * mirrors the layout in the repository exactly and either can serve the other.
  *
@@ -60,7 +60,7 @@ export const ASSET_BASE = String(
  * @param {string} path relative to the store root, e.g. `audio/ambiance.mp3`
  * @returns {string} an absolute URL, or `path` untouched when no base is set
  */
-export function asset(path: any) {
+export function asset(path: string): string {
  const clean = path.replace(/^\/+/, "");
  return ASSET_BASE ? `${ASSET_BASE}/${clean}` : clean;
 }
@@ -77,7 +77,7 @@ export function asset(path: any) {
  * @param {string} path
  * @returns {string[]}
  */
-export function assetCandidates(path: any) {
+export function assetCandidates(path: string): string[] {
  const clean = path.replace(/^\/+/, "");
  const primary = asset(clean);
  return primary === clean ? [clean] : [primary, clean];
@@ -88,9 +88,15 @@ export function assetCandidates(path: any) {
  * @param {string} path
  * @returns {Promise<Response>}
  */
-export async function fetchAsset(path: any) {
+export async function fetchAsset(path: string): Promise<Response> {
  const urls = assetCandidates(path);
- let lastError = null;
+ // The candidates are tried in order and the first one that answers wins, so
+ // the fallback is only reached when the primary actually fails and the common
+ // case costs exactly one request. Firing them together would ask every store
+ // for every asset, which is the waste the header comment describes, and
+ // `Promise.allSettled` would still make the caller wait for the slowest store
+ // to give up before the fast one could be used.
+ let lastError: unknown = null;
  for (const url of urls) {
   try {
    const res = await fetch(url);

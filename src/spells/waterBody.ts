@@ -30,6 +30,12 @@ import { whenReady, makeMaterial } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 import { CASCADE_COUNT } from "../render/shadows.js";
 
+import type { Gfx } from "../core/gfx.js";
+import type { Sky } from "../render/sky.js";
+import type { ShadowSystem } from "../render/shadows.js";
+import type { SpellLights } from "./spellLights.js";
+import type { CameraRig } from "../core/camera.js";
+
 /** Must match `vec4 strandParams[8]` in `water.vertex.glsl`. */
 export const STRAND_MAX = 8;
 
@@ -82,31 +88,87 @@ export const RING = 24;
 export const PROFILE_TUBE = 0;
 export const PROFILE_SHEET = 1;
 
-/** @param {import("../render/sky.js").Sky} sky @param {import("../core/gfx.js").Gfx} gfx */
-function lutTexture(sky: any, gfx: any) {
- const lut = /** @type {THREE.Texture | { isTexture?: boolean; texture?: THREE.Texture }} */ (sky && sky.lut);
- if (!lut) return gfx.blackTex;
- if (lut.isTexture) return /** @type {THREE.Texture} */ (lut);
- if (lut.texture) return lut.texture;
- return gfx.blackTex;
+/** Columns the warm-up strands lay down. Both profiles, same count. */
+const WARMUP_COLS = 24;
+/** Length of the warm-up tube spine, metres. */
+const WARMUP_TUBE_LEN = 3;
+/** Radius of the warm-up tube, metres. */
+const WARMUP_TUBE_RAD = 0.22;
+/** Height of the warm-up tube's bow, metres. */
+const WARMUP_TUBE_BOW = 1.2;
+/** Radius of that bow, metres. */
+const WARMUP_TUBE_BOW_W = 0.5;
+/** Length of the warm-up sheet spine, metres. */
+const WARMUP_SHEET_LEN = 4;
+/** Where the warm-up sheet starts along the spine, metres. */
+const WARMUP_SHEET_OFF = 2;
+/** Radius of the warm-up sheet, metres. */
+const WARMUP_SHEET_RAD = 0.5;
+/** Curl handed to the warm-up sheet's sections. */
+const WARMUP_SHEET_CURL = 0.6;
+/** Foam along the warm-up sheet, 0..1. */
+const WARMUP_SHEET_FOAM = 0.4;
+/** Milkiness of each warm-up strand. */
+const WARMUP_TUBE_MILK = 0.2;
+const WARMUP_SHEET_MILK = 0.6;
+
+/** Alpha below which a strand is not drawn this frame. */
+const STRAND_ALIVE_EPS = 0.003;
+/** Columns below which a strand is a degenerate sliver, not a surface. */
+const STRAND_MIN_COLS = 2;
+
+/** Which section integral a strand draws: a closed tube, or an open sheet. */
+export type WaterProfile = typeof PROFILE_TUBE | typeof PROFILE_SHEET;
+
+/**
+ * The sky uniform snapshot both helpers read.
+ *
+ * `lut` is either a texture outright or Babylon's wrapper form, which is why
+ * the two branches exist rather than one property access.
+ */
+interface LutSource {
+ lut?: THREE.Texture | { texture?: THREE.Texture };
+ sunDir?: THREE.Vector3;
+ sunRadiance?: THREE.Color;
+ sh?: Float32Array;
 }
 
-/** @param {import("../render/shadows.js").ShadowSystem} shadows @param {number} i @param {import("../core/gfx.js").Gfx} gfx */
-function cascadeTexture(shadows: any, i: any, gfx: any) {
+/** @param {LutSource | null | undefined} sky @param {Gfx} gfx */
+function lutTexture(sky: LutSource | null | undefined, gfx: Gfx): THREE.Texture {
+ const lut = sky && sky.lut;
+ if (lut instanceof THREE.Texture) return lut;
+ return (lut && lut.texture) || gfx.blackTex;
+}
+
+/** @param {ShadowSystem | null | undefined} shadows @param {number} i @param {Gfx} gfx */
+function cascadeTexture(shadows: ShadowSystem | null | undefined, i: number, gfx: Gfx): THREE.Texture {
  const map = shadows && shadows.maps && shadows.maps[i];
- return map || gfx.blackTex;
+ return map ?? gfx.blackTex;
 }
 
 export class WaterBody {
- [key: string]: any;
- /**
-  * @param {import("../core/gfx.js").Gfx} gfx
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
-  * @param {import("./spellLights.js").SpellLights} lights
-  * @param {import("../core/camera.js").CameraRig} rig
-  */
- constructor(gfx: any, sky: any, shadows: any, lights: any, rig: any) {
+ gfx!: Gfx;
+ sky!: Sky | null;
+ shadows!: ShadowSystem | null;
+ lights!: SpellLights;
+ rig!: CameraRig | null;
+ _texData!: Float32Array;
+ dataTex!: THREE.DataTexture;
+ _params!: Float32Array;
+ _used!: boolean[];
+ _camPos!: THREE.Vector3;
+ _t = 0;
+ _live = 0;
+ mesh!: THREE.Mesh & { metadata: { triangles: number; vertices: number } };
+ material!: THREE.RawShaderMaterial;
+
+ constructor(
+  gfx: Gfx,
+  sky: Sky | null,
+  shadows: ShadowSystem | null,
+  lights: SpellLights,
+  rig: CameraRig | null,
+ ) {
   this.gfx = gfx;
   this.sky = sky;
   this.shadows = shadows;
@@ -239,14 +301,14 @@ export class WaterBody {
  }
 
  /** @param {number} s */
- release(s: any) {
+ release(s: number) {
   if (s < 0 || s >= STRAND_MAX) return;
   this._used[s] = false;
   this.clear(s);
  }
 
  /** @param {number} s */
- clear(s: any) {
+ clear(s: number) {
   const d = this._texData;
   const base = s * 3 * STRAND_COLS * 4;
   d.fill(0, base, base + STRAND_COLS * 3 * 4);
@@ -265,12 +327,12 @@ export class WaterBody {
   * @param {number} alpha global fade, 0 hides the strand
   * @param {number} count live columns, 2..STRAND_COLS
   */
- setParams(s: any, profile: any, milkiness: any, alpha: any, count: any) {
+ setParams(s: number, profile: WaterProfile, milkiness: number, alpha: number, count: number) {
   const p = s * 4;
   this._params[p] = profile;
   this._params[p + 1] = milkiness;
   this._params[p + 2] = alpha;
-  this._params[p + 3] = count < 2 ? 0 : Math.min(count, STRAND_COLS);
+  this._params[p + 3] = count < STRAND_MIN_COLS ? 0 : Math.min(count, STRAND_COLS);
  }
 
  /**
@@ -291,7 +353,18 @@ export class WaterBody {
   * @param {number} foam 0..1
   * @param {number} flatten vertical squash of the section, 1 = round
   */
- column(s: any, c: any, x: any, y: any, z: any, radius: any, rx: any, ry: any, rz: any, twist: any, dist: any, age: any, foam: any, flatten: any) {
+ column(
+  s: number,
+  c: number,
+  x: number, y: number, z: number,
+  radius: number,
+  rx: number, ry: number, rz: number,
+  twist: number,
+  dist: number,
+  age: number,
+  foam: number,
+  flatten: number,
+ ) {
   if (c < 0 || c >= STRAND_COLS) return;
   const d = this._texData;
   const row = s * 3;
@@ -311,17 +384,20 @@ export class WaterBody {
   * @param {number} dt
   * @param {THREE.Vector3} cameraPos
   */
- update(dt: any, cameraPos: any) {
+ update(dt: number, cameraPos: THREE.Vector3) {
   this._t += dt;
   this._camPos.copy(cameraPos);
 
   let live = 0;
   for (let i = 0; i < STRAND_MAX; i++) {
-   if (this._params[i * 4 + 2] > 0.003 && this._params[i * 4 + 3] >= 2) live++;
+   if (
+    this._params[i * 4 + 2] > STRAND_ALIVE_EPS &&
+    this._params[i * 4 + 3] >= STRAND_MIN_COLS
+   ) live++;
   }
   this._live = live;
 
-  this.mesh.visible = live > 0 && S.showSpells !== false;
+  this.mesh.visible = live > 0 && S.showSpells;
   if (!this.mesh.visible) return;
 
   this.dataTex.needsUpdate = true;
@@ -393,28 +469,29 @@ export class WaterBody {
   * behind a warm-up that looks complete.
  * @param {number} x @param {number} y @param {number} z
  */
- async warmUp(x: any, y: any, z: any) {
-  for (let c = 0; c < 24; c++) {
-   const t = c / 23;
+ async warmUp(x: number, y: number, z: number) {
+  for (let c = 0; c < WARMUP_COLS; c++) {
+   const t = c / (WARMUP_COLS - 1);
    this.column(
-    0, c, x + t * 3, y + 1.2 + Math.sin(t * 3) * 0.5, z,
-    0.22 * Math.sin(t * Math.PI),
-    0, 0, 1, 0, t * 3, t, t < 0.2 ? 1 : 0, 1
+    0, c, x + t * WARMUP_TUBE_LEN,
+    y + WARMUP_TUBE_BOW + Math.sin(t * WARMUP_TUBE_LEN) * WARMUP_TUBE_BOW_W, z,
+    WARMUP_TUBE_RAD * Math.sin(t * Math.PI),
+    0, 0, 1, 0, t * WARMUP_TUBE_LEN, t, t < 0.2 ? 1 : 0, 1
    );
   }
-  this.setParams(0, PROFILE_TUBE, 0.2, 1, 24);
+  this.setParams(0, PROFILE_TUBE, WARMUP_TUBE_MILK, 1, WARMUP_COLS);
   // And a sheet, because the two profiles are different code paths through
   // the same vertex shader and only one of them being exercised is exactly
   // how a warm-up quietly stops covering half of what it claims to.
-  for (let c = 0; c < 24; c++) {
-   const t = c / 23;
+  for (let c = 0; c < WARMUP_COLS; c++) {
+   const t = c / (WARMUP_COLS - 1);
    this.column(
-    1, c, x + t * 4 - 2, y, z + 2,
-    0.5 * Math.sin(t * Math.PI),
-    0, 0, 1, 0.6, t * 4, t, 0.4, 1
+    1, c, x + t * WARMUP_SHEET_LEN - WARMUP_SHEET_OFF, y, z + WARMUP_SHEET_OFF,
+    WARMUP_SHEET_RAD * Math.sin(t * Math.PI),
+    0, 0, 1, WARMUP_SHEET_CURL, t * WARMUP_SHEET_LEN, t, WARMUP_SHEET_FOAM, 1
    );
   }
-  this.setParams(1, PROFILE_SHEET, 0.6, 1, 24);
+  this.setParams(1, PROFILE_SHEET, WARMUP_SHEET_MILK, 1, WARMUP_COLS);
 
   this.dataTex.needsUpdate = true;
   this.mesh.visible = true;

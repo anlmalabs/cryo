@@ -54,6 +54,66 @@
  *  S.impactSpin scale — violent, recoverable. */
 const SPIN_PER_SHEAR = 0.065;
 
+/** Squared length below which the horizontal normal counts as zeroed and the
+ *  contact is treated as a no-op rather than divided by it. It is a unit
+ *  vector by contract, so this is a pure "is it degenerate at all" test —
+ *  a tenth of a nanometre. Should not happen; costs one multiply to be sure. */
+const DEGENERATE_N2 = 1e-12;
+
+/** How hard a contact struck, in the only terms that matter: the normal
+ *  closing speed. Decides the voice, the snow, the scramble and the ladder
+ *  rung, and nothing else. */
+export type Severity = "scrape" | "hit" | "crash";
+
+/** One contact, resolved. Written into the caller's record and returned.
+ *  All speeds m/s, spin rad/s. */
+export interface ImpactResponse {
+ /** New craft velocity, m/s. */
+ vx: number;
+ vz: number;
+ /** Signed yaw-rate kick, rad/s — the pass scales by `S.impactSpin`. */
+ spin: number;
+ /** Closing speed along the normal, m/s: the severity input. */
+ normalSpeed: number;
+ severity: Severity;
+}
+
+/** One contact, described. Everything is world-frame metres, seconds or
+ *  ratios; the thresholds are plain m/s so the pass can read them off `S`. */
+export interface ImpactParams {
+ /** Craft world velocity, m/s. */
+ vx: number;
+ vz: number;
+ /** Its magnitude, m/s. */
+ speed: number;
+ /** Horizontalised unit contact normal, away from the obstacle. */
+ nx: number;
+ nz: number;
+ /** Obstacle velocity (walker ground speed, other craft), m/s; 0 if static. */
+ ovx: number;
+ ovz: number;
+ /** Other/self mass ratio — Infinity for walkers/terrain/wrecks, 1 for craft. */
+ massRatio: number;
+ /** −1..1: contact's lateral offset in the craft frame, signed port/starboard. */
+ hitSide: number;
+ /** Bounce: fraction of the normal closure a contact returns (`S.impactBounce`). */
+ restitution: number;
+ /** At or above this normal closing speed the contact is a 'hit', m/s. */
+ hitAt: number;
+ /** Above this it is a 'crash', m/s. */
+ crashAt: number;
+}
+
+/** The severity band a closing speed falls in, m/s read against the thresholds
+ *  the pass supplied. Kept as a table band rather than a chain of comparisons
+ *  because there are exactly three rungs and a fourth would be a different
+ *  ladder, not a longer one. */
+export function severityFor(closing: number, hitAt: number, crashAt: number): Severity {
+ if (closing > crashAt) return "crash";
+ if (closing >= hitAt) return "hit";
+ return "scrape";
+}
+
 /**
  * Resolve one contact. Params:
  *
@@ -70,11 +130,14 @@ const SPIN_PER_SHEAR = 0.065;
  *   vx, vz          new craft velocity
  *   spin            signed yaw-rate kick, rad/s (pass scales by S.impactSpin)
  *   normalSpeed     closing speed along the normal, m/s — the severity input
- *   severity        'scrape' (< hitAt) | 'hit' | 'crash' (> crashAt)
- * @param {{vx:number,vz:number,spin:number,normalSpeed:number,severity:string}} out
- * @param {{vx:number,vz:number,speed:number,nx:number,nz:number,ovx:number,ovz:number,massRatio:number,hitSide:number,restitution:number,hitAt:number,crashAt:number}} params
+ *   severity        'scrape' below hitAt | 'hit' above crashAt
  */
-export function speederImpactResponse(out: any, params: any) {
+export function speederImpactResponse(
+ out: ImpactResponse,
+ params: ImpactParams
+): ImpactResponse {
+ // Reads the twelve fields the algebra needs out of the contact the pass
+ // assembled; `params` itself is never touched again.
  const { vx, vz, nx, nz, ovx, ovz, massRatio, hitSide, restitution, hitAt, crashAt } = params;
 
  // Relative velocity, and its projection on the normal. vn < 0 means the
@@ -85,11 +148,11 @@ export function speederImpactResponse(out: any, params: any) {
  const closing = vn < 0 ? -vn : 0;
 
  out.normalSpeed = closing;
- out.severity = closing > crashAt ? "crash" : closing >= hitAt ? "hit" : "scrape";
+ out.severity = severityFor(closing, hitAt, crashAt);
 
  // Separating, tangent, or a degenerate normal: report severity (it is
  // 'scrape' by construction — closing is 0) and change nothing.
- if (vn >= 0 || nx * nx + nz * nz < 1e-12) {
+ if (vn >= 0 || nx * nx + nz * nz < DEGENERATE_N2) {
   out.vx = vx; out.vz = vz; out.spin = 0;
   return out;
  }

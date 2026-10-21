@@ -34,43 +34,122 @@ import { Crystallize } from "./crystallize.js";
 import { Vortex } from "./vortex.js";
 import { aimPoint } from "./bending.js";
 
-/**
- * @typedef {{
- *   controller: import("../character/controller.js").CharacterController,
- *   figure: import("../character/figure.js").Figure|null,
- *   rig: import("../core/camera.js").CameraRig,
- *   terrain: import("../terrain/terrain.js").Terrain,
- *   deform: import("../terrain/deformation.js").DeformationField,
- *   spray: import("../vfx/particles.js").SprayField,
- *   water: WaterBody,
- *   crystals: CrystalField,
- *   lights: SpellLights,
- *   time: number,
- *   sprayScale: number,
- *   handPosition: (which:number, out:Float32Array, off:number) => void,
- * }} SpellContext
- */
+import type { Gfx } from "../core/gfx.js";
+import type { Sky } from "../render/sky.js";
+import type { ShadowSystem } from "../render/shadows.js";
+import type { Terrain } from "../terrain/terrain.js";
+import type { DeformationField } from "../terrain/deformation.js";
+import type { CharacterController } from "../character/controller.js";
+import type { Figure } from "../character/figure.js";
+import type { CameraRig } from "../core/camera.js";
+import type { SprayField } from "../vfx/particles.js";
+import type { DepthPass } from "../render/depthPass.js";
+
+/** Everything a spell needs from the world it runs in. */
+export interface SpellContext {
+ controller: CharacterController;
+ figure: Figure | null;
+ rig: CameraRig;
+ terrain: Terrain;
+ deform: DeformationField;
+ spray: SprayField;
+ water: WaterBody;
+ crystals: CrystalField;
+ lights: SpellLights;
+ time: number;
+ sprayScale: number;
+ handPosition: (which: number, out: Float32Array, off: number) => void;
+}
 
 const _aim = new Float32Array(3);
 
+/**
+ * The five spells, by the key that casts them.
+ *
+ * `input.spellPressed` is a keyboard code in 1..5, and `SNOWFLOW.spells` lets
+ * the console cast by that same number — so the wire format has to stay a
+ * number, not an object. The enum is what makes that boundary honest: a spell
+ * id is a small closed set, and every comparison below states which member it
+ * means rather than hoping `3` is Bloom.
+ *
+ * Members are the spell index, in the order the spells update and are laid out
+ * in `this.spells`.
+ */
+const enum SpellKind {
+ SWEEP = 1,
+ RIBBON = 2,
+ BLOOM = 3,
+ CRYSTALLIZE = 4,
+ VORTEX = 5,
+}
+
+/**
+ * Is this a key that casts one of the five spells?
+ *
+ * The keyboard and the console both hand the spell system a plain `number`,
+ * so the narrow set is re-established here rather than trusted from the wire.
+ */
+function isSpellKind(key: number): key is SpellKind {
+ return key >= SpellKind.SWEEP && key <= SpellKind.VORTEX;
+}
+
+/** Targeting ray length for the placed spells (Bloom, Crystallise), metres. */
+const AIM_RAY_MAX = 22;
+/** Where a miss lands, metres in front of the eye. */
+const AIM_FALLBACK = 13;
+
+/** Lateral offset of the fallback hand point from the chest, metres. */
+const HAND_SIDE = 0.28;
+/** Forward offset of the fallback hand point from the chest, metres. */
+const HAND_FWD = 0.35;
+/** Height of the fallback hand point, metres. */
+const HAND_HEIGHT = 1.25;
+/** Seconds a cast keeps the stance alive after the last one. */
+const CAST_BLEND_HOLD = 0.55;
+/** Ease rate of the casting stance, 1/s, in and out. */
+const CAST_BLEND_IN = 7.0;
+const CAST_BLEND_OUT = 3.2;
+/** Camera trauma per cast, by spell. */
+const TRAUMA_SWEEP = 0.12;
+const TRAUMA_VORTEX = 0.10;
+
+/** The five spells, in update order. */
+type Spell = Sweep | Ribbon | Bloom | Crystallize | Vortex;
+
 export class SpellSystem {
- [key: string]: any;
- /**
-  * @param {import("../core/gfx.js").Gfx} gfx
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
-  * @param {import("../terrain/terrain.js").Terrain} terrain
-  * @param {import("../character/controller.js").CharacterController} controller
-  * @param {import("../character/figure.js").Figure|null} figure
-  * @param {import("../core/camera.js").CameraRig} rig
-  * @param {import("../vfx/particles.js").SprayField} spray
-  */
- constructor(gfx: any, sky: any, shadows: any, terrain: any, controller: any, figure: any, rig: any, spray: any) {
+ lights!: SpellLights;
+ water!: WaterBody;
+ crystals!: CrystalField;
+ ctx!: SpellContext;
+ sweep!: Sweep;
+ ribbon!: Ribbon;
+ bloom!: Bloom;
+ crystallize!: Crystallize;
+ vortex!: Vortex;
+ spells!: Spell[];
+ _consumers!: THREE.RawShaderMaterial[];
+ aim!: THREE.Vector3;
+ castBlend = 0;
+ _lastCast = -99;
+ _time = 0;
+ castCount = 0;
+ lastCast = 0;
+ debugRibbon = false;
+
+ constructor(
+  gfx: Gfx,
+  sky: Sky,
+  shadows: ShadowSystem,
+  terrain: Terrain,
+  controller: CharacterController,
+  figure: Figure | null,
+  rig: CameraRig,
+  spray: SprayField,
+ ) {
   this.lights = new SpellLights();
   this.water = new WaterBody(gfx, sky, shadows, this.lights, rig);
   this.crystals = new CrystalField(gfx, sky, shadows, this.lights, rig);
 
-  /** @type {SpellContext} */
   this.ctx = {
    controller,
    figure: figure || null,
@@ -83,7 +162,7 @@ export class SpellSystem {
    lights: this.lights,
    time: 0,
    sprayScale: 1,
-   handPosition: (which: any, out: any, off: any) => this._handPosition(which, out, off),
+   handPosition: (which: number, out: Float32Array, off: number) => this._handPosition(which, out, off),
   };
 
   this.sweep = new Sweep(this.ctx);
@@ -142,26 +221,26 @@ export class SpellSystem {
   * a spell cast with the character switched off still comes from somewhere
   * sensible rather than from the origin.
   */
- _handPosition(which: any, out: any, off: any) {
+ _handPosition(which: number, out: Float32Array, off: number) {
   const fig = this.ctx.figure;
-  if (fig && S.showCharacter !== false) {
+  if (fig && S.showCharacter) {
    fig.handPosition(which, out, off);
    return;
   }
   const ch = this.ctx.controller;
   const fx = Math.sin(ch.facing);
   const fz = Math.cos(ch.facing);
-  const side = which === 0 ? -0.28 : 0.28;
-  out[off] = ch.position.x + fx * 0.35 + Math.cos(ch.facing) * side;
-  out[off + 1] = ch.position.y + 1.25;
-  out[off + 2] = ch.position.z + fz * 0.35 - Math.sin(ch.facing) * side;
+  const side = which === 0 ? -HAND_SIDE : HAND_SIDE;
+  out[off] = ch.position.x + fx * HAND_FWD + Math.cos(ch.facing) * side;
+  out[off + 1] = ch.position.y + HAND_HEIGHT;
+  out[off + 2] = ch.position.z + fz * HAND_FWD - Math.sin(ch.facing) * side;
  }
 
  /**
   * @param {number} dt
   * @param {THREE.Vector3} cameraPos
   */
- update(dt: any, cameraPos: any) {
+ update(dt: number, cameraPos: THREE.Vector3) {
   const ctx = this.ctx;
   this._time += dt;
   ctx.time = this._time;
@@ -174,7 +253,7 @@ export class SpellSystem {
 
   this.lights.begin();
 
-  if (S.showSpells !== false) this._dispatch();
+  if (S.showSpells) this._dispatch();
   else this._cancelAll();
 
   for (let i = 0; i < this.spells.length; i++) this.spells[i].update(dt);
@@ -182,8 +261,11 @@ export class SpellSystem {
   // The casting stance eases in while anything is up and out again after.
   // Nothing about it is a switch.
   const casting =
-   this.ribbon.active || this._time - this._lastCast < 0.55 ? 1 : 0;
-  this.castBlend = expDamp(this.castBlend, casting, casting ? 7.0 : 3.2, dt);
+   this.ribbon.active || this._time - this._lastCast < CAST_BLEND_HOLD ? 1 : 0;
+  this.castBlend = expDamp(
+   this.castBlend, casting,
+   casting ? CAST_BLEND_IN : CAST_BLEND_OUT, dt
+  );
   const ch = this.ctx.controller;
   ch.cast = this.castBlend;
   ch.castAimX = this.aim.x;
@@ -206,7 +288,7 @@ export class SpellSystem {
   // event — the poll would otherwise release it on the very next frame.
   this.holdRibbon(input.spellHeld2 || this.debugRibbon);
   const key = input.spellPressed;
-  if (key && key !== 2) this.cast(key);
+  if (isSpellKind(key) && key !== SpellKind.RIBBON) this.cast(key);
  }
 
  /**
@@ -215,13 +297,13 @@ export class SpellSystem {
   * Separated from the input poll so the console or a future rebind can cast
   * without synthesising a key event. `SNOWFLOW.spells` is the console handle.
   *
-  * @param {number} key 1..5
+  * @param {number} key 1..5, as `input.spellPressed` reports it
   */
- cast(key: any) {
+ cast(key: number) {
   const ctx = this.ctx;
   const rig = ctx.rig;
 
-  if (key === 2) {
+  if (key === SpellKind.RIBBON) {
    this.holdRibbon(true);
    return;
   }
@@ -230,16 +312,16 @@ export class SpellSystem {
   this.castCount++;
   this.lastCast = key;
 
-  if (key === 1) {
+  if (key === SpellKind.SWEEP) {
    // Flat aim: the crescent runs along the ground, so a camera pointed
    // at the sky must not launch it into the air.
    const fl = Math.hypot(this.aim.x, this.aim.z) || 1;
    this.sweep.trigger(this.aim.x / fl, this.aim.z / fl);
-   rig.addTrauma(0.12);
+   rig.addTrauma(TRAUMA_SWEEP);
    return;
   }
 
-  if (key === 3 || key === 4) {
+  if (key === SpellKind.BLOOM || key === SpellKind.CRYSTALLIZE) {
    // Both are placed where the player is looking. The ray starts at the
    // eye, so what the spell hits is exactly what is under the centre of
    // the screen — which is the only targeting rule that needs no
@@ -256,27 +338,27 @@ export class SpellSystem {
     _aim, ctx.terrain,
     eye.x, eye.y, eye.z,
     this.aim.x, this.aim.y, this.aim.z,
-    22, 13
+    AIM_RAY_MAX, AIM_FALLBACK
    );
-   if (key === 3) this.bloom.trigger(_aim[0], _aim[1], _aim[2]);
+   if (key === SpellKind.BLOOM) this.bloom.trigger(_aim[0], _aim[1], _aim[2]);
    else this.crystallize.trigger(_aim[0], _aim[1], _aim[2]);
    return;
   }
 
-  if (key === 5) {
+  if (key === SpellKind.VORTEX) {
    this.vortex.trigger();
-   rig.addTrauma(0.10);
+   rig.addTrauma(TRAUMA_VORTEX);
   }
  }
 
  /** @param {boolean} held */
- holdRibbon(held: any) {
+ holdRibbon(held: boolean) {
   if (held) {
    if (!this.ribbon.held) {
     this.ribbon.trigger();
     this._lastCast = this._time;
     this.castCount++;
-    this.lastCast = 2;
+    this.lastCast = SpellKind.RIBBON;
    }
   } else if (this.ribbon.held) {
    this.ribbon.release();
@@ -301,9 +383,9 @@ export class SpellSystem {
   * depth for it would tell every screen-space consumer that the snow behind it
   * is not there — which is exactly wrong for a medium you can see through.
   *
-  * @param {import("../render/depthPass.js").DepthPass} depth
-  */
- registerPrepass(depth: any) {
+   * @param {DepthPass} depth
+   */
+ registerPrepass(depth: DepthPass) {
   this.crystals.registerPrepass(depth);
  }
 
@@ -320,7 +402,7 @@ export class SpellSystem {
   * exercised with real geometry — a pipeline compiled against an empty draw
   * is a warm-up that quietly covers nothing.
   */
- async warmUp(x: any, y: any, z: any) {
+ async warmUp(x: number, y: number, z: number) {
   await this.water.warmUp(x, y, z);
   await this.crystals.warmUp(x, y, z);
  }

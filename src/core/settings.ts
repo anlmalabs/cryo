@@ -218,11 +218,6 @@ export const S = {
   */
  boltRange: 400,
  /**
-  * Where the cannon bolts are born, craft-local metres — the pair of
-  * wingtip guns. Span is mirrored left/right; tune these until the shots
-  * visibly leave the gun heads. Defaults are the model's measured muzzles.
-  */
- /**
   * Multiplier on the plume's HDR intensity. The flame is pushed an order of
   * magnitude over the snow so the bloom pass has something to spread — this
   * is the knob over how much of that halo washes back over the hull. 1 is
@@ -237,6 +232,17 @@ export const S = {
   * throat hard against the nozzle.
   */
  jetHaloBack: 0.1,
+ /**
+  * Where the cannon bolts are born, in the craft's own frame — metres, and
+  * all three walk the same tip, so they are measured barrel-tip positions
+  * off the model rather than chosen numbers: the overlay's muzzle sliders
+  * exist so these can be walked onto the gun heads by eye. `muzzleSpan` is
+  * out from the centre line (mirrored left/right by the caller), `muzzleDropY`
+  * the vertical offset below it, `muzzleFwdZ` forward. The odd-looking values
+  * are the fix for a derivation that used 0.82 of the half-span and 0.55 of
+  * the half-length, which hung the muzzles out at the wingtips and half a hull
+  * too far back, so the fire left from empty air either side of the canopy.
+  */
  muzzleSpan: 0.84,
  muzzleDropY: -0.196,
  muzzleFwdZ: 2.58,
@@ -685,7 +691,7 @@ const listeners = new Map<string, Set<(v: SettingValue, k: string) => void>>();
 /**
  * Subscribe to a settings key. Returns an unsubscribe function.
  * @param {string|string[]} keys
- * @param {(v:any, k:string) => void} fn
+ * @param {(v:SettingValue, k:string) => void} fn
  */
 export function onChange(keys: string | string[], fn: (v: SettingValue, k: string) => void) {
  const list = typeof keys === "string" ? [keys] : keys;

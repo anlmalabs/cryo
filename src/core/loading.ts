@@ -25,7 +25,7 @@ export function nextFrame() {
  * @param {string} text shown under the bar
  * @param {number} to target progress, 0..1
  */
-export async function phase(text: any, to: any) {
+export async function phase(text: string, to: number) {
  if (label) label.textContent = text;
  progress = Math.max(progress, to);
  if (bar) bar.style.width = (progress * 100).toFixed(1) + "%";
@@ -51,7 +51,7 @@ export async function phase(text: any, to: any) {
  *   engine is unlocked here and merely awaited by the caller.
  * @returns {Promise<boolean>} true once entered; false if there is no gate to show
  */
-export function gate(onEnter: any) {
+export function gate(onEnter?: () => void): Promise<boolean> {
  const wrap = document.getElementById("boot-gate");
  const btn = document.getElementById("gate-enter");
 
@@ -78,7 +78,7 @@ export function gate(onEnter: any) {
    resolve(true);
   };
 
-  const onKey = (e: any) => {
+  const onKey = (e: KeyboardEvent) => {
    if (e.code === "Enter" || e.code === "Space" || e.code === "NumpadEnter") {
     e.preventDefault();
     finish();
@@ -102,7 +102,7 @@ export async function done() {
  }, 6000);
 }
 
-export function fail(message: any) {
+export function fail(message: string) {
  root?.remove();
  const el = document.getElementById("nogpu");
  if (el) {

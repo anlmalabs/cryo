@@ -39,13 +39,23 @@ import { mulMat4 } from "../core/mat4.js";
 import { CASCADE_COUNT } from "../render/shadows.js";
 import { SPELL_LIGHT_UNIFORMS } from "../spells/spellLights.js";
 import { Jet } from "./jet.js";
+import type { Gfx } from "../core/gfx.js";
+import type { Terrain } from "../terrain/terrain.js";
+import type { Sky } from "../render/sky.js";
+import type { ShadowSystem } from "../render/shadows.js";
+import type { DepthPass } from "../render/depthPass.js";
+import type { ModelAsset, WalkerLOD, WalkerMaterial, WalkerHeader } from "../walkers/modelAsset.js";
+import type { MuzzleMarkers } from "../vfx/muzzleMarkers.js";
 
 /** Metres of clearance under the hull at rest. */
 const HOVER = 2.6;
+
 /** Extra lift with speed: it planes, so it rides higher the faster it goes. */
 const HOVER_SPEED_LIFT = 1.5;
+
 /** How hard it banks into a turn, radians at full lean. */
 const BANK = 0.62;
+
 /** Nose-down under power, radians at full throttle. A lean, not a dive:
  *  at speed the craft flies close to level — which is also what keeps the
  *  cannon fire parallel to the field instead of ploughing it. */
@@ -53,6 +63,7 @@ const PITCH = 0.06;
 /** Throttle scheme: radians of nose along the vertical at full climb/dive
  *  rate — up climbing, down diving, the pitch answer to the steer's bank. */
 const VERT_PITCH = 0.34;
+
 /** Idle wallow: metres, and radians of roll, at a standstill. */
 const BOB_HEIGHT = 0.22;
 const BOB_ROLL = 0.05;
@@ -70,6 +81,86 @@ const FIRE_RATE = 0.14;
 /** How far ahead the guns converge, metres. */
 const CONVERGE = 90;
 
+// --------------------------------------------------- flight-model tuning
+// The numbers the hover, the attitude and the plume are actually built from.
+// Every one is in the unit its name says: metres, m/s, radians, or a ratio.
+
+/** Fraction of the hull's half-length probed either side of the centre for the
+ *  ground under the nose and the tail. Ratio of `bounds.max[2]`. */
+const PROBE_SPAN = 0.9;
+
+/** Idle wallow rate, radians per second. */
+const BOB_RATE = 1.6;
+
+/** Wreck: where the belly sits in the snow, metres below the surface — far
+ *  enough that the drifts read as already claiming it. */
+const WRECK_BURY = -0.15;
+
+/** Metres of clearance even the lowest point of the hull keeps above the
+ *  sampled ground when it is flying. */
+const HOVER_FLOOR = 1.2;
+
+/** Boost buffet: the two vibration frequencies, radians per second. A fast
+ *  primary and a lower secondary, so the tremble does not read as one tone. */
+const BUFFET_F1 = 13.7;
+const BUFFET_F2 = 29.3;
+/** Boost buffet: the secondary's weight relative to the primary, ratio — it is
+ *  a shade of the first sine rather than an equal partner. */
+const BUFFET_MIX = 0.6;
+/** Boost buffet: the secondary's phase offset, radians. Incommensurate on
+ *  purpose, so the two never realign and the sum never repeats. */
+const BUFFET_PHASE = 1.7;
+/** Boost buffet: how much of the vertical shake reaches the roll, ratio. */
+const BUFFET_ROLL = 0.1;
+
+/** Terrain slope the nose will follow, as a signed fraction (rise over run).
+ *  Past this the follower saturates: unclamped, a two-metre drop over the five
+ *  metres between the probes outranks the throttle and the craft flies
+ *  permanently nose-down. */
+const SLOPE_LIMIT = 0.35;
+/** How much of a clamped slope reaches the nose, gated by `1 - lift01` so a
+ *  craft that has left the deck flies level over the dunes it no longer
+ *  traces. Ratio. */
+const SLOPE_PITCH = 0.3;
+
+/** Reference speed for the throttle pitch answer, m/s. Full nose-down at this
+ *  airspeed, none at a standstill. */
+const PITCH_SPEED = 19;
+/** Reference vertical rate for the throttle scheme, m/s. Full vertical pitch
+ *  at this climb or dive rate. */
+const VERT_RATE = 7;
+/** Dive bias: the extra nose applied when the vertical rate is negative, so
+ *  W visibly points the craft at the snow. Ratio. */
+const DIVE_BIAS = 1.25;
+
+/** Plume hover stub: length while holding station, fraction of full extension. */
+const JET_HOVER = 0.14;
+/** Plume cruise: the throttle's own contribution, ratio, and the speed term's,
+ *  a fixed fraction of `speed01`. */
+const JET_CRUISE = 0.30;
+const JET_CRUISE_SPEED = 0.16;
+/** Plume reheat: length on the boost, fraction, plus its speed term's share. */
+const JET_REHEAT = 0.85;
+const JET_REHEAT_SPEED = 0.45;
+/** Plume ceiling, fraction. The sum saturates here rather than running away. */
+const JET_MAX = 1.55;
+
+/** Screen streak: expDamp rate onto the boost, per second. Slower off than on
+ *  — reheat lights fast and dies slowly. */
+const STREAK_ON = 5.0;
+const STREAK_OFF = 2.5;
+/** Plume length: expDamp rate on and off the throttle, per second. */
+const THROTTLE_ON = 7.0;
+const THROTTLE_OFF = 2.2;
+
+/** Fallback frame time, seconds, used when nothing has ticked yet — 60 Hz.
+ *  Keeps the bolts and the plume animating on the very first frame. */
+const FALLBACK_DT = 0.016;
+
+/** Frame-time ceiling for presentation damping, seconds. The presentation
+ *  must never advance by more than the physics does. */
+const MAX_DT = 1 / 30;
+
 /**
  * Where the exhaust leaves the hull, craft-local metres.
  *
@@ -83,15 +174,9 @@ const CONVERGE = 90;
  */
 const ENGINE_NOZZLE = { spanX: 0.42, dropY: -0.124, backZ: -2.63 };
 
-/**
- * Where the cannon bolts are born, craft-local metres.
- *
- * The tips of the barrels the model actually has: 0.84 m out from the centre
- * line and a shade below it, at the very nose. Previously 0.82 of the half-span
- * and 0.55 of the half-length, which is out at the wingtips and half a hull too
- * far back — the bolts left from empty air either side of the canopy.
- */
-const MUZZLE = { x: 0.84, y: -0.196, z: 2.58 };
+/** Radius of the tuning ring the overlay draws at each muzzle, metres. Sits
+ *  just inside a wingtip so it reads as a handle on the barrel's own end. */
+const MUZZLE_RING_R0 = 0.12;
 
 // ------------------------------------------------------- module-scope scratch
 const _fwd = new THREE.Vector3();
@@ -121,6 +206,52 @@ interface BoltPool {
  dispose(): void;
 }
 
+/** The hull mesh, carrying the same `metadata` the walkers' meshes do so the
+ *  triangle and vertex counts stay readable off the object. */
+type SpeederMesh = THREE.Mesh<
+ THREE.BufferGeometry,
+ THREE.RawShaderMaterial
+> & { metadata: { triangles: number; vertices: number } };
+
+/**
+ * The subset of a controller this craft reads to pose itself.
+ *
+ * Structural rather than nominal on purpose, because it has two suppliers
+ * with nothing in common but these numbers: the real `CharacterController`
+ * the player is integrated by, and `main`'s hand-built `WreckController`
+ * literal for a stilled hull in the graveyard — a plain object holding pose
+ * numbers and no crash or climb-rate state at all. Everything `update()`
+ * touches lives here; the optional ones are those the wreck literal
+ * legitimately omits.
+ */
+interface FlightController {
+ position: THREE.Vector3;
+ velocity: THREE.Vector3;
+ facing: number;
+ lean: number;
+ steerRate: number;
+ speed01: number;
+ speedRaw: number;
+ /** E-key altitude held above the path, metres. */
+ climb?: number;
+ /** 0..1 blend into the flattened cruise path. */
+ lift01?: number;
+ /** The controller's own flattened height, metres. */
+ pathY?: number;
+ /** Height of the terrain directly under the controller. */
+ groundY?: number;
+ driveHeld?: boolean;
+ boostHeld?: boolean;
+ fireHeld?: boolean;
+ /** True while a fall is running; drops the nose with the descent rate. */
+ crashing?: boolean;
+ /** Instantaneous vertical rate, m/s. Only the throttle scheme publishes it. */
+ climbRate?: number;
+}
+
+/** The hull's half-extents, as the baked header reports them: `{min, max}`. */
+type CraftBounds = { min: number[]; max: number[] };
+
 export class Speeder {
  /**
   * Wreck flag. Read here to lay the belly into the snow and kill the hover,
@@ -149,24 +280,108 @@ export class Speeder {
 
  /** Pooled cannon bolts, handed over by the owner. Null until it arrives. */
  bolts: BoltPool | null = null;
- [key: string]: any;
+
+ /** The shared renderer handle, and the world the craft perches over. */
+ gfx!: Gfx;
+ terrain!: Terrain;
+ sky!: Sky;
+ shadows!: ShadowSystem;
+ /** The controller that decides where the player is; this only dresses it. */
+ controller!: FlightController;
+ /** The owner's spray field, kept for the owner's own reference only. */
+ spray?: unknown;
+
+ /** Craft half-extents, as the baked header reports them: `{min, max}`. */
+ bounds!: CraftBounds;
+ /** Basis/translation scales of the baked skinning matrices. */
+ basisScale!: number;
+ transScale!: number;
+ /** The one baked clip, quantised: a flat run of 3x4 Int16 matrices, one per
+  *  bone. Widened by the basis/translation scales when it is uploaded. */
+ anim!: Int16Array;
+ boneCount!: number;
+
+ position!: THREE.Vector3;
+ yaw!: number;
+ roll!: number;
+ pitch!: number;
+ /** Phase of the idle wallow, radians, advanced by `BOB_RATE`. */
+ _bob!: number;
+ /** Clock for the boost buffet — its own accumulator, its own rates. */
+ _buffet!: number;
+ /** True once `update` has snapped the craft onto the controller once. */
+ _settled!: boolean;
+ /** How hard the screen streaks, 0-1. */
+ streak01!: number;
+ /** The world transform: three basis columns and an origin. */
+ _world!: Float32Array;
+ /** Scratch for one bone's 3x4 while the transform texture is filled. */
+ _bone!: Float32Array;
+ _texData!: Float32Array;
+ tex!: THREE.DataTexture;
+ geometry!: THREE.BufferGeometry;
+ triangles!: number;
+ albedoTex!: THREE.DataArrayTexture;
+ ormTex!: THREE.DataArrayTexture;
+ material!: THREE.RawShaderMaterial;
+ mesh!: SpeederMesh;
+ _materials!: WalkerMaterial[];
+ factors!: Float32Array;
+ _viewProj!: THREE.Matrix4;
+ _cameraPos!: THREE.Vector3;
+ _depthMats!: THREE.RawShaderMaterial[];
+ _prepassMat?: THREE.RawShaderMaterial;
+ _fireTimer!: number;
+ _barrel!: number;
+ _muzzle!: THREE.Vector3;
+ /** Bolts fired since boot — the HUD's shot counter reads it. */
+ shotCount!: number;
+ jet!: Jet;
+ _liftSpeed?: number;
+ _throttle?: number;
+ _visible!: boolean;
+ _lastDt?: number;
+
+ // Escape hatch, not laziness: the owner (`main`) writes a handful of fields
+ // onto this craft after construction — `grounded`, `snowOverride`, `bolts` —
+ // and reads a few back, and the class body forwards them through to the jet
+ // and the bolts. Those three are declared above with real types; this index
+ // signature exists so writes of *other* cross-module state do not each become
+ // a declaration here. Same convention as every peer renderer/vfx class.
+ [key: string]: unknown;
+
  /**
-  * @param {import("../core/gfx.js").Gfx} gfx
-  * @param {import("../terrain/terrain.js").Terrain} terrain
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
-  * @param {import("../walkers/modelAsset.js").ModelAsset | null} asset
-  * @param {import("../character/controller.js").CharacterController | null} controller
-  * @param {import("../vfx/particles.js").SprayField} [spray]
+  * Everything the speeder is built from, handed over by the owner.
+  *
+  * `asset` is non-null by necessity, not optimism: the body below reads its
+  * header, its LODs, its maps and its animation unconditionally, because a
+  * craft with no baked hull is not a craft that can be drawn. Both call sites
+  * in `main` already sit where the load has resolved.
   */
- constructor(gfx: any, terrain: any, sky: any, shadows: any, asset: any, controller: any, spray: any) {
+ constructor(
+  gfx: Gfx,
+  terrain: Terrain,
+  sky: Sky,
+  shadows: ShadowSystem,
+  asset: ModelAsset,
+  controller: FlightController,
+  spray?: unknown
+ ) {
   this.gfx = gfx;
   this.terrain = terrain;
   this.sky = sky;
   this.shadows = shadows;
   this.controller = controller;
 
-  const h = asset.header;
+  // `WalkerHeader` in `modelAsset.ts` declares 12 of the fields the baker
+  // writes and omits these three — `bounds`, `basisScale`, `transScale`
+  // (bakeWalker.mjs:620, :623-624). They are real and present at runtime;
+  // they are read through this widen-until-declared supplement.
+  const h = asset.header as WalkerHeader & {
+   bounds: CraftBounds;
+   basisScale: number;
+   transScale: number;
+  };
   this.bounds = h.bounds;
   this.basisScale = h.basisScale;
   this.transScale = h.transScale;
@@ -277,8 +492,9 @@ export class Speeder {
 
   this.material = this._makeSurfaceMaterial();
 
-  this.mesh = new THREE.Mesh(this.geometry, this.material);
-  this.mesh.metadata = { triangles: lod.triangleCount, vertices: lod.vertexCount };
+  const mesh = new THREE.Mesh(this.geometry, this.material) as SpeederMesh;
+  mesh.metadata = { triangles: lod.triangleCount, vertices: lod.vertexCount };
+  this.mesh = mesh;
   // renderingGroupId 1 → the opaque layer.
   gfx.addMesh(this.mesh, gfx.LAYER.OPAQUE, 10);
   const tc = gfx.threeCamera;
@@ -294,7 +510,7 @@ export class Speeder {
   this._depthMats = [];
   // Two cascades, not three. It is a five-metre craft flying a few metres
   // off the snow — its shadow is under it, and cascade 2 covers 330 m.
-  shadows.registerCaster(this.mesh, (c: any) => this._makeDepthMaterial(c), 2);
+  shadows.registerCaster(this.mesh, (c: number) => this._makeDepthMaterial(c), 2);
 
   // ---- the guns -------------------------------------------------------
   // Its own look: the walker's bolt is sized to read at two hundred metres
@@ -364,7 +580,7 @@ export class Speeder {
   this.factors[29] = S.speederDesat;
  }
 
- _makeGeometry(lod: any) {
+ _makeGeometry(lod: WalkerLOD) {
   const geom = new THREE.BufferGeometry();
   geom.setAttribute("position", new THREE.BufferAttribute(lod.positions, 3));
   geom.setAttribute("normal", new THREE.BufferAttribute(lod.normals, 3));
@@ -439,7 +655,7 @@ export class Speeder {
   });
  }
 
- _makeDepthMaterial(cascade: any) {
+ _makeDepthMaterial(cascade: number) {
   const mat = makeMaterial({
    name: "speederDepth" + cascade,
    vertex: getShader("walkerDepthVertexShader"),
@@ -458,8 +674,7 @@ export class Speeder {
   return mat;
  }
 
- /** @param {import("../render/depthPass.js").DepthPass} depth */
- registerPrepass(depth: any) {
+ registerPrepass(depth: DepthPass) {
   const mat = makeMaterial({
    name: "speederPrepass",
    vertex: getShader("walkerPrepassVertexShader"),
@@ -475,11 +690,11 @@ export class Speeder {
   depth.registerCaster(this.mesh, mat);
  }
 
- setVisible(v: any) {
+ setVisible(v: boolean) {
   this._visible = !!v;
   this.mesh.visible = this._visible;
   // A wreck's repulsors are dead: no plume, however visible the hull.
-  this.jet.setVisible(this._visible && !(/** @type {any} */ (this).grounded));
+  this.jet.setVisible(this._visible && !this.grounded);
   if (this.bolts && this.bolts.mesh) {
    this.bolts.mesh.visible = this._visible;
   }
@@ -489,15 +704,15 @@ export class Speeder {
   * Fly it. The controller is still the thing that decides where the player is
   * — this only decides what that looks like from outside.
   *
-  * @param {number} dt
+  * @param dt seconds since the previous frame
   */
- update(dt: any) {
+ update(dt: number) {
   if (!this._visible) return;
   // Same clamp the controller integrates under. Without it a hitch let
   // the presentation damps advance the full real dt while the physics
   // advanced at most 33 ms, and the hull visibly over-settled against the
   // motion it was tracking for one frame after every stutter.
-  dt = Math.min(dt, 1 / 30);
+  dt = Math.min(dt, MAX_DT);
   const c = this.controller;
 
   this.yaw = c.facing;
@@ -509,7 +724,7 @@ export class Speeder {
   // ---- height -------------------------------------------------------
   // Sampled at the nose and the tail rather than under the centre, so a
   // crest lifts the front before it lifts the back.
-  const half = this.bounds.max[2] * 0.9;
+  const half = this.bounds.max[2] * PROBE_SPAN;
   const nose = this.terrain.heightAt(
    c.position.x + _fwd.x * half, c.position.z + _fwd.z * half
   );
@@ -525,7 +740,7 @@ export class Speeder {
   const lift01 = Math.min(1, Math.max(0, c.lift01 || 0));
   const ground = groundTrack + ((c.pathY ?? groundTrack) - groundTrack) * lift01;
 
-  this._bob += dt * 1.6;
+  this._bob += dt * BOB_RATE;
   const idle = 1 - speed01;
   // `c.climb` is the E-key altitude the controller holds above its path —
   // without it here the controller (and the camera chasing it) rises
@@ -548,18 +763,18 @@ export class Speeder {
   // second) and turns every throttle change into a settle rather than
   // a step.
   this._liftSpeed = expDamp(this._liftSpeed ?? speed01, speed01, 1.3, dt);
-  const lift = (/** @type {any} */ (this)).grounded
-   ? -0.15
+  const lift = (/** @type {boolean} */ (this).grounded)
+   ? WRECK_BURY
    : HOVER + HOVER_SPEED_LIFT * this._liftSpeed + (c.climb || 0);
   let wantY = ground + lift
-   + ((/** @type {any} */ (this)).grounded ? 0 : Math.sin(this._bob) * BOB_HEIGHT * idle);
-  if (!(/** @type {any} */ (this)).grounded) wantY = Math.max(wantY, groundTrack + 1.2);
+   + ((/** @type {boolean} */ (this).grounded) ? 0 : Math.sin(this._bob) * BOB_HEIGHT * idle);
+  if (!(/** @type {boolean} */ (this).grounded)) wantY = Math.max(wantY, groundTrack + HOVER_FLOOR);
 
   // ---- attitude ------------------------------------------------------
   // Bank off the controller's own lean, which is the same signal the camera
   // banks on — so the horizon and the craft always agree about the turn.
   let wantRoll = -c.lean * BANK
-   + ((/** @type {any} */ (this)).grounded ? 0 : Math.sin(this._bob * 0.7) * BOB_ROLL * idle);
+   + ((/** @type {boolean} */ (this).grounded) ? 0 : Math.sin(this._bob * 0.7) * BOB_ROLL * idle);
 
   // Bank lead: a steer-rate term, so the hull rolls a few degrees *into*
   // the turn ahead of its settling bank and eases back as the lean catches
@@ -579,9 +794,9 @@ export class Speeder {
    this._buffet += dt;
    const t = this._buffet;
    const b = S.speederTurbulence * c.speedRaw * c.speedRaw
-    * (Math.sin(t * 13.7) + 0.6 * Math.sin(t * 29.3 + 1.7));
+    * (Math.sin(t * BUFFET_F1) + BUFFET_MIX * Math.sin(t * BUFFET_F2 + BUFFET_PHASE));
    wantY += b;
-   wantRoll += b * 0.1;
+   wantRoll += b * BUFFET_ROLL;
   }
   // Nose down under power. A repulsorlift pushes from underneath, so
   // accelerating tips the nose in, which is the opposite of an aeroplane
@@ -594,7 +809,7 @@ export class Speeder {
   // the throttle and the craft flies permanently nose-down.
   // Cruising flattens the slope-follow too — a craft that has left the
   // deck flies level over the dunes it no longer traces.
-  const slope = Math.max(-0.35, Math.min(0.35, (nose - tail) / (2 * half)))
+  const slope = Math.max(-SLOPE_LIMIT, Math.min(SLOPE_LIMIT, (nose - tail) / (2 * half)))
    * (1 - lift01);
   // Under the throttle scheme the vertical shows on the nose too:
   // proportional to the eased climb *rate*, so the attitude levels off
@@ -611,12 +826,19 @@ export class Speeder {
   // A crash publishes the fall's real descent rate through the same
   // channel, so the nose drops with it regardless of control scheme —
   // the one rotation the fall was missing.
+  //
+  // `=== true`, not truthiness — and deliberately a value comparison, not
+  // object identity: `S` holds `number | boolean | string`, so a `.set()`
+  // call or a persisted preset can leave `flightThrottle` as `1` or the
+  // string `"true"`, and either would fly the vertical. The strict test
+  // keeps the throttle scheme off unless it was set with a real boolean,
+  // which is the same narrowing the controller and the input both apply.
   const vr = (S.flightThrottle === true || c.crashing)
-   ? Math.max(-1, Math.min(1, (c.climbRate ?? 0) / 7)) : 0;
+   ? Math.max(-1, Math.min(1, (c.climbRate ?? 0) / VERT_RATE)) : 0;
   const wantPitch =
-   Math.min(1, Math.abs(along) / 19) * PITCH * Math.sign(along || 1)
-   + slope * 0.3
-   - vr * VERT_PITCH * (vr < 0 ? 1.25 : 1);
+   Math.min(1, Math.abs(along) / PITCH_SPEED) * PITCH * Math.sign(along || 1)
+   + slope * SLOPE_PITCH
+   - vr * VERT_PITCH * (vr < 0 ? DIVE_BIAS : 1);
 
   if (!this._settled) {
    this.position.set(c.position.x, wantY, c.position.z);
@@ -656,17 +878,20 @@ export class Speeder {
   // and lit up. W is a *basic* jet — visibly running, plainly not trying —
   // and shift is the one that stretches it, because a plume already at
   // full extension on the throttle leaves the boost nothing to show.
-  const hover = 0.14;
-  const cruise = 0.30 * drive + 0.16 * speed01;
-  const reheat = boosting * (0.85 + 0.45 * speed01);
-  const want = Math.min(1.55, hover + cruise + reheat);
+  //
+  // These are plume *lengths* as a fraction of full extension, not the hover
+  // height — `JET_*` below, deliberately not another `HOVER`.
+  const plumeStub = JET_HOVER;
+  const plumeCruise = JET_CRUISE * drive + JET_CRUISE_SPEED * speed01;
+  const plumeReheat = boosting * (JET_REHEAT + JET_REHEAT_SPEED * speed01);
+  const want = Math.min(JET_MAX, plumeStub + plumeCruise + plumeReheat);
   this.streak01 = expDamp(
    this.streak01, boosting * Math.min(1, speed01) * S.speederStreak,
-   boosting ? 5.0 : 2.5, dt
+   boosting ? STREAK_ON : STREAK_OFF, dt
   );
   // Slower off the boost than onto it: reheat lights fast and dies slowly.
   this._throttle = expDamp(
-   this._throttle || 0, want, boosting ? 7.0 : 2.2, dt
+   this._throttle || 0, want, boosting ? THROTTLE_ON : THROTTLE_OFF, dt
   );
  }
 
@@ -702,9 +927,8 @@ export class Speeder {
   * One tuning ring per wingtip gun, pushed onto `markers` — the same
   * craft-frame math `_fire` uses, so the rings are exactly where the bolts
   * are born and track the muzzle sliders live.
-  * @param {import("../vfx/muzzleMarkers.js").MuzzleMarkers} markers
   */
- collectMuzzles(markers: any) {
+ collectMuzzles(markers: MuzzleMarkers) {
   const w = this._world;
   for (let side = -1; side <= 1; side += 2) {
    const wing = S.muzzleSpan * side;
@@ -714,7 +938,7 @@ export class Speeder {
     w[0] * wing + w[3] * rise + w[6] * nose + w[9],
     w[1] * wing + w[4] * rise + w[7] * nose + w[10],
     w[2] * wing + w[5] * rise + w[8] * nose + w[11],
-    0.12, S.boltR, S.boltG, S.boltB
+    MUZZLE_RING_R0, S.boltR, S.boltG, S.boltB
    );
   }
  }
@@ -724,7 +948,7 @@ export class Speeder {
   * pair converge a long way out so the two streams read as aimed rather than
   * parallel.
   */
- _fire(dt: any) {
+ _fire(dt: number) {
   this._fireTimer -= dt;
   // Floor it first: a long hitch — or a trigger released for a while —
   // must not bank shots and pay them out as a burst.
@@ -738,7 +962,9 @@ export class Speeder {
   // The barrel tip, in the craft's own frame, alternating sides.
   const side = (this._barrel++ % 2) === 0 ? 1 : -1;
   // Settings-driven so the muzzles can be walked onto the gun heads by
-  // eye from the overlay; `MUZZLE` above holds the measured defaults.
+  // eye from the overlay. The measured defaults of the barrel tips live in
+  // `core/settings.ts`: `muzzleSpan` 0.84 out from the centre line,
+  // `muzzleDropY` -0.196 below it, `muzzleFwdZ` 2.58 out at the nose.
   const wing = S.muzzleSpan * side;
   const nose = S.muzzleFwdZ;
   const rise = S.muzzleDropY;
@@ -772,8 +998,8 @@ export class Speeder {
 
   for (let b = 0; b < bones; b++) {
    const p = b * 12;
-   for (let k = 0; k < 9; k++) m[k] = a[p + k] * bs;
-   for (let k = 9; k < 12; k++) m[k] = a[p + k] * ts;
+   for (let k = 0; k < 9; k++) m[k] = a[p + k] * (bs ?? NaN);
+   for (let k = 9; k < 12; k++) m[k] = a[p + k] * (ts ?? NaN);
    for (let c = 0; c < 4; c++) {
     const x = m[c * 3], y = m[c * 3 + 1], z = m[c * 3 + 2];
     const o = (c * bones + b) * 4;
@@ -787,7 +1013,7 @@ export class Speeder {
  }
 
  /** @param {THREE.Vector3} cameraPos */
- sync(cameraPos: any) {
+ sync(cameraPos: THREE.Vector3) {
   if (!this._visible) return;
   this._cameraPos.copy(cameraPos);
 
@@ -829,14 +1055,14 @@ export class Speeder {
   u.ambientIntensity.value = S.ambientIntensity * S.speederAmbient;
   // No rime on a craft that is moving and warm — but a wreck cooling in
   // the snow frosts over, slowly, through this override.
-  u.snowCover.value = (/** @type {any} */ (this)).snowOverride ?? 0;
+  u.snowCover.value = this.snowOverride ?? 0;
   // Debug modes bypass the shading entirely — see `debugView` in
   // walker.fragment.glsl. The gain undoes the exposure the post chain is
   // about to apply, so a raw value of 1.0 reads as white rather than grey.
   u.debugView.value = DEBUG_VIEWS.indexOf(S.speederDebug) + 0;
   u.debugGain.value = 1 / Math.max(0.001, S.exposure);
 
-  if (this.bolts) this.bolts.update(this._lastDt || 0.016, cameraPos);
+  if (this.bolts) this.bolts.update(this._lastDt || FALLBACK_DT, cameraPos);
   // Nudgeable, because where a flame *looks* right is not quite where the
   // nozzle is: the plume has width and a flare, and the eye reads its
   // leading edge rather than its origin.
@@ -844,13 +1070,13 @@ export class Speeder {
   _nozzle.dropY = ENGINE_NOZZLE.dropY + S.jetDropY;
   _nozzle.backZ = ENGINE_NOZZLE.backZ + S.jetBackZ;
   this.jet.update(
-   this._lastDt || 0.016, this._world, _nozzle,
+   this._lastDt || FALLBACK_DT, this._world, _nozzle,
    this._throttle || 0, cameraPos
   );
  }
 
  /** @param {number} dt kept for the bolts, which tick in `sync`. */
- tick(dt: any) {
+ tick(dt: number) {
   this._lastDt = dt;
  }
 

@@ -19,8 +19,9 @@
  */
 
 import * as THREE from "three";
+import type { Gfx } from "../core/gfx.js";
 
-import { Heightfield } from "./heightfield.js";
+import { Heightfield, HEIGHT_RES } from "./heightfield.js";
 import { DeformationField } from "./deformation.js";
 import {
  buildClipmapMesh,
@@ -30,8 +31,33 @@ import {
 import { S } from "../core/settings.js";
 import { makeMaterial, FullscreenPass, bakeOnce, whenReady } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
+import type { Sky } from "../render/sky.js";
+import type { ShadowSystem } from "../render/shadows.js";
 
 const DETAIL_RES = 1024;
+
+/** Lattice of the generated snow grain: texels per world unit, metres^-1. */
+const GRAIN_SCALE = 0.013;
+
+/** Cascade shadow-map width per side, texels — the fallback when no shadow
+ *  system is wired, so the shared `shadowTexel` is still meaningful. */
+const SHADOW_RES = 2048;
+
+/** Shadow filter radius, in world metres, as a multiple of the map texel. */
+const SHADOW_SOFTNESS = 1.8;
+
+/** Shadow depth bias, metres. Snow has no thin geometry to peter-pan, so this
+ *  can stay small and keep contact shadows attached. */
+const SHADOW_BIAS = 0.022;
+
+/** Fallback cascade split distances, metres, before the shadow system is built. */
+const DEFAULT_SPLITS = [26, 95, 330, 330];
+
+/** Slack below the baked minimum height, metres, for casters proud of the map. */
+const HEIGHT_MARGIN_LO = 4;
+
+/** Slack above the baked maximum height, metres, for casters proud of the map. */
+const HEIGHT_MARGIN_HI = 6;
 
 const CASCADE_COUNT = 3;
 
@@ -57,14 +83,84 @@ void main() {
 }
 `;
 
+/**
+ * One shader uniform's value, as this module binds them: a number, a
+ * colour/vector object three's own materials mutate in place, or a buffer
+ * or texture bound zero-copy. `sky`/`shadows` peers are stubs whose entries
+ * may never have been written, so those bindings are optional by way of the
+ * `||` fallback rather than by widening this union.
+ */
+type TerrainUniformValue =
+ | number
+ | boolean
+ | THREE.Vector2
+ | THREE.Vector3
+ | THREE.Vector4
+ | THREE.Matrix4
+ | THREE.Matrix4[]
+ | THREE.Color
+ | THREE.Texture
+ | Float32Array;
+
+/** The uniform-name-keyed entry objects every terrain pipeline shares. */
+interface TerrainUniforms {
+ /** Written through `.copy()` each frame. */
+ cameraPos: { value: THREE.Vector3 };
+ /** Written through `.set()` each frame. */
+ lodCenter: { value: THREE.Vector2 };
+ /** Written through `.set()` on resize. */
+ screenSize: { value: THREE.Vector2 };
+ /** Everything else: numbers, textures, buffers and the cascade bindings. */
+ [name: string]: { value: TerrainUniformValue };
+}
+
+/** The clipmap mesh: three's mesh with this project's stashed mesh counts. */
+type ClipmapMesh = THREE.Mesh & {
+ metadata: { triangles: number; vertices: number };
+};
+
 export class Terrain {
- [key: string]: any;
+ /** The shared renderer handle. */
+ gfx: Gfx;
+ /** Owning the sky LUT, sun and SH. */
+ sky: Sky;
+ /** The cascade system this registers casters with. */
+ shadows: ShadowSystem;
+ /** The baked height and rock-mask channels. */
+ heightfield: Heightfield;
+ /** The terrain state buffer. Feet, the surf wake and every spell write here. */
+ deform: DeformationField;
+ /** Generated snow grain, tiled at three world scales by the material. */
+ _detailRT: THREE.WebGLRenderTarget;
+ /** The grain texture, bound as `detailTex`. */
+ detailTex: THREE.Texture;
+ /** The bake that generates the grain. */
+ _detailPass: FullscreenPass;
+ /** The clipmap mesh itself, carrying its triangle and vertex counts. */
+ mesh: ClipmapMesh;
+ /** The one viewProjection every camera-facing terrain pipeline reads. */
+ _viewProjection: THREE.Matrix4;
+ /** The snow material the mesh wears in the beauty pass. */
+ material: THREE.RawShaderMaterial;
+ /** One depth material per cascade; null until the first is built. */
+ _depthMats: THREE.RawShaderMaterial[] | null;
+ /** The prepass material, built on demand. */
+ prepassMat: THREE.RawShaderMaterial | null;
  /**
-  * @param {import("../core/gfx.js").Gfx} gfx
-  * @param {import("../render/sky.js").Sky} sky
-  * @param {import("../render/shadows.js").ShadowSystem} shadows
+  * The uniform entry objects shared by every terrain material: one write in
+  * `update()` covers all five pipelines. Keyed by uniform name, because
+  * `spells` replaces entries wholesale by name (§7.5).
   */
- constructor(gfx: any, sky: any, shadows: any) {
+ _u!: TerrainUniforms;
+ /** The deform texture currently bound, to catch the ping-pong swap. */
+ _boundDeform!: THREE.Texture;
+
+ /**
+  * @param gfx the shared renderer handle
+  * @param sky owning the sky LUT, sun and SH
+  * @param shadows the cascade system this registers casters with
+  */
+ constructor(gfx: Gfx, sky: Sky, shadows: ShadowSystem) {
   this.gfx = gfx;
   this.sky = sky;
   this.shadows = shadows;
@@ -89,18 +185,22 @@ export class Terrain {
    fragment: getShader("detailBakePixelShader"),
    uniforms: {
     resolution: { value: DETAIL_RES },
-    grainScale: { value: 0.013 },
+    grainScale: { value: GRAIN_SCALE },
    },
   });
 
-  this.mesh = buildClipmapMesh(gfx);
+  this.mesh = buildClipmapMesh();
   gfx.addMesh(this.mesh, gfx.LAYER.OPAQUE, 10);
 
   // The one viewProjection every camera-facing terrain pipeline reads.
   // Refreshed at draw time from the token camera (see class comment).
   this._viewProjection = new THREE.Matrix4();
   const vp = this._viewProjection;
-  this.mesh.onBeforeRender = (renderer: any, scene: any, camera: any) => {
+  this.mesh.onBeforeRender = (
+   _renderer: THREE.WebGLRenderer,
+   _scene: THREE.Scene,
+   camera: THREE.Camera
+  ) => {
    if (camera === gfx.threeCamera) {
     vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
    }
@@ -118,7 +218,7 @@ export class Terrain {
   // One depth material per cascade, so each can carry its own matrix
   // without any mid-frame uniform swapping.
   if (shadows && typeof shadows.registerCaster === "function") {
-   shadows.registerCaster(this.mesh, (c: any) => this._makeDepthMaterial(c));
+   shadows.registerCaster(this.mesh, (c: number) => this._makeDepthMaterial(c));
   }
 
   this.setDeformTexture(this.deform.texture);
@@ -149,7 +249,7 @@ export class Terrain {
    gridHalfN: { value: GRID_HALF_N },
    worldOrigin: { value: hf.origin },
    worldSize: { value: hf.size },
-   heightRes: { value: 4096 },
+   heightRes: { value: HEIGHT_RES },
    windAngle: { value: 0 },
    macroAmp: { value: S.macroHeightScale },
    sastrugiAmp: { value: S.sastrugiStrength },
@@ -181,13 +281,15 @@ export class Terrain {
     value: sh.matrixValues ||
      [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()],
    },
-   cascadeSplits: { value: sh.splitsVec4 || new THREE.Vector4(26, 95, 330, 330) },
+   cascadeSplits: { value: sh.splitsVec4 || new THREE.Vector4(...DEFAULT_SPLITS) },
    cascadeParams: { value: sh.paramData || new Float32Array(12) },
-   shadowTexel: { value: sh.texelSize !== undefined ? sh.texelSize : 1 / 2048 },
-   shadowSoftness: { value: 1.8 },
+   shadowTexel: {
+    value: sh.texelSize !== undefined ? sh.texelSize : 1 / SHADOW_RES,
+   },
+   shadowSoftness: { value: SHADOW_SOFTNESS },
    // Metres. Snow has no thin geometry to peter-pan, so this can stay
    // small and keep contact shadows attached.
-   shadowBias: { value: 0.022 },
+   shadowBias: { value: SHADOW_BIAS },
 
    // ---- snow look --------------------------------------------------
    detailStrength: { value: S.detailNormalStrength },
@@ -214,7 +316,7 @@ export class Terrain {
  }
 
  _makeSnowMaterial() {
-  const u = /** @type {any} */ (this._u);
+  const u = this._u;
   return makeMaterial({
    name: "snow",
    vertex: getShader("snowVertexShader"),
@@ -284,7 +386,7 @@ export class Terrain {
   * jitter.
   */
  makePrepassMaterial() {
-  const u = /** @type {any} */ (this._u);
+  const u = this._u;
   let fragment;
   try {
    fragment = getShader("prepassPixelShader");
@@ -320,8 +422,8 @@ export class Terrain {
   return mat;
  }
  /** @param {number} cascade */
- _makeDepthMaterial(cascade: any) {
-  const u = /** @type {any} */ (this._u);
+ _makeDepthMaterial(cascade: number) {
+  const u = this._u;
   const mat = makeMaterial({
    name: "terrainDepth" + cascade,
    vertex: getShader("terrainDepthVertexShader"),
@@ -360,7 +462,7 @@ export class Terrain {
   // Tilts a grain dome's flank to roughly 30 degrees. Higher reads as
   // gravel, lower stops registering at all.
   this._detailPass.material.uniforms.resolution.value = DETAIL_RES;
-  this._detailPass.material.uniforms.grainScale.value = 0.013;
+  this._detailPass.material.uniforms.grainScale.value = GRAIN_SCALE;
   await bakeOnce(this._detailPass, this._detailRT, "detailBake");
 
   await this.heightfield.bake();
@@ -370,8 +472,8 @@ export class Terrain {
   // standing on the snow.
   if (this.shadows && typeof this.shadows.setHeightBounds === "function") {
    this.shadows.setHeightBounds(
-    this.heightfield.minHeight - 4,
-    this.heightfield.maxHeight + 6
+    this.heightfield.minHeight - HEIGHT_MARGIN_LO,
+    this.heightfield.maxHeight + HEIGHT_MARGIN_HI
    );
   }
  }
@@ -391,6 +493,10 @@ export class Terrain {
   if (this.prepassMat) {
    await whenReady(this.gfx, this.prepassMat, "terrain prepass");
   }
+  // Stays serial: `whenReady` compiles through core/gpuUtil.js's single
+  // shared `_compileScene`, which each call mutates by adding and removing
+  // its own mesh. Concurrent compiles interleave on that one scene, so one
+  // can strip the mesh another still needs.
   if (this._depthMats) {
    for (let i = 0; i < this._depthMats.length; i++) {
     await whenReady(this.gfx, this._depthMats[i], "terrainDepth" + i);
@@ -404,7 +510,7 @@ export class Terrain {
   * and all three depth materials at once.
   * @param {THREE.Texture} tex
   */
- setDeformTexture(tex: any) {
+ setDeformTexture(tex: THREE.Texture) {
   this._boundDeform = tex;
   this._u.deformTex.value = tex;
  }
@@ -420,8 +526,8 @@ export class Terrain {
   * @param {{x:number, z:number}} focus world position the deform window centres on
   * @param {number} dt seconds
   */
- update(cameraPos: any, focus: any, dt: any) {
-  const u = /** @type {any} */ (this._u);
+ update(cameraPos: THREE.Vector3, focus: { x: number; z: number }, dt: number) {
+  const u = this._u;
   const windAngle = (/** @type {number} */ (S.windDirection) * Math.PI) / 180;
 
   // Simulate first, then bind: the material must sample the target that
@@ -491,12 +597,12 @@ export class Terrain {
  }
 
  /** @param {number} x @param {number} z */
- heightAt(x: any, z: any) {
+ heightAt(x: number, z: number) {
   return this.heightfield.heightAt(x, z);
  }
 
  /** @param {number} x @param {number} z @param {THREE.Vector3} out */
- normalAt(x: any, z: any, out: any) {
+ normalAt(x: number, z: number, out: THREE.Vector3) {
   return this.heightfield.normalAt(x, z, out);
  }
 

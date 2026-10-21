@@ -18,21 +18,49 @@ import { whenReady, makeMaterial } from "../core/gpuUtil.js";
 import { S } from "../core/settings.js";
 import { getShader } from "../shaders/registry.js";
 import { mulMat4 } from "../core/mat4.js";
+import type { Gfx } from "../core/gfx.js";
 
 /** Engines. */
 const NOZZLES = 2;
+
 /** Rungs along each plume. Enough to bend and boil without being a strip. */
 const RUNGS = 8;
+
 /** Metres at full throttle. */
 const LENGTH = 7.5;
 /** Half-width at the throat, metres, and how much it opens along its length. */
 const WIDTH = 0.42;
 const FLARE = 1.25;
 
+/** Where the exhaust leaves the hull, in craft-local metres. */
+interface Nozzle {
+ /** Half-width between the two nozzles. */
+ spanX: number;
+ /** Height below the hull centre line. */
+ dropY: number;
+ /** Distance astern. */
+ backZ: number;
+}
+
+/** The plume lattice, carrying the same `metadata` the walkers' meshes do. */
+type JetMesh = THREE.Mesh<THREE.BufferGeometry, THREE.RawShaderMaterial> & {
+ metadata: { triangles: number; vertices: number };
+};
+
 export class Jet {
- [key: string]: any;
- /** @param {import("../core/gfx.js").Gfx} gfx */
- constructor(gfx: any) {
+ gfx!: Gfx;
+ /** Plume phase clock, seconds — drives the shader's boil and jitter. */
+ _time!: number;
+ _cameraPos!: THREE.Vector3;
+ /** Per-nozzle world origins, xyz + a padding float, as the uniform wants. */
+ _origins!: Float32Array;
+ _dir!: THREE.Vector4;
+ _params!: THREE.Vector4;
+ _viewProj!: THREE.Matrix4;
+ material!: THREE.RawShaderMaterial;
+ mesh!: JetMesh;
+
+ constructor(gfx: Gfx) {
   this.gfx = gfx;
   this._time = 0;
   this._cameraPos = new THREE.Vector3();
@@ -59,9 +87,9 @@ export class Jet {
   const tc = gfx.threeCamera;
   this.mesh.onBeforeRender = () => {
    mulMat4(
-                /** @type {any} */(this._viewProj.elements),
-                /** @type {any} */(tc.projectionMatrix.elements),
-                /** @type {any} */(tc.matrixWorldInverse.elements)
+    this._viewProj.elements,
+    tc.projectionMatrix.elements,
+    tc.matrixWorldInverse.elements
    );
   };
  }
@@ -96,14 +124,12 @@ export class Jet {
   // fiction — pin them rather than letting three derive nonsense (or a
   // NaN radius) from the lattice indices.
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-  const mesh = new THREE.Mesh(geometry, this.material) as THREE.Mesh & {
-   metadata: { triangles: number; vertices: number };
-  };
+  const mesh = new THREE.Mesh(geometry, this.material) as JetMesh;
   mesh.metadata = { triangles: NOZZLES * RUNGS * 2, vertices: v };
   return mesh;
  }
 
- _makeMaterial() {
+ _makeMaterial(): THREE.RawShaderMaterial {
   return makeMaterial({
    name: "jet",
    vertex: getShader("jetVertexShader"),
@@ -128,14 +154,19 @@ export class Jet {
  }
 
  /**
-  * @param {number} dt
-  * @param {Float32Array} world the craft's 3x4 transform
-  * @param {{spanX:number, dropY:number, backZ:number}} nozzle
-  *   where the exhaust leaves the hull, in craft-local metres
-  * @param {number} throttle 0..1
-  * @param {THREE.Vector3} cameraPos
+  * @param dt seconds since the previous frame
+  * @param world the craft's 3x4 transform, as `speeder.ts` composes it
+  * @param nozzle where the exhaust leaves the hull, craft-local metres
+  * @param throttle 0..1
+  * @param cameraPos the rig camera, for the shader's facing falloff
   */
- update(dt: any, world: any, nozzle: any, throttle: any, cameraPos: any) {
+ update(
+  dt: number,
+  world: Float32Array,
+  nozzle: Nozzle,
+  throttle: number,
+  cameraPos: THREE.Vector3
+ ) {
   this._time += dt;
   this._cameraPos.copy(cameraPos);
 
@@ -165,8 +196,7 @@ export class Jet {
   // Three re-uploads them on the next draw; nothing else to write.
  }
 
- /** @param {boolean} v */
- setVisible(v: any) {
+ setVisible(v: boolean) {
   this.mesh.visible = !!v;
  }
 
