@@ -150,6 +150,26 @@ const TRAUMA_DECAY = 1.15;
  */
 const SHAKE_GATE_DAMP = 9.0;
 
+// --- yaw follow ---------------------------------------------------------------
+/**
+ * Yaw-follow rate the cinematic layer gives back, per second.
+ *
+ * The flying yaw follow is near-welded by default; under the cinematic camera
+ * it relaxes as the run builds, so the faster the craft goes the more it leads
+ * the frame. `camYawLag` scales the give-back and the speed factor scales it
+ * again, so at full lag and full speed the follow rate is halved.
+ */
+const CINEMATIC_YAW_RELAX = 9;
+
+/**
+ * Damping rate of the flying yaw follow, per second.
+ *
+ * Near-welded by default: the craft points where it is going and the camera
+ * comes with it. The cinematic layer takes some of this back as the run
+ * builds — see `CINEMATIC_YAW_RELAX`.
+ */
+const YAW_FOLLOW_RATE = 18;
+
 // --- the ground-clearance probes -------------------------------------------
 /** Seconds of travel each probe looks ahead to predict oncoming snow. */
 const PREDICT_SECONDS = 0.12;
@@ -405,8 +425,8 @@ export class CameraRig {
    this._yawUser += input.lookX;
    // Near-welded by default; the cinematic layer relaxes the follow as
    // speed builds, so the faster the run the more the craft leads it.
-   let rate = 18;
-   if (S.cinematicCam) rate -= 9 * Math.min(1, speed01) * numSetting(S.camYawLag);
+   let rate = YAW_FOLLOW_RATE;
+   if (S.cinematicCam) rate -= CINEMATIC_YAW_RELAX * Math.min(1, speed01) * numSetting(S.camYawLag);
    this.yaw = angleDamp(this.yaw, facing + this._yawUser, rate, dt);
   } else {
    this.yaw += input.lookX;

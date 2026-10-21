@@ -102,6 +102,55 @@ const TURBULENCE_FROM_DRAG = 0.25;
  *  the hem, no silhouette change. */
 const TURBULENCE_FLOOR = 0.18;
 
+// --- the wind field over time -----------------------------------------------
+/** Amplitude of the slow wander in the apparent-wind bearing, radians. */
+const WIND_BEARING_AMP_SLOW = 0.14;
+/** Rate of the slow bearing wander, radians per second. */
+const WIND_BEARING_FREQ_SLOW = 0.11;
+/** Amplitude of the faster wander in the apparent-wind bearing, radians. */
+const WIND_BEARING_AMP_FAST = 0.06;
+/** Rate of the faster bearing wander, radians per second. */
+const WIND_BEARING_FREQ_FAST = 0.37;
+/** Phase offset of the faster bearing wander, radians. */
+const WIND_BEARING_PHASE_FAST = 2.0;
+
+/** Mean of the gust envelope, a dimensionless multiplier on the wind speed.
+ *  The four terms below swing it around this. */
+const GUST_BASE = 1;
+/** Amplitude of the slow swell term, dimensionless. */
+const GUST_AMP_SLOW = 0.26;
+/** Rate of the slow swell term, radians per second. */
+const GUST_FREQ_SLOW = 0.19;
+/** Phase offset of the slow swell term, radians. */
+const GUST_PHASE_SLOW = 0.5;
+/** Amplitude of the first mid-rate term, dimensionless. */
+const GUST_AMP_MID_1 = 0.30;
+/** Rate of the first mid-rate term, radians per second. */
+const GUST_FREQ_MID_1 = 0.7;
+/** Amplitude of the second mid-rate term, dimensionless. */
+const GUST_AMP_MID_2 = 0.16;
+/** Rate of the second mid-rate term, radians per second. */
+const GUST_FREQ_MID_2 = 2.3;
+/** Phase offset of the second mid-rate term, radians. */
+const GUST_PHASE_MID_2 = 1.1;
+/** Amplitude of the light flutter term, dimensionless. */
+const GUST_AMP_FLUTTER = 0.08;
+/** Rate of the light flutter term, radians per second. */
+const GUST_FREQ_FLUTTER = 5.1;
+/** Phase offset of the light flutter term, radians. */
+const GUST_PHASE_FLUTTER = 2.7;
+
+/** Amplitude of the fast vertical updraught term, m/s. */
+const WIND_VERT_AMP_FAST = 0.35;
+/** Rate of the fast vertical updraught term, radians per second. */
+const WIND_VERT_FREQ_FAST = 1.9;
+/** Amplitude of the slow vertical updraught term, m/s. */
+const WIND_VERT_AMP_SLOW = 0.22;
+/** Rate of the slow vertical updraught term, radians per second. */
+const WIND_VERT_FREQ_SLOW = 0.43;
+/** Phase offset of the slow vertical updraught term, radians. */
+const WIND_VERT_PHASE_SLOW = 1.3;
+
 /** Velocity damping per 1/60 s of elapsed sim time, applied as an exact
  *  exponential relative to that reference rate. */
 const DAMP_PER_SIXTIETH = 0.90;
@@ -311,6 +360,59 @@ function dist3(a: Float32Array, ia: number, b: Float32Array, ib: number): number
 //  Garment shapes
 // -----------------------------------------------------------------------------
 
+// --- fold shaping ------------------------------------------------------------
+/** Amplitude of the primary fold term, metres of radial displacement at full
+ *  flare. */
+const FOLD_AMP_1 = 0.118;
+/** Frequency of the primary fold term, folds per turn. */
+const FOLD_FREQ_1 = 7;
+/** Phase offset of the primary fold term, radians. */
+const FOLD_PHASE_1 = 0.6;
+/** Amplitude of the second fold term, metres of radial displacement at full
+ *  flare. */
+const FOLD_AMP_2 = 0.055;
+/** Frequency of the second fold term, folds per turn. */
+const FOLD_FREQ_2 = 12;
+/** Phase offset of the second fold term, radians. */
+const FOLD_PHASE_2 = 2.1;
+/** Amplitude of the third fold term, metres of radial displacement at full
+ *  flare. */
+const FOLD_AMP_3 = 0.026;
+/** Frequency of the third fold term, folds per turn. */
+const FOLD_FREQ_3 = 19;
+/** Phase offset of the third fold term, radians. */
+const FOLD_PHASE_3 = 4.4;
+
+// --- robe hem -----------------------------------------------------------------
+/** Height of the robe's hem at the sides, metres. */
+const ROBE_HEM_BASE = 0.300;
+/** How much higher the robe's hem hangs at the front than at the sides, metres.
+ *  The back hangs the same distance below the base height. */
+const ROBE_HEM_FRONT_LIFT = 0.200;
+/** Amplitude of the fold-locked scallop along the robe's hem, metres. */
+const ROBE_HEM_SCALLOP_AMP = 0.048;
+
+// --- mantle hem --------------------------------------------------------------
+/** Height of the mantle hem at the sides, metres. */
+const MANTLE_HEM_BASE = 1.045;
+/** How much higher the mantle hem hangs at the front than at the sides, metres.
+ *  The back hangs the same distance below the base height. */
+const MANTLE_HEM_FRONT_LIFT = 0.115;
+/** Amplitude of the scallop along the mantle hem, metres. */
+const MANTLE_SCALLOW_AMP = 0.035;
+/** Frequency of the scallop along the mantle hem, folds per turn. */
+const MANTLE_SCALLOW_FREQ = 7;
+/** Phase offset of the scallop along the mantle hem, radians. */
+const MANTLE_SCALLOW_PHASE = 1.4;
+/** Amplitude of the mantle's first pleat term, metres of radial displacement. */
+const MANTLE_PLEAT_AMP_1 = 0.062;
+/** Amplitude of the mantle's second pleat term, metres of radial displacement. */
+const MANTLE_PLEAT_AMP_2 = 0.026;
+/** Frequency of the mantle's second pleat term, folds per turn. */
+const MANTLE_PLEAT_FREQ_2 = 11;
+/** Phase offset of the mantle's second pleat term, radians. */
+const MANTLE_PLEAT_PHASE_2 = 3.0;
+
 /** Piecewise-linear lookup over a table of `[t, a, b]` control points. */
 /** @param {CurvePoint[]} table @param {number} t @returns {number[]} */
 function curve(table: CurvePoint[], t: number): number[] {
@@ -366,9 +468,9 @@ function makeRobe() {
    // of radial displacement at full flare; the frequencies are folds
    // per turn and the terms are phase offsets in radians.
    const fold =
-    0.118 * Math.sin(a * 7 + 0.6) +
-    0.055 * Math.sin(a * 12 + 2.1) +
-    0.026 * Math.sin(a * 19 + 4.4);
+    FOLD_AMP_1 * Math.sin(a * FOLD_FREQ_1 + FOLD_PHASE_1) +
+    FOLD_AMP_2 * Math.sin(a * FOLD_FREQ_2 + FOLD_PHASE_2) +
+    FOLD_AMP_3 * Math.sin(a * FOLD_FREQ_3 + FOLD_PHASE_3);
    const pleat = 1 + f * fold;
 
    // ca = +1 at the front, -1 at the back. The hem hangs *lowest* at
@@ -379,7 +481,7 @@ function makeRobe() {
    // way round hides the boots, and with the boots hidden the entire
    // foot-planting solve is invisible. Heights are metres at the waist
    // and the hem; the third term is metres of fold-locked scallop.
-   const hemY = 0.300 + 0.200 * ca - 0.048 * Math.sin(a * 7 + 0.6);
+   const hemY = ROBE_HEM_BASE + ROBE_HEM_FRONT_LIFT * ca - ROBE_HEM_SCALLOP_AMP * Math.sin(a * FOLD_FREQ_1 + FOLD_PHASE_1);
    const y = 0.990 + (hemY - 0.990) * v;
 
    // Ring radii, metres, at the waist and at the hem. The back stays
@@ -445,9 +547,9 @@ function makeMantle() {
    // folds rather than cutting a clean arc. Heights are metres; the
    // scallop amplitudes are metres and the fold frequencies are folds
    // per turn.
-   YT[3][1] = 1.045 + 0.115 * ca + 0.035 * Math.sin(a * 7 + 1.4);
+   YT[3][1] = MANTLE_HEM_BASE + MANTLE_HEM_FRONT_LIFT * ca + MANTLE_SCALLOW_AMP * Math.sin(a * MANTLE_SCALLOW_FREQ + MANTLE_SCALLOW_PHASE);
    const y = curve(YT, v)[0];
-   const pleat = 1 + v * (0.062 * Math.sin(a * 7 + 1.4) + 0.026 * Math.sin(a * 11 + 3.0));
+   const pleat = 1 + v * (MANTLE_PLEAT_AMP_1 * Math.sin(a * MANTLE_SCALLOW_FREQ + MANTLE_SCALLOW_PHASE) + MANTLE_PLEAT_AMP_2 * Math.sin(a * MANTLE_PLEAT_FREQ_2 + MANTLE_PLEAT_PHASE_2));
 
    const o = (j * p.cols + i) * FLOATS_PER_POINT;
    p.bindPos[o] = rx * sa * pleat;
@@ -583,23 +685,23 @@ export class ClothSolver {
   // terms, ±11 degrees, is enough that the fabric is always being taken
   // slightly differently. Amplitudes and phases are radians.
   const a = (/** @type {number} */ (S.windDirection) * DEG_TO_RAD)
-   + 0.14 * Math.sin(this._t * 0.11)
-   + 0.06 * Math.sin(this._t * 0.37 + 2.0);
+   + WIND_BEARING_AMP_SLOW * Math.sin(this._t * WIND_BEARING_FREQ_SLOW)
+   + WIND_BEARING_AMP_FAST * Math.sin(this._t * WIND_BEARING_FREQ_FAST + WIND_BEARING_PHASE_FAST);
   const ws = WIND_SPEED * /** @type {number} */ (S.windStrength);
   // Gusts across four time scales, so a standing figure is never dead still
   // and never metronomic either: a slow swell that arrives and passes, the
   // two mid rates that read as gusting, and a light flutter on top. The
   // envelope spans roughly 0.2x to 1.8x, so the robe genuinely gets pushed
   // and genuinely gets let go. The terms are dimensionless multipliers.
-  const gust = 1
-   + 0.26 * Math.sin(this._t * 0.19 + 0.5)
-   + 0.30 * Math.sin(this._t * 0.7)
-   + 0.16 * Math.sin(this._t * 2.3 + 1.1)
-   + 0.08 * Math.sin(this._t * 5.1 + 2.7);
+  const gust = GUST_BASE
+   + GUST_AMP_SLOW * Math.sin(this._t * GUST_FREQ_SLOW + GUST_PHASE_SLOW)
+   + GUST_AMP_MID_1 * Math.sin(this._t * GUST_FREQ_MID_1)
+   + GUST_AMP_MID_2 * Math.sin(this._t * GUST_FREQ_MID_2 + GUST_PHASE_MID_2)
+   + GUST_AMP_FLUTTER * Math.sin(this._t * GUST_FREQ_FLUTTER + GUST_PHASE_FLUTTER);
   this._wind[0] = Math.sin(a) * ws * gust - ch.velocity.x;
   // A vertical component on its own clock: an updraught lifts a hem in a way
   // no amount of horizontal wind does. Amplitudes are m/s.
-  this._wind[1] = 0.35 * Math.sin(this._t * 1.9) + 0.22 * Math.sin(this._t * 0.43 + 1.3);
+  this._wind[1] = WIND_VERT_AMP_FAST * Math.sin(this._t * WIND_VERT_FREQ_FAST) + WIND_VERT_AMP_SLOW * Math.sin(this._t * WIND_VERT_FREQ_SLOW + WIND_VERT_PHASE_SLOW);
   this._wind[2] = Math.cos(a) * ws * gust - ch.velocity.z;
 
   for (let s = 0; s < steps; s++) {
