@@ -1,7 +1,7 @@
 # SNOWFLOW → Three.js port plan
 
-Source: `/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo` — Babylon.js 9.18 / WebGPU / WGSL.
-Target: this repo (`snowflow_demo2`) — Three.js `WebGLRenderer` (WebGL2), GLSL ES 3.0, Vite.
+Source: `/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo`, Babylon.js 9.18 / WebGPU / WGSL.
+Target: this repo (`snowflow_demo2`), Three.js `WebGLRenderer` (WebGL2), GLSL ES 3.0, Vite.
 
 Companion document: **`port/CONTRACTS.md` is binding.** This file explains the *why* and the
 sequencing; CONTRACTS.md pins every cross-cutting decision implementation agents must follow.
@@ -15,7 +15,7 @@ A **pixel-and-behavior-faithful replica**. Same landform, same lighting numbers,
 constants, same frame ordering, same debug views, same boot screen, same audio behavior. The
 demo's look is the product of hundreds of hand-tuned constants interlocking across subsystems
 (exposure 0.105 against snow ≈ 12 linear, AgX shoulder, shadowBias per material, HDR jet
-constants…). We therefore do not "adapt to Three idioms" — we port the source architecture
+constants…). We therefore do not adapt to Three idioms; we port the source architecture
 verbatim and use Three only as a thin WebGL2 device layer:
 
 - Every material is a `RawShaderMaterial` with explicit uniforms. No Three built-in materials,
@@ -25,7 +25,7 @@ verbatim and use Three only as a thin WebGL2 device layer:
 - All gameplay/world/shader math keeps the source's **left-handed, +Z-forward** convention
   byte-for-byte (see §4). Three's scene graph is used only as a draw-list container.
 
-Non-goals: no visual improvements, no "fixing" documented oddities (the un-decoded albedo, the
+Non-goals: no visual improvements, no fixing of documented oddities (the un-decoded albedo, the
 absent walkerStep sample, the absolute-metres DoF far band), no new features.
 
 ## 2. Renderer decision: WebGL2 + GLSL ES 3.0 raw shaders
@@ -34,71 +34,78 @@ absent walkerStep sample, the absolute-metres DoF far band), no new features.
 
 Why this and not alternatives:
 
-- **No storage textures, no compute anywhere in the source.** Every sim (deform, bakes, post) is
-  a fragment pass over a render target. The whole demo is expressible in WebGL2; WebGPU-only
-  features are not used.
-- **GLSL ES 3.0 has 1:1 counterparts for every WGSL construct used**: `textureLoad`→`texelFetch`,
+- Why not WebGPU-only features: the source has no storage textures and no compute anywhere.
+  Every sim (deform, bakes, post) is a fragment pass over a render target, so the whole demo is
+  expressible in WebGL2 and the WebGPU-only features are not used.
+- GLSL ES 3.0 has 1:1 counterparts for every WGSL construct used: `textureLoad`→`texelFetch`,
   `textureSampleLevel`→`textureLod`, `textureSampleGrad`→`textureGrad`, `texture_2d_array`→
-  `sampler2DArray`, `dpdx/dpdy`→`dFdx/dFdy`, `select(f,t,c)`→ternary (operand order reversed —
+  `sampler2DArray`, `dpdx/dpdy`→`dFdx/dFdy`, `select(f,t,c)`→ternary (operand order reversed,
   the #1 mechanical translation hazard), uniform arrays (`vec4[9]`, `mat4[3]`) are core.
-- **Raw shaders, not ShaderMaterial with Three's prelude**: the source shaders assume nothing is
+- Why not ShaderMaterial with Three's prelude: the source shaders assume nothing is
   auto-bound (Babylon auto-binds only `viewProjection`, which we bind manually anyway). Three's
   onBeforeCompile/ShaderChunk machinery would fight the port; `RawShaderMaterial` +
   `glslVersion: THREE.GLSL3` gives us a clean `#version 300 es` compile unit we fully control.
-- **WebGLRenderTarget everywhere**: Babylon `ProceduralTexture` (bakes, deform sim) becomes
+- Why not Babylon-style render targets: Babylon `ProceduralTexture` (bakes, deform sim) becomes
   fullscreen-triangle passes into `WebGLRenderTarget`s via a core helper; `RenderTargetTexture`
   (cascades, prepass) becomes explicit render passes.
-- Required extension: `EXT_color_buffer_float` (fail boot without it — every HDR target needs
-  it). Optional: `OES_texture_float_linear` (warn + degrade, exactly as the source warns),
-  `KHR_parallel_shader_compile` (warm-up), `EXT_disjoint_timer_query_webgl2` (never relied on —
-  the overlay's `—` dash is the designed fallback for gpuMs).
+- Required extension: `EXT_color_buffer_float` (fail boot without it, because every HDR target
+  needs it). Optional: `OES_texture_float_linear` (warn + degrade, exactly as the source warns),
+  `KHR_parallel_shader_compile` (warm-up), `EXT_disjoint_timer_query_webgl2` (never relied on,
+  because gpuMs is designed to fall back to a dash in the overlay).
 
-## 3. Project layout (mirrors the source 1:1)
+## 3. Project layout
 
 ```
-snowflow_demo2/
-  package.json  .gitignore  index.html  jet.html
+battle-of-the-hoth-simulator/
+  package.json  .gitignore  index.html  preview.html
   public/                      # copied VERBATIM from source public/ (audio/*.mp3, models/*.bin, *.webp)
   port/                        # this planning material (not shipped)
   src/
-    main.js  jet.js
-    core/      settings.js input.js camera.js mat4.js gpuUtil.js gfx.js assets.js
-               loading.js perf.js openingShot.js
-    shaders/   registry.js  lib/*.glsl  *.glsl        (~45 shaders + 15 include chunks)
-    render/    sky.js shadows.js depthPass.js
-    post/      postChain.js
-    terrain/   terrain.js heightfield.js deformation.js clipmapMesh.js
-    character/ controller.js figure.js character.js cloth.js build.js snowContact.js
-    walkers/   walker.js walkerAsset.js bolts.js
-    player/    speeder.js jet.js
-    spells/    spellSystem.js spellLights.js waterBody.js crystals.js bending.js
-               sweep.js ribbon.js bloom.js crystallize.js vortex.js
-    vfx/       particles.js surfWake.js
-    audio/     engine.js manifest.js soundscape.js
-    ui/        overlay.js fpsMeter.js soundButton.js touchControls.js
+    main.ts
+    core/      settings.ts input.ts camera.ts mat4.ts gpuUtil.ts gfx.ts assets.ts
+               loading.ts perf.ts openingShot.ts
+    physics/   colliders.ts collisionPass.ts impact.ts
+    shaders/   registry.ts  lib/*.glsl  post/*.glsl  *.glsl   (64 shaders + 15 include chunks)
+    render/    sky.ts shadows.ts depthPass.ts
+    post/      postChain.ts
+    terrain/   terrain.ts heightfield.ts deformation.ts clipmapMesh.ts
+    character/ controller.ts figure.ts character.ts cloth.ts build.ts snowContact.ts
+    walkers/   modelAsset.ts
+    player/    speeder.ts jet.ts
+    spells/    spellSystem.ts spellLights.ts waterBody.ts crystals.ts bending.ts
+               sweep.ts ribbon.ts bloom.ts crystallize.ts vortex.ts
+    vfx/       particles.ts surfWake.ts eyeBands.ts muzzleMarkers.ts smokeTrails.ts
+    audio/     engine.ts manifest.ts
+    ui/        overlay.ts fpsMeter.ts perfHud.ts fpsTier.ts soundButton.ts touchControls.ts
 ```
 
-One new module with no source counterpart: **`src/core/gfx.js`** — the "engine" replacement.
+The layout has drifted from the original source since the plan was written: the port
+is TypeScript rather than JavaScript, `src/physics/` is new, and the planned
+`walkers/walker.js` and `walkers/walkerAsset.js` became the asset loader and model
+types in `src/walkers/modelAsset.ts`, with the pooled bolts in `src/player/speeder.ts`.
+
+One new module with no source counterpart: **`src/core/gfx.ts`**, the engine replacement.
 It owns the renderer, the capability checks, the layer constants, the pass runner (material
 swap + layer mask + render), the screen-sized render-target registry (for resolutionScale /
 resize), and the Three token camera. Everything Babylon's `Engine`/`Scene` did implicitly
 lives here explicitly. Its API is pinned in CONTRACTS §9.
 
-## 4. Coordinate-system decision (summary — full rules in CONTRACTS §1)
+## 4. Coordinate-system decision
+Summary; full rules in CONTRACTS §1.
 
 **Keep the source's left-handed, +Z-forward world verbatim; hand-build all view/projection
 matrices; use Three only as a rasterizer.** Chosen over "convert to RH" because every subsystem
 (camera basis, `mat4.js`, controller facing `(sin yaw, 0, cos yaw)`, walker bearings, speeder
 3×4 composition, all shader view-space math, SSR/TAA reconstruction) assumes LH +Z-forward,
 often in hand-rolled world-space math with no scene-graph indirection. A systematic RH rewrite
-would touch ~15 subsystems and each missed sign produces a plausible-looking wrong image — the
+would touch ~15 subsystems and each missed sign produces a plausible-looking wrong image, the
 exact class of multi-day bug the specs warn about. With hand-built LH matrices, all JS math and
 almost all shader text ports byte-identically.
 
 Consequences (each pinned precisely in CONTRACTS):
 
 - `core/mat4.js` grows `lookAtLH`, `perspectiveFovLH`, `orthoOffCenterLH`, general `mulMat4`
-  / `invertMat4` — column-major flat arrays, **GL clip z ∈ [−1, +1]** output.
+  / `invertMat4`, all column-major flat arrays with **GL clip z ∈ [−1, +1]** output.
 - NDC x,y match the Babylon/WebGPU build exactly (WebGPU NDC is also y-up), so screen-space
   winding is preserved: Babylon's CW-front-cull ≙ `THREE.BackSide` in this port. Most
   materials are `DoubleSide` anyway (as in the source).
@@ -133,26 +140,27 @@ Consequences (each pinned precisely in CONTRACTS):
 
 ## 6. Phases / fan-out
 
-**Phase 0 — scaffold + core (serial, first).** package.json/.gitignore (done here), index.html,
+**Phase 0, scaffold + core (serial, first).** package.json/.gitignore (done here), index.html,
 jet.html, `public/` copied verbatim from the source repo, all of `src/core/`, `src/shaders/registry.js`,
-`src/main.js`, `src/jet.js`. main.js is written in full against CONTRACTS (it will only run once
-subsystem tasks land — that is expected).
+`src/main.js`, `src/jet.js`. `main.js` is written in full against CONTRACTS (it will only run once
+subsystem tasks land, which is expected).
 
-**Phase 1 — parallel subsystem ports** (each owns disjoint files, coded only against
-CONTRACTS.md, never against each other's code):
+**Phase 1, parallel subsystem ports.** Each owns disjoint files and is coded only against
+CONTRACTS.md, never against another task's code.
 
-1. render-post — `src/render/`, `src/post/`, their shaders, and the shared lib chunks
-   `shading/shadowLookup/atmosphere/postCommon`.
-2. terrain — `src/terrain/`, terrain shaders, lib chunks `noise/terrain/clipmap/deform/ridge`.
-3. character — `src/character/`, char/cloth/fur shaders, lib chunk `charSkin`.
-4. walkers — `src/walkers/`, walker/bolt shaders, lib chunk `walkerSkin`.
-5. player — `src/player/`, jet shaders (reuses walker shaders + loader by import).
-6. spells — `src/spells/`, water/crystal shaders, lib chunks `water/crystal/spellLights`.
-7. vfx — `src/vfx/`, spray/wake shaders, lib chunk `wake`.
-8. audio-ui — `src/audio/`, `src/ui/` (near-verbatim copy; renderer touchpoints per CONTRACTS).
+| task | files it owns | shared lib chunks |
+|---|---|---|
+| render-post | `src/render/`, `src/post/`, their shaders | `shading/shadowLookup/atmosphere/postCommon` |
+| terrain | `src/terrain/`, terrain shaders | `noise/terrain/clipmap/deform/ridge` |
+| character | `src/character/`, char/cloth/fur shaders | `charSkin` |
+| walkers | `src/walkers/`, walker/bolt shaders | `walkerSkin` |
+| player | `src/player/`, jet shaders (reuses walker shaders + loader by import) | none |
+| spells | `src/spells/`, water/crystal shaders | `water/crystal/spellLights` |
+| vfx | `src/vfx/`, spray/wake shaders | `wake` |
+| audio-ui | `src/audio/`, `src/ui/` (near-verbatim copy; renderer touchpoints per CONTRACTS) | none |
 
-**Phase 2 — integration + validation.** Boot the composed app; walk the debug views
-(`S.debugView` 11 modes, `S.speederDebug` 8 modes, `wake.debug` 10 modes — they exist precisely
+**Phase 2, integration + validation.** Boot the composed app; walk the debug views
+(`S.debugView` 11 modes, `S.speederDebug` 8 modes, `wake.debug` 10 modes, which exist precisely
 to validate this port); golden-image the height/aux/detail/sky bakes against WebGPU captures;
 verify `heightAt` CPU/GPU agreement; verify shadow UV orientation with a cascade readback;
 verify TAA stillness (no shimmer when static); A/B the tuned look.
