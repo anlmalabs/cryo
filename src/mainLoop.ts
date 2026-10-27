@@ -8,8 +8,8 @@ import { DEATH_CAM_RATE, DEATH_CAM_DIST, DEATH_CAM_DIST_PILOT, DEATH_CAM_PITCH, 
 export interface FrameContext { [k: string]: any; }
 
 export function startFrameLoop(ctx: FrameContext): void {
-  const { gfx, rig, sky, shadows, depthPass, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, showFlightMsg, renderFrame, pumpBounces, leaveWreck, applyModeExtras, showFigure } = ctx;
-  let prev = ctx.prev, time = ctx.time, introHold = ctx.introHold, deathCamT = ctx.deathCamT, deathCamDist = ctx.deathCamDist, deathCamPilot = ctx.deathCamPilot, flying = ctx.flying, prevToggleKey = ctx.prevToggleKey, introFly = ctx.introFly, flightMsgT = ctx.flightMsgT, flightMsg = ctx.flightMsg, burnPreviewT = ctx.burnPreviewT;
+ const { gfx, rig, sky, shadows, depthPass, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, showFlightMsg, renderFrame, pumpBounces, leaveWreck, applyModeExtras, showFigure, isFlying } = ctx;
+ let prev = ctx.prev, time = ctx.time, introHold = ctx.introHold, deathCamT = ctx.deathCamT, deathCamDist = ctx.deathCamDist, deathCamPilot = ctx.deathCamPilot, prevToggleKey = ctx.prevToggleKey, introFly = ctx.introFly, flightMsgT = ctx.flightMsgT, flightMsg = ctx.flightMsg, burnPreviewT = ctx.burnPreviewT;
  gfx.renderer.setAnimationLoop(() => {
   const now = performance.now();
   let dtMs = now - prev;
@@ -23,7 +23,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   const toggleDown = isDown("KeyR");
   if (toggleDown && !prevToggleKey) {
    const wk = wrecks[0];
-   if (!flying && wk && wk.active) {
+   if (!isFlying() && wk && wk.active) {
     const dx = character.position.x - wk.ctl.position.x;
     const dz = character.position.z - wk.ctl.position.z;
     if (dx * dx + dz * dz <= 8 * 8) {
@@ -67,7 +67,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // `CharacterController._surfStep` reads it again for the steer and the
   // thrust curve. Publishing it before the toggle above meant one frame of
   // every one of those decisions running in the mode we had just left.
-  input.flying = flying;
+  input.flying = isFlying();
   pollInput();
 
   // The opening hold: escorts overhead, Luke on the wire, stick frozen.
@@ -140,7 +140,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // the overlay's GPU row shows its dash and these rows stay `cpu`.
   const tFrame = performance.now();
 
-  if (flying && shipController) {
+  if (isFlying() && shipController) {
    shipController.update(dt, rig);
    // Mirror into `character` so downstream camera/VFX/sound code keeps working.
    character.position.copy(shipController.position);
@@ -248,7 +248,7 @@ export function startFrameLoop(ctx: FrameContext): void {
    wk.hull.snowOverride = Math.min(1, wk.age / 150);
    wk.hull.update(dt);
   }
-  if (flying) {
+  if (isFlying()) {
    speeder?.tick(dt);
    speeder?.update(dt);
   }
@@ -263,7 +263,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   pumpBounces();
   // After every craft has moved, before the rig frames the result: the
   // Collision pass works on whichever controller is actually driving this frame.
-  collision.character = (flying && shipController) ? shipController : character;
+  collision.character = (isFlying() && shipController) ? shipController : character;
   // contacts this frame's motion earned, resolved and reacted to.
   collision.update(dt);
   const tChar = performance.now();
@@ -277,7 +277,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // while the world turns around it — turning the wreck instead would
   // spin it like a bottle. The bank is zeroed too: the roll belongs to
   // the falling craft, not to the camera watching it.
-  let camFacing = flying ? character.facing : null;
+  let camFacing = isFlying() ? character.facing : null;
   let camLean = character.lean;
   let camTarget = character.position;
   if (character.crashing) {
@@ -327,7 +327,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // and the beauty pass both do.
   // The craft's streak when there is a craft: see `Speeder.streak01` for
   // why the character's is the wrong signal in the air.
-  post.update(dt, (speeder && flying) ? speeder.streak01 : character.streak01, rig.distance);
+  post.update(dt, (speeder && isFlying()) ? speeder.streak01 : character.streak01, rig.distance);
   sky.update();
   sky.render(rig, time);
   shadows.update(rig.camera, sky.sunDir);
@@ -363,7 +363,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // The overlay's burn preview: the wingmen's damage trail, lit on the
   // player craft so the burn sliders can be dialled against a hull the
   // player can actually orbit.
-  if (S.burnPreview && speeder && flying) {
+  if (S.burnPreview && speeder && isFlying()) {
    burnPreviewT -= dt;
    if (burnPreviewT <= 0) {
     burnPreviewT = 0.05;
@@ -397,7 +397,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   endFrameDraws();
   stats.triangles =
    (terrain.mesh && terrain.mesh.metadata ? terrain.mesh.metadata.triangles : 0) +
-   (S.showCharacter && !flying ? figure.triangles : 0) +
+   (S.showCharacter && !isFlying() ? figure.triangles : 0) +
    (speeder ? speeder.triangles : 0) +
    wingmen.reduce((t: any, w: any) => t + w.triangles, 0) +
    // walkers/herds purged: no triangle counts.
