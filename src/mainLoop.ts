@@ -1,0 +1,416 @@
+import { S } from "./core/settings.js";
+import { isDown, input, pollInput, endFrame } from "./core/input.js";
+import { expDamp } from "./core/camera.js";
+import { emitBurnTrail } from "./physics/collisionPass.js";
+import { sample, checkSpike, stats, mark, endFrameDraws } from "./core/perf.js";
+import { DEATH_CAM_RATE, DEATH_CAM_DIST, DEATH_CAM_DIST_PILOT, DEATH_CAM_PITCH, DEATH_CAM_PITCH_PILOT, _vel, _camAt } from "./mainContracts.js";
+
+export interface FrameContext { [k: string]: any; }
+
+export function startFrameLoop(ctx: FrameContext): void {
+  const { gfx, rig, sky, shadows, depthPass, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, showFlightMsg, renderFrame, pumpBounces, leaveWreck, applyModeExtras, showFigure } = ctx;
+  let prev = ctx.prev, time = ctx.time, introHold = ctx.introHold, deathCamT = ctx.deathCamT, deathCamDist = ctx.deathCamDist, deathCamPilot = ctx.deathCamPilot, flying = ctx.flying, prevToggleKey = ctx.prevToggleKey, introFly = ctx.introFly, flightMsgT = ctx.flightMsgT, flightMsg = ctx.flightMsg, burnPreviewT = ctx.burnPreviewT;
+ gfx.renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  let dtMs = now - prev;
+  prev = now;
+  if (dtMs > 100) dtMs = 100;
+  const dt = S.freezeTime ? 0 : dtMs / 1000;
+  time += dt;
+
+  // Mode toggle: exit/enter the ship. BEFORE the input poll, so the poll
+  // publishes the mode the frame's update is about to run in.
+  const toggleDown = isDown("KeyR");
+  if (toggleDown && !prevToggleKey) {
+   const wk = wrecks[0];
+   if (!flying && wk && wk.active) {
+    const dx = character.position.x - wk.ctl.position.x;
+    const dz = character.position.z - wk.ctl.position.z;
+    if (dx * dx + dz * dz <= 8 * 8) {
+     // repair: bring the flyable ship back online at the wreck.
+     // `wrecks` only fills when the build has a ship, which is exactly when
+     // shipController and speeder were constructed — narrowing into
+     // locals keeps that explicit rather than relying on it.
+     const sc = shipController;
+     const sp = speeder;
+     if (sc && sp) {
+      sc.position.copy(wk.ctl.position);
+      sc.facing = wk.ctl.facing;
+      sc.velocity.set(0, 0, 0);
+      // The wreck's own pose numbers stand in for a controller here, and
+      // `ctl.surf` is not among them — the hand-off below seeds the ship's
+      // controller, so what the *walk* side is still holding is the state
+      // the exit left behind. Unreset, the stuck-open surf blend keeps the
+      // on-foot figure driving from the wreck's heading and keeps the
+      // recycled wreck input latching thrust on a hull nobody is flying.
+      character.surf = 0;
+      character.surfActive = false;
+      character.stepping = true;
+      sp.position.copy(wk.ctl.position);
+      character.position.copy(sc.position);
+      character.facing = sc.facing;
+      character.position.y = terrain.heightAt(character.position.x, character.position.z);
+      character.groundY = character.position.y;
+      wk.active = false;
+      wk.hull.setVisible(false);
+      toggleMode();
+     }
+    }
+   } else {
+    toggleMode();
+   }
+  }
+  prevToggleKey = toggleDown;
+
+  // Now the poll, in the mode the toggle just decided — `pollInput` reads
+  // `input.flying` for the pinned surf/trigger and the throttle axes, and
+  // `CharacterController._surfStep` reads it again for the steer and the
+  // thrust curve. Publishing it before the toggle above meant one frame of
+  // every one of those decisions running in the mode we had just left.
+  input.flying = flying;
+  pollInput();
+
+  // The opening hold: escorts overhead, Luke on the wire, stick frozen.
+  // Movement only — the mouse still looks around, which is the point of
+  // an entrance. Releases with the craft already making way, so control
+  // arrives mid-flight rather than from a standstill.
+  if (introHold > 0) {
+   introHold -= dt;
+   // A push on the locked stick gets an answer, not silence: the
+   // "stand by" line holds while they keep asking and fades ~1.5 s
+   // after they stop.
+   if (input.moving || input.fire || input.sprint
+    || input.thrust || input.boost || input.vert !== 0) {
+    showFlightMsg("⟨ stand by — escort inbound ⟩", 1.5);
+   }
+   input.moveX = 0;
+   input.moveZ = 0;
+   input.moving = false;
+   input.sprint = false;
+   input.thrust = false;
+   input.boost = false;
+   input.vert = 0;
+   input.fire = false;
+   if (introHold <= 0) {
+    showFlightMsg("you have control", 2.6, true);
+    if (shipController) {
+     const sc = shipController;
+     const f = sc.facing;
+     sc.velocity.set(
+      Math.sin(f) * 16, 0, Math.cos(f) * 16
+     );
+     character.position.copy(sc.position);
+     character.facing = sc.facing;
+     character.velocity.copy(sc.velocity);
+    }
+   }
+   // The player's entrance: velocity fed straight into the
+   // controller, which integrates, terrain-snaps and banks exactly
+   // as it does under a stick. The approach slows as it closes, so
+   // arrival hands over a craft settling in rather than slamming to
+   // a stop — and the hold's own release seeds the forward way.
+   if (introFly) {
+    const fdx = introFly.toX - character.position.x;
+    const fdz = introFly.toZ - character.position.z;
+    const remaining = Math.hypot(fdx, fdz);
+    if (remaining < 4 || introHold <= 0) {
+     introFly = null;
+    } else {
+     const v = Math.min(34, Math.max(12, remaining * 0.45));
+     const h = introFly.heading;
+     const sc = shipController ?? character;
+     sc.velocity.set(
+      Math.sin(h) * v, 0, Math.cos(h) * v
+     );
+     character.position.copy(sc.position);
+     character.facing = sc.facing;
+     character.velocity.copy(sc.velocity);
+    }
+   }
+  }
+
+  // The flight message's clock, outside the hold: "you have control"
+  // fades after the lock is already gone.
+  if (flightMsgT > 0) {
+   flightMsgT -= dt;
+   if (flightMsgT <= 0 && flightMsg) flightMsg.classList.remove("show");
+  }
+
+  // Per-system CPU timing. There is no dependable GPU timer in WebGL2, so
+  // the overlay's GPU row shows its dash and these rows stay `cpu`.
+  const tFrame = performance.now();
+
+  if (flying && shipController) {
+   shipController.update(dt, rig);
+   // Mirror into `character` so downstream camera/VFX/sound code keeps working.
+   character.position.copy(shipController.position);
+   character.velocity.copy(shipController.velocity);
+   character.prevVelocity.copy(shipController.prevVelocity);
+   character.acceleration.copy(shipController.acceleration);
+   character.facing = shipController.facing;
+   character.speed = shipController.speed;
+   character.speed01 = shipController.speed01;
+   character.speedRaw = shipController.speedRaw;
+   character.lean = shipController.lean;
+   character.carve = shipController.carve;
+   character.streak01 = shipController.streak01;
+   character.groundY = shipController.groundY;
+   character.groundNormal.copy(shipController.groundNormal);
+   character.surf = shipController.surf;
+   character.surfActive = shipController.surfActive;
+   character.crashing = shipController.crashing;
+   character.crashLanded = shipController.crashLanded;
+   character.crashDown = shipController.crashDown;
+   character._crashT = shipController._crashT;
+   character.terrainSlam = shipController.terrainSlam;
+   character.pathY = shipController.pathY;
+   character.lift01 = shipController.lift01;
+   character.impactSpin = shipController.impactSpin;
+   character.cast = shipController.cast;
+   character.castAimX = shipController.castAimX;
+   character.castAimY = shipController.castAimY;
+   character.castAimZ = shipController.castAimZ;
+   character.stepping = shipController.stepping;
+   character.gaitPhase = shipController.gaitPhase;
+   character.footfall = shipController.footfall;
+   character.footIndex = shipController.footIndex;
+   character.footPos.copy(shipController.footPos);
+   // Presentation mirror: `character` is a view of the authoritative
+   // shipController while flying. Keep this list in sync with the
+   // CharacterController constructor field set.
+   character._prevSpeed = shipController._prevSpeed;
+   character._drive = shipController._drive;
+   character._boost = shipController._boost;
+   character._climb = shipController._climb;
+   character._climbWant = shipController._climbWant;
+   character._vertEase = shipController._vertEase;
+   character.climb = shipController.climb;
+   character.climbRate = shipController.climbRate;
+   character._cruiseGround = shipController._cruiseGround;
+   character.steer = shipController.steer;
+   character.steerRate = shipController.steerRate;
+   character.controlScramble = shipController.controlScramble;
+   character._scrambleMax = shipController._scrambleMax;
+   character._scrambleT = shipController._scrambleT;
+   character.fireHeld = shipController.fireHeld;
+   character.driveHeld = shipController.driveHeld;
+   character.boostHeld = shipController.boostHeld;
+   character._prevTargetY = shipController._prevTargetY;
+   character._slam = shipController._slam;
+   character.footImpact = shipController.footImpact;
+  } else {
+   character.footfall = false;
+   character.update(dt, rig);
+  }
+  terrain.heightfield.clampToPlayArea(character.position);
+  // Pose and simulate before the contact pass: the footprints are stamped
+  // at the boot's actual planted position, which only exists once the
+  // figure has been solved.
+  figure.update(dt);
+  contact.update(dt);
+  // The walkers only read the player's position, so they can sit anywhere
+  // after the controller has moved. Here, so their cost lands in the same
+  // row of the overlay as the rest of the scene's inhabitants.
+  // walkers/herds purged: no update.
+  // The crash sites burn down and freeze over: smoke and fire for the
+  // first half minute, thinning as the heat dies, and then the slow
+  // frost — the hull whitening into the field over a couple of minutes.
+  for (const wk of wrecks) {
+   if (!wk.active) continue;
+   wk.age += dt;
+   if (wk.burnT > 0) {
+    wk.burnT -= dt;
+    wk.smokeT -= dt;
+    if (wk.smokeT <= 0) {
+     const p = wk.ctl.position;
+     const gy = wk.ctl.groundY;
+     const heat = Math.min(1, wk.burnT / 32);
+     wk.smokeT = 0.1 + (1 - heat) * 0.4;
+     smoke.emit(
+      p.x + (Math.random() - 0.5) * 1.4, gy + 1.1,
+      p.z + (Math.random() - 0.5) * 1.4,
+      (Math.random() - 0.5) * 0.5, 1.2 + Math.random() * 0.8,
+      (Math.random() - 0.5) * 0.5,
+      0.55, 1.6, 2.0 + Math.random(),
+      0.06, 0.06, 0.06, 0.5 * (0.4 + 0.6 * heat), true
+     );
+     if (wk.burnT > 3 && Math.random() < 0.75) {
+      smoke.emit(
+       p.x, gy + 0.7, p.z,
+       (Math.random() - 0.5) * 0.8, 0.9,
+       (Math.random() - 0.5) * 0.8,
+       0.4, 0.8, 0.3 + Math.random() * 0.15,
+       3.0, 1.0, 0.24, 0.7 * heat, false
+      );
+     }
+    }
+   }
+   wk.hull.snowOverride = Math.min(1, wk.age / 150);
+   wk.hull.update(dt);
+  }
+  if (flying) {
+   speeder?.tick(dt);
+   speeder?.update(dt);
+  }
+  for (const w of wingmen) {
+   w.tick(dt);
+   w.update(dt);
+  }
+  // The skip, if one of the falling craft touched the snow this frame
+  // and said so with a latch rather than a call. Cheap — a flag test
+  // per wingman — and it has to run after the pilots have moved, so
+  // the contact point it reads is this frame's, not last frame's.
+  pumpBounces();
+  // After every craft has moved, before the rig frames the result: the
+  // Collision pass works on whichever controller is actually driving this frame.
+  collision.character = (flying && shipController) ? shipController : character;
+  // contacts this frame's motion earned, resolved and reacted to.
+  collision.update(dt);
+  const tChar = performance.now();
+
+  _vel.copy(character.velocity);
+  // The death cam. While the craft is going in and lying there, the
+  // frame stops being a cockpit view and becomes a shot *of* the crash:
+  // the heading handed to the rig walks steadily round, and because the
+  // rig chases whatever heading it is given, the camera circles the
+  // wreck. The craft's own facing is untouched, so the hull lies still
+  // while the world turns around it — turning the wreck instead would
+  // spin it like a bottle. The bank is zeroed too: the roll belongs to
+  // the falling craft, not to the camera watching it.
+  let camFacing = flying ? character.facing : null;
+  let camLean = character.lean;
+  let camTarget = character.position;
+  if (character.crashing) {
+   if (deathCamT === 0) {
+    // Remember the framing to give back afterwards — the player
+    // may have zoomed it exactly where they like it.
+    deathCamDist = rig.distanceTarget;
+   }
+   deathCamT += dt;
+   camFacing = character.facing + deathCamT * DEATH_CAM_RATE;
+   camLean = 0;
+   // What the shot is ABOUT is the pilot.
+   //
+   // The wreck is scenery — it lands, it burns, it sits there. The
+   // body thrown clear of it is the only thing in the frame still
+   // doing something: three and a half seconds of dying, played out
+   // in the snow. So once there is a body the camera takes it as its
+   // subject and circles that, with the burning hull swinging
+   // through the background as it goes. Until then (the fall itself,
+   // before anything has hit) it stays on the craft.
+   const body = deathCamPilot;
+   if (body) {
+    _camAt.set(body.position.x, body.position.y + 0.6, body.position.z);
+    camTarget = _camAt;
+   }
+   // Stand off and look down — closer for a man than for a machine,
+   // or the animation the shot exists for is four pixels of orange.
+   rig.distanceTarget = body ? DEATH_CAM_DIST_PILOT : DEATH_CAM_DIST;
+   rig.pitch = expDamp(
+    rig.pitch,
+    body ? DEATH_CAM_PITCH_PILOT : DEATH_CAM_PITCH, 1.4, dt
+   );
+  } else if (deathCamT > 0) {
+   deathCamT = 0;
+   deathCamPilot = null;
+   rig.distanceTarget = deathCamDist || rig.distanceTarget;
+  }
+  // Flying, the rig is handed the craft's heading and chases it itself —
+  // see CameraRig.update — rather than the controller stepping rig.yaw.
+  rig.update(
+   dt, camTarget, _vel, camLean, character.speed01, camFacing, character.facing
+  );
+
+  // Jitters the projection and republishes everything the screen-space
+  // passes derive from the camera. Must be after the rig has moved and
+  // before anything reads the view-projection — which the depth prepass
+  // and the beauty pass both do.
+  // The craft's streak when there is a craft: see `Speeder.streak01` for
+  // why the character's is the wrong signal in the air.
+  post.update(dt, (speeder && flying) ? speeder.streak01 : character.streak01, rig.distance);
+  sky.update();
+  sky.render(rig, time);
+  shadows.update(rig.camera, sky.sunDir);
+  // After the shadow refit, so the water and the ice carry this frame's
+  // cascade matrices; before the terrain, so the brushes every spell
+  // writes are in the staging array when the simulation pass runs.
+  spells.update(dt, rig.camera.position);
+  const tSpells = performance.now();
+  terrain.update(rig.camera.position, character.position, dt);
+  const tTerrain = performance.now();
+  // After the shadow refit, so the figure's uniforms carry this frame's
+  // cascade matrices rather than last frame's.
+  figure.sync(rig.camera.position);
+  // Also picks each walker's level of detail, which needs this frame's
+  // camera and this frame's field of view.
+  // walkers/herds purged: no sync.
+  for (const wk of wrecks) {
+   if (wk.active) wk.hull.sync(rig.camera.position);
+  }
+  speeder?.sync(rig.camera.position);
+  for (const w of wingmen) w.sync(rig.camera.position);
+  // The tuning rings, after every transform they pin to has settled.
+  muzzleMarkers.begin();
+  if (S.showMuzzles) {
+   // walkers/herds purged: no muzzle collection.
+   speeder?.collectMuzzles?.(muzzleMarkers);
+  }
+  muzzleMarkers.commit(rig.camera.position);
+  // Before the spray: the wake decides where its own lip is, and the
+  // grains it sheds have to be in the pool before the pool is uploaded.
+  wake.update(dt, rig.camera.position);
+  spray.update(dt, rig.camera.position);
+  // The overlay's burn preview: the wingmen's damage trail, lit on the
+  // player craft so the burn sliders can be dialled against a hull the
+  // player can actually orbit.
+  if (S.burnPreview && speeder && flying) {
+   burnPreviewT -= dt;
+   if (burnPreviewT <= 0) {
+    burnPreviewT = 0.05;
+    // Off the *drawn* hull, not the controller — the controller
+    // rides hover-height below the craft the player is looking at.
+    emitBurnTrail(
+     smoke, speeder.position, speeder.yaw,
+     character.velocity, true
+    );
+   }
+  }
+  smoke.update(dt, rig.camera.position);
+  const tVfx = performance.now();
+
+  // Last, and a pure reader: every signal it mixes on — surf blend, carve
+  // load, speed, cast count — has settled by here.
+  const tAudio = performance.now();
+
+  renderFrame();
+  post.endFrame();
+  const tRender = performance.now();
+
+  mark("cpu character", tChar - tFrame);
+  mark("cpu spells", tSpells - tChar);
+  mark("cpu terrain", tTerrain - tSpells);
+  mark("cpu wake+spray", tVfx - tTerrain);
+  mark("cpu audio", tAudio - tVfx);
+  mark("cpu submit", tRender - tAudio);
+  mark("cpu total", tRender - tFrame);
+
+  endFrameDraws();
+  stats.triangles =
+   (terrain.mesh && terrain.mesh.metadata ? terrain.mesh.metadata.triangles : 0) +
+   (S.showCharacter && !flying ? figure.triangles : 0) +
+   (speeder ? speeder.triangles : 0) +
+   wingmen.reduce((t: any, w: any) => t + w.triangles, 0) +
+   // walkers/herds purged: no triangle counts.
+   (wake.mesh && wake.mesh.visible ? wake.mesh.metadata.triangles : 0) +
+   spells.triangles +
+   spray.liveCount * 2;
+
+  sample(dtMs);
+  checkSpike(dtMs);
+  overlay.update(dtMs, gfx);
+  fpsMeter.update(dtMs);
+  perfHud.update(dtMs, gfx);
+
+  endFrame();
+ });
+}
