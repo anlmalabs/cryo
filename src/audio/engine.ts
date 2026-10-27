@@ -762,8 +762,7 @@ export class LoopVoice {
    src.disconnect();
    g.disconnect();
   };
-  // `SRC_TAIL`: read a quarter-second past the segment's own end, so the
-  // encoder padding the trim assumes is actually inside the buffer.
+  // `SRC_TAIL`: read a quarter-second past the segment's own end.
   src.start(at, this.trim, seg + 0.02);
   // `STOP_GUARD`: stop 10 ms *before* that read, so the source is torn down
   // on its own schedule rather than being cut off mid-sample.

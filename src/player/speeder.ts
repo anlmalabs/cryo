@@ -862,8 +862,8 @@ export class Speeder {
   // Two states, not a ramp, because that is what the craft has: a
   // repulsorlift holding station, and a repulsorlift being asked for
   // everything. Hovering, the engines are lit but *short* — a stub of flame
-  // at the nozzle and no more, which is what "it is holding itself up"
-  // looks like. On the boost they stretch into a jet.
+  // at the nozzle and no more, which is what "it is holding itself up".
+  // On the boost they stretch into a jet.
   //
   // Cruising without shift sits between the two and much closer to the
   // hover: moving at speed is not the same as reheat, and if the plume is

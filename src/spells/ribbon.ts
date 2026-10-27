@@ -205,10 +205,10 @@ const LISSAJOUS_PHASE_V1 = 1.7;
 const LISSAJOUS_AMP_V1 = 0.44;
 
 /** Second harmonic's frequency, rad/s relative to the phase. */
-const LISSAJOUS_FREQ_V2 = 2;
+const LISSAJOUS_FREQ_H2 = 2;
 
 /** Second harmonic's phase offset, radians. */
-const LISSAJOUS_PHASE_V2 = 0.4;
+const LISSAJOUS_PHASE_H2 = 0.4;
 
 /** Fundamental (2:1) vertical amplitude, metres. */
 const LISSAJOUS_AMP_W = 0.92;
@@ -736,7 +736,7 @@ export class Ribbon {
   // twice the same one.
   const a = Math.sin(this._phase) * LISSAJOUS_AMP_U
    + Math.sin(this._phase * LISSAJOUS_FREQ_V1 + LISSAJOUS_PHASE_V1) * LISSAJOUS_AMP_V1;
-  const b = Math.sin(this._phase * LISSAJOUS_FREQ_V2 + LISSAJOUS_PHASE_V2) * LISSAJOUS_AMP_W
+  const b = Math.sin(this._phase * LISSAJOUS_FREQ_H2 + LISSAJOUS_PHASE_H2) * LISSAJOUS_AMP_W
    + Math.sin(this._phase * LISSAJOUS_FREQ_W1 + LISSAJOUS_PHASE_W1) * LISSAJOUS_AMP_W1;
 
   const f = rig.forward;

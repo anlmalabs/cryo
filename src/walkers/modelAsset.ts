@@ -196,7 +196,7 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
   !parsed || typeof parsed !== "object"
   || !Array.isArray((parsed as WalkerHeader).layout)
   || !Array.isArray((parsed as WalkerHeader).materials)
- ) throw new Error("walker: header is not a v2 header");
+ ) throw new Error(`walker: header is not a v2 header: ${JSON.stringify(parsed)}`);
  const header = parsed as WalkerHeader;
  if (header.version !== 2) throw new Error(`walker: unsupported version ${header.version}`);
 
