@@ -294,7 +294,7 @@ symptom is a shadow that is not the shape of its caster). Spine texture layout a
   `WAKE_STEPS = 20` fixed loop): `th0 = -0.24`, `th1 = 1.65 + curl*3.30` (95°→284°),
   angle swept as `th = th0 + (th1-th0)*pow(t, 1.65)` (exponent packs the hook into the
   last fifth), width factor `(1 - 0.40*t)` (thins toward the lip). Result scaled by
-  `WAKE_LATERAL = 0.70` in x and `WAKE_NORM = 3.35` as a whole. At curl=1 the lip
+  `WAKE_LATERAL = 0.70` in x and `WAKE_NORM = 3.35` as a whole. At curl=1 it
   overhangs (tip at 47% of crest lateral offset, 65% of its height), which is
   why this is not a heightfield.
 - `wakeScalars(tex, count, u, side) -> vec4f(amp, curl, dist, age01)`: per-side

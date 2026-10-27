@@ -540,7 +540,7 @@ Order inside the pass, which is load-bearing:
 3. `× exposure`.
 4. `+ (bloomNear·0.35 + bloomFar·0.65) · bloomAmount`. The bloom levels are already exposed,
    which `src/shaders/post/tonemap.fragment.glsl` states directly: the prefilter applies the
-   same exposure before thresholding, so both levels arrive in exposed units. The
+   same value before thresholding, so both levels arrive in exposed units. The
    bloom-knee calibration in `src/post/postChain.ts` measures sunlit snow at ~1.26 and notes
    that at th=3.0 the field sits a stop and a half below it, which is what keeps the lit
    half of the frame under the knee.
