@@ -381,6 +381,10 @@ export function startFrameLoop(ctx: FrameContext): void {
     // Remember the framing to give back afterwards — the player
     // may have zoomed it exactly where they like it.
     deathCamDist = rig.distanceTarget;
+    if (deathCamPilot === null) {
+     const wk = wrecks[0];
+     if (wk?.active) deathCamPilot = { position: { x: wk.pilotX, y: 0, z: wk.pilotZ } };
+    }
    }
    deathCamT += dt;
    camFacing = character.facing + deathCamT * DEATH_CAM_RATE;

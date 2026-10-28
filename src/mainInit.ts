@@ -300,7 +300,7 @@ export async function boot() {
  // stage the formation behind them, so the escorts thunder overhead in the
  // first seconds of the game rather than at some point during the loading.
  // Eliminate initial no-controls sequence in free flight mode only.
- if (state.storyMode) startFlyover();
+ if (!state.storyMode) startFlyover();
 
  // After the loading screen has gone: it sits at a higher z-index than the
  // overlay, so opening the panel before this would hide it behind a full
