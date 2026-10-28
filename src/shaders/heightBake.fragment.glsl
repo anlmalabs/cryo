@@ -7,6 +7,8 @@
 // Re-implementing the noise in JS would drift the moment f32 and f64 rounding
 // diverged, and the character would float or sink by centimetres.
 
+#define NOISE_PERIOD 2048.0
+
 precision highp float;
 precision highp int;
 
@@ -23,7 +25,8 @@ uniform float heightAmp;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    vec2 p = worldOrigin + vUV * worldSize;
+    // Centered wrap so the bake tiles continuously through the origin.
+    vec2 p = mod(worldOrigin + vUV * worldSize + worldSize * 0.5, worldSize) - worldSize * 0.5;
 
     float h = terrainMacro(p, windAngle, heightAmp);
 

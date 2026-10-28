@@ -25,10 +25,10 @@
 
 vec2 terrainWrap(vec2 p) {
     if (TERRAIN_PERIOD > 0.0) {
-        vec2 wp = mod(p, TERRAIN_PERIOD);
-        if (wp.x < 0.0) wp.x += TERRAIN_PERIOD;
-        if (wp.y < 0.0) wp.y += TERRAIN_PERIOD;
-        return wp - TERRAIN_PERIOD * 0.5;
+        vec2 wp = mod(p + TERRAIN_PERIOD * 0.5, TERRAIN_PERIOD) - TERRAIN_PERIOD * 0.5;
+        if (wp.x < -TERRAIN_PERIOD * 0.5) wp.x += TERRAIN_PERIOD;
+        if (wp.y < -TERRAIN_PERIOD * 0.5) wp.y += TERRAIN_PERIOD;
+        return wp;
     }
     return p;
 }
