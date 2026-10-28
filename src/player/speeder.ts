@@ -184,7 +184,10 @@ const _right = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _nozzle = { spanX: 0, dropY: 0, backZ: 0 };
-
+const _nozzleBottoms = [
+ { spanX: 0, dropY: 0, backZ: 0 },
+ { spanX: 0, dropY: 0, backZ: 0 },
+];
 /**
  * The pooled cannon bolts the owner hands over (`this.bolts`). The pool is
  * shared with the walker's chin guns, so it is not modelled here beyond what
@@ -337,6 +340,7 @@ export class Speeder {
  /** Bolts fired since boot — the HUD's shot counter reads it. */
  shotCount!: number;
  jet!: Jet;
+ bottomJets!: Jet[];
  _liftSpeed?: number;
  _throttle?: number;
  _visible!: boolean;
@@ -543,7 +547,13 @@ export class Speeder {
   // The exhaust. Owned here because it is placed off this craft's own
   // transform and has nothing to say to anything else.
   this.jet = new Jet(gfx);
-
+  // Bottom thrusters: reuse the same plume code/graphics, pointed down.
+  // Four plumes total = two Jet instances (two nozzles each), spread
+  // across the underside of the hull.
+  this.bottomJets = [
+   new Jet(gfx, new THREE.Vector3(0, -1, 0)),
+   new Jet(gfx, new THREE.Vector3(0, -1, 0)),
+  ];
   this._visible = true;
  }
 
@@ -694,6 +704,7 @@ export class Speeder {
   this.mesh.visible = this._visible;
   // A wreck's repulsors are dead: no plume, however visible the hull.
   this.jet.setVisible(this._visible && !this.grounded);
+  for (const j of this.bottomJets) j.setVisible(this._visible && !this.grounded);
   if (this.bolts && this.bolts.mesh) {
    this.bolts.mesh.visible = this._visible;
   }
@@ -1070,6 +1081,21 @@ export class Speeder {
    this._lastDt || FALLBACK_DT, this._world, _nozzle,
    this._throttle || 0, cameraPos
   );
+  // Bottom thrusters: same plume code/graphics, pointed down. Four plumes
+  // in a 2x2 square on the underside of the hull (hull ~4.5 m wide x 5.3 m
+  // long): two Jet instances (two nozzles each), one forward pair and one
+  // aft pair, each pair spread laterally.
+  const bottomBackZ = [-0.4, 0.4];
+  for (let i = 0; i < this.bottomJets.length; i++) {
+   const n = _nozzleBottoms[i];
+   n.spanX = 0.4 * S.jetSpan;
+   n.dropY = -0.5 + S.jetDropY;
+   n.backZ = bottomBackZ[i] + S.jetBackZ;
+   this.bottomJets[i].update(
+    this._lastDt || FALLBACK_DT, this._world, n,
+    this._throttle || 0, cameraPos
+   );
+  }
  }
 
  /** @param {number} dt kept for the bolts, which tick in `sync`. */
@@ -1085,6 +1111,7 @@ export class Speeder {
   }
   if (this.bolts) await this.bolts.warmUp();
   await this.jet.warmUp();
+  for (const j of this.bottomJets) await j.warmUp();
  }
 
  dispose() {
@@ -1096,6 +1123,7 @@ export class Speeder {
   this.geometry.dispose();
   if (this.bolts) this.bolts.dispose();
   this.jet.dispose();
+  for (const j of this.bottomJets) j.dispose();
   for (const m of this._depthMats) m.dispose();
   this._prepassMat?.dispose();
  }

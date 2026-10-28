@@ -48,6 +48,10 @@ type JetMesh = THREE.Mesh<THREE.BufferGeometry, THREE.RawShaderMaterial> & {
 };
 
 export class Jet {
+ /** Craft-local direction the plume blows (unit vector). Back thrusters:
+  *  (0,0,-1); bottom thrusters: (0,-1,0). */
+ _dirLocal!: THREE.Vector3;
+
  gfx!: Gfx;
  /** Plume phase clock, seconds — drives the shader's boil and jitter. */
  _time!: number;
@@ -59,9 +63,9 @@ export class Jet {
  _viewProj!: THREE.Matrix4;
  material!: THREE.RawShaderMaterial;
  mesh!: JetMesh;
-
- constructor(gfx: Gfx) {
+ constructor(gfx: Gfx, dirLocal?: THREE.Vector3) {
   this.gfx = gfx;
+  this._dirLocal = dirLocal ? dirLocal.clone() : new THREE.Vector3(0, 0, -1);
   this._time = 0;
   this._cameraPos = new THREE.Vector3();
   // Per-instance, because they are the uniform VALUES: as module scratch
@@ -186,8 +190,13 @@ export class Jet {
    origins[o + 2] = world[2] * lx + world[5] * dropY + world[8] * backZ + world[11];
    origins[o + 3] = 1;
   }
-  // Straight out of the back, in world space.
-  this._dir.set(-world[6], -world[7], -world[8], LENGTH * (/** @type {number} */ (S.jetLength)));
+  // Direction the plume blows, in world space, from the craft-local vector.
+  const dl = this._dirLocal;
+  const len = LENGTH * (/** @type {number} */ (S.jetLength));
+  const vx = dl.x * world[0] + dl.y * world[3] + dl.z * world[6];
+  const vy = dl.x * world[1] + dl.y * world[4] + dl.z * world[7];
+  const vz = dl.x * world[2] + dl.y * world[5] + dl.z * world[8];
+  this._dir.set(vx, vy, vz, len);
   this._params.set(throttle, this._time, WIDTH * (/** @type {number} */ (S.jetWidth)), FLARE * (/** @type {number} */ (S.jetFlare)));
   this.material.uniforms.jetGlow.value = S.jetGlow ?? 1;
   this.material.uniforms.jetHaloBack.value = S.jetHaloBack ?? 0.1;
