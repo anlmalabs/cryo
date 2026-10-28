@@ -19,6 +19,20 @@
 // to the wind (dune ridges), fine forms run parallel to it (sastrugi streaks).
 // -----------------------------------------------------------------------------
 
+#ifndef TERRAIN_PERIOD
+#define TERRAIN_PERIOD 2048.0
+#endif
+
+vec2 terrainWrap(vec2 p) {
+    if (TERRAIN_PERIOD > 0.0) {
+        vec2 wp = mod(p, TERRAIN_PERIOD);
+        if (wp.x < 0.0) wp.x += TERRAIN_PERIOD;
+        if (wp.y < 0.0) wp.y += TERRAIN_PERIOD;
+        return wp - TERRAIN_PERIOD * 0.5;
+    }
+    return p;
+}
+
 /// Build the combined rotate-and-anisotropically-scale matrix for a noise layer.
 /// `sx` stretches along the wind, `sy` across it; `scale` is the wavelength.
 /// A layer's derivative maps back to world space with `dHdq * M`.
@@ -35,6 +49,7 @@ mat2 windMat(float angle, float sx, float sy, float scale) {
 /// Broad + medium landform. Returns metres.
 /// `w` is the wind bearing in radians, `amp` a global height multiplier.
 float terrainMacro(vec2 p, float w, float amp) {
+    p = terrainWrap(p);
     // --- broad dunes -------------------------------------------------------
     // Compressed along the wind, so ridge lines run across it. Derivative
     // damping keeps crests smooth and lets detail pool in the troughs.
@@ -79,6 +94,7 @@ vec2 terrainMacroD(vec2 p, float w, float amp) {
 /// culled so the field stays "just snow and the player".
 /// Returns vec2(height contribution, rock mask 0..1).
 vec2 rockField(vec2 p, float w) {
+    p = terrainWrap(p);
     float cell = 165.0;
     vec2 gi = floor(p / cell);
 

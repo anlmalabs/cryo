@@ -14,9 +14,28 @@
 
 const float PI = 3.14159265359;
 
+#ifndef NOISE_PERIOD
+#define NOISE_PERIOD 0.0
+#endif
+
+vec2 noiseWrap(vec2 i) {
+    if (NOISE_PERIOD > 0.0) {
+        return mod(i, NOISE_PERIOD);
+    }
+    return i;
+}
+
+float noiseWrap1(float i) {
+    if (NOISE_PERIOD > 0.0) {
+        return mod(i, NOISE_PERIOD);
+    }
+    return i;
+}
+
 // ------------------------------------------------------------------- hashing
 
 float hash11(float n) {
+    n = noiseWrap1(n);
     float p = fract(n * 0.1031);
     p *= p + 33.33;
     p *= p + p;
@@ -24,18 +43,21 @@ float hash11(float n) {
 }
 
 float hash21(vec2 p) {
+    p = noiseWrap(p);
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
     return fract((p3.x + p3.y) * p3.z);
 }
 
 vec2 hash22(vec2 p) {
+    p = noiseWrap(p);
     vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
     p3 += dot(p3, p3.yzx + 33.33);
     return fract((p3.xx + p3.yz) * p3.zy);
 }
 
 vec3 hash33(vec3 p) {
+    // 3D noise less critical for tiling terrain
     vec3 p3 = fract(p * vec3(0.1031, 0.1030, 0.0973));
     p3 += dot(p3, p3.yxz + 33.33);
     return fract((p3.xxy + p3.yxx) * p3.zyx);
@@ -43,6 +65,7 @@ vec3 hash33(vec3 p) {
 
 /// Unit-length 2D gradient vector for a lattice point.
 vec2 grad2(vec2 i) {
+    i = noiseWrap(i);
     float a = hash21(i) * 6.28318530718;
     return vec2(cos(a), sin(a));
 }
@@ -53,6 +76,9 @@ vec2 grad2(vec2 i) {
 /// Value range is roughly [-1, 1].
 vec3 noised(vec2 p) {
     vec2 i = floor(p);
+    if (NOISE_PERIOD > 0.0) {
+        i = mod(i, NOISE_PERIOD);
+    }
     vec2 f = p - i;
 
     // Quintic fade: C2 continuous, so derivatives are smooth too.
