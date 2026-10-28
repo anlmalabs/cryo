@@ -22,7 +22,7 @@ import { loadModelAsset } from "./walkers/modelAsset.js";
 
 import { buildBootAssets } from "./mainBootAssets.js";
 import { buildSquad } from "./mainSquad.js";
-import { buildUi, chooseMode } from "./mainUi.js";
+import { buildUi } from "./mainUi.js";
 import { buildFlightMode } from "./mainFlightMode.js";
 import { createFlightState, squadImpact, CLEAR_COLOR } from "./mainContracts.js";
 
@@ -131,23 +131,19 @@ export async function boot() {
  const smoke = bootAssets.smoke;
  const speeder = bootAssets.speeder;
  const wingmen = bootAssets.wingmen;
- const wrecks = bootAssets.wrecks;
- const leaveWreck = bootAssets.leaveWreck;
- const showFigure = bootAssets.showFigure;
 
- const squad = buildSquad({ wingmen, character, terrain, spray, smoke, audio, leaveWreck });
+ const squad = buildSquad({ wingmen, character, terrain, spray, smoke });
  const pumpBounces = squad.pumpBounces;
 
- const _vfx = buildVfx({ gfx, sky, shadows, depthPass, terrain, character, shipController, figure, spray, smoke, rig, audio, showFigure, speeder, wingmen, wrecks, leaveWreck, state });
+ const _vfx = buildVfx({ gfx, sky, shadows, depthPass, terrain, character, shipController, figure, spray, smoke, rig, audio, speeder, wingmen, state });
  const collision = _vfx.collision;
  const contact = _vfx.contact;
  const wake = _vfx.wake;
  const spells = _vfx.spells;
  const post = _vfx.post;
  const startFlyover = _vfx.startFlyover;
- const applyModeExtras = _vfx.applyModeExtras;
 
- const flightMode = buildFlightMode({ speeder, shipController, character, terrain, figure, showFigure, applyModeExtras, state });
+ const flightMode = buildFlightMode({ speeder, shipController, character, terrain, figure, state });
  const toggleMode = flightMode.toggleMode;
 
  // ------------------------------------------------------------ the frame
@@ -247,12 +243,10 @@ export async function boot() {
  let prev = performance.now();
  let time = 0;
 
- // ------------------------------------------------------- main menu gate
- // The choice is written onto the shared state; the loop below reads it live.
- await chooseMode({ character, leaveWreck, speeder, applyModeExtras, showFigure, state });
+ state.flying = true;
 
  startFrameLoop({
-  gfx, rig, sky, shadows, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces,
+  gfx, rig, sky, shadows, terrain, character, figure, contact, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces,
   state, prev, time,
  });
 
@@ -300,7 +294,7 @@ export async function boot() {
  // stage the formation behind them, so the escorts thunder overhead in the
  // first seconds of the game rather than at some point during the loading.
  // Eliminate initial no-controls sequence in free flight mode only.
- if (!state.storyMode) startFlyover();
+ startFlyover();
 
  // After the loading screen has gone: it sits at a higher z-index than the
  // overlay, so opening the panel before this would hide it behind a full
@@ -312,7 +306,7 @@ export async function boot() {
 
  const snowflowGlobal = window;
  snowflowGlobal.SNOWFLOW = {
-  gfx, scene: gfx.scene, rig, character, figure, wrecks, speeder, collision, contact, spray, wake, spells,
+  gfx, scene: gfx.scene, rig, character, figure, speeder, collision, contact, spray, wake, spells,
   overlay, touchControls, terrain, sky, shadows, post, depthPass,
   audio,
   S, input, perfStats: stats,

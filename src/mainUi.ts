@@ -28,11 +28,8 @@ export type UiState = {
 
 export type ChooseModeContext = {
  character: CharacterController;
- leaveWreck: ((x: number, z: number, facing: number) => null) | null;
  speeder: Speeder | null;
- applyModeExtras: () => void;
- showFigure: () => void;
- /** The one shared flight state; the choice writes `storyMode` and `flying` on it. */
+ /** The one shared flight state; the choice writes `flying` on it. */
  state: FlightState;
 };
 
@@ -79,13 +76,11 @@ export function buildUi(ctx: BuildUiContext): UiState {
  * Main-menu gate.
  *
  * The choice is written onto the shared flight state rather than returned:
- * `storyMode` is read by the crash-restart handler and by the boot's own
  * flyover decision, both of which run after this resolves, and a returned
  * copy was exactly the kind of value-copy that let the modules drift apart.
  */
 export async function chooseMode(ctx: ChooseModeContext): Promise<void> {
- const { character, leaveWreck, speeder, applyModeExtras, showFigure, state } = ctx;
-
+ const { state } = ctx;
  await new Promise<void>((resolve) => {
   const menu = document.createElement("div");
   menu.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(ellipse at 30% 20%,rgba(40,70,140,0.35),transparent 60%),radial-gradient(ellipse at 70% 80%,rgba(80,40,120,0.25),transparent 60%),rgba(4,6,14,0.92);color:#dfe6f5;font-family:ui-monospace,monospace;";
@@ -93,49 +88,30 @@ export async function chooseMode(ctx: ChooseModeContext): Promise<void> {
   title.textContent = "SNOWFLOW";
   title.style.cssText = "font-size:1.6rem;letter-spacing:0.35em;text-transform:uppercase;font-weight:300;margin-bottom:4px;";
   const sub = document.createElement("div");
-  sub.textContent = "S — story mode (ship stranded, repair to fly)    ·    Enter — free flight";
+  sub.textContent = "Enter — free flight";
   sub.style.cssText = "font-size:0.72rem;letter-spacing:0.18em;text-transform:uppercase;opacity:0.6;margin-bottom:18px;";
   const btnStyle = "min-width:220px;padding:10px 20px;font-size:0.8rem;letter-spacing:0.2em;text-transform:uppercase;cursor:pointer;background:rgba(255,255,255,0.04);color:#dfe6f5;border:1px solid rgba(255,255,255,0.18);border-radius:2px;transition:background .15s,border-color .15s;";
-  const storyBtn = document.createElement("button");
-  storyBtn.textContent = "Story Mode  (S)";
-  storyBtn.style.cssText = btnStyle;
   const flyBtn = document.createElement("button");
   flyBtn.textContent = "Free Flight  (Enter)";
   flyBtn.style.cssText = btnStyle;
-  for (const b of [storyBtn, flyBtn]) {
-   b.addEventListener("mouseenter", () => { b.style.background = "rgba(255,255,255,0.1)"; b.style.borderColor = "rgba(255,255,255,0.4)"; });
-   b.addEventListener("mouseleave", () => { b.style.background = "rgba(255,255,255,0.04)"; b.style.borderColor = "rgba(255,255,255,0.18)"; });
-  }
-  menu.append(title, sub, storyBtn, flyBtn);
+  flyBtn.addEventListener("mouseenter", () => { flyBtn.style.background = "rgba(255,255,255,0.1)"; flyBtn.style.borderColor = "rgba(255,255,255,0.4)"; });
+  flyBtn.addEventListener("mouseleave", () => { flyBtn.style.background = "rgba(255,255,255,0.04)"; flyBtn.style.borderColor = "rgba(255,255,255,0.18)"; });
+  menu.append(title, sub, flyBtn);
   document.body.append(menu);
-  // (menu already appended above)
 
   let chosen = false;
-  const choose = (story: boolean) => {
+  const choose = () => {
    if (chosen) return;
    chosen = true;
    menu.remove();
    window.removeEventListener("keydown", onKey);
-   // The shared state is written here, before the promise resolves, so the
-   // rest of the boot sees the mode the menu settled on.
-   state.storyMode = story;
+   state.flying = true;
    resolve();
   };
   const onKey = (e: KeyboardEvent) => {
-   if (e.code === "KeyS") choose(true);
-   else if (e.code === "Enter") choose(false);
+   if (e.code === "Enter") choose();
   };
   window.addEventListener("keydown", onKey);
-  storyBtn.addEventListener("click", () => choose(true));
-  flyBtn.addEventListener("click", () => choose(false));
+  flyBtn.addEventListener("click", () => choose());
  });
-
- if (state.storyMode) {
-  const x = character.position.x, z = character.position.z, f = character.facing;
-  leaveWreck?.(x, z, f);
-  state.flying = false;
-  speeder?.setVisible?.(false);
-  applyModeExtras();
-  showFigure();
- }
 }

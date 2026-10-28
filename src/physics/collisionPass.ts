@@ -135,15 +135,12 @@ interface CollisionCtx {
  activeCharacter?: (() => CharacterController | null) | null;
  speeder?: Speeder | null;
  wingmen?: Escort[] | null;
- wrecks?: Wreck[] | null;
  parked?: (() => ParkedPoint | null) | null;
  terrain?: Terrain | null;
  spray?: SprayField | null;
  smoke?: SmokeTrails | null;
  rig?: CameraRig | null;
  audio?: AudioEngine | null;
- onWreck?: ((x: number, z: number, facing: number) => void) | null;
- onRestart?: (() => void) | null;
 }
 
 /** One craft's collision slot: the sphere's own history, per craft. */
@@ -593,8 +590,6 @@ export class CollisionPass {
  speeder: Speeder | null;
  /** The escorts; always empty until the herd returns. */
  wingmen: Escort[];
- /** Hulls left in the snow after a crash. */
- wrecks: Wreck[];
  /** Where the player left their hull parked in the world, if anywhere. */
  parked: (() => ParkedPoint | null) | null;
  terrain: Terrain | null;
@@ -602,11 +597,6 @@ export class CollisionPass {
  smoke: SmokeTrails | null;
  rig: CameraRig | null;
  audio: AudioEngine | null;
- /** Leave a hull and its pilot where the player went in. */
- onWreck: ((x: number, z: number, facing: number) => void) | null;
- /** Start the run again from the top. */
- onRestart: (() => void) | null;
-
  /** Every capsule this frame: the herd's, the wrecks', then a dead tail. */
  pool: Capsule[];
  /** One record per craft, player first. */
@@ -655,7 +645,6 @@ export class CollisionPass {
   this._activeCharacter = ctx.activeCharacter ?? (() => this.character);
   this.speeder = ctx.speeder ?? null;
   this.wingmen = ctx.wingmen ?? [];
-  this.wrecks = ctx.wrecks ?? [];
   this.parked = ctx.parked ?? null;
   this.terrain = ctx.terrain ?? null;
   this.spray = ctx.spray ?? null;
@@ -663,17 +652,12 @@ export class CollisionPass {
   this.rig = ctx.rig ?? null;
   this.audio = ctx.audio ?? null;
 
-  /** Leave a hull and its pilot where the player went in. */
-  this.onWreck = ctx.onWreck ?? null;
-  /** Start the run again from the top. */
-  this.onRestart = ctx.onRestart ?? null;
 
   // ------------------------------------------------------ the capsule pool
   // Sized for the worst the sliders can ask for: six capsules per AT-AT
   // (four legs, body, head), one per AT-ST, one per wreck slot, plus
   // slack — nothing grows after this line.
   let cap = 8;
-  cap += this.wrecks.length;
   if (this.parked) cap += 1;
   this.pool = makeCapsulePool(cap);
 
@@ -782,30 +766,13 @@ export class CollisionPass {
 
  // ------------------------------------------------------------ frame setup
 
- /** Herd capsules, then wreck capsules, then a dead tail. */
+ /** Herd capsules, then a dead tail. */
  _rebuildPool() {
   const pool = this.pool;
   let k = 0;
-  for (const wk of this.wrecks) {
-   if (!wk?.active || k >= pool.length) continue;
-   const ctl = wk.ctl;
-   const fx = Math.sin(ctl.facing), fz = Math.cos(ctl.facing);
-   const y = (ctl.groundY ?? 0) + WRECK_HOVER;
-   const c = pool[k++];
-   c.ax = ctl.position.x - fx * WRECK_HALF;
-   c.ay = y;
-   c.az = ctl.position.z - fz * WRECK_HALF;
-   c.bx = ctl.position.x + fx * WRECK_HALF;
-   c.by = y;
-   c.bz = ctl.position.z + fz * WRECK_HALF;
-   c.r = WRECK_R;
-   c.kind = "wreck";
-   c.walker = wk;
-   c.live = true;
-  }
-  if (this.parked && k < pool.length) {
+  if (this.parked) {
    const p = this.parked();
-   if (p) {
+   if (p && k < pool.length) {
     const c = pool[k++];
     c.ax = p.x; c.ay = p.y - PARKED_LO; c.az = p.z;
     c.bx = p.x; c.by = p.y + PARKED_HI; c.bz = p.z;
@@ -1356,8 +1323,6 @@ export class CollisionPass {
    // of them is a prop. The wreck is the one that stays, because it
    // is the one that keeps burning, frosting, and standing there
    // after the run has started again.
-   this.onWreck?.(x, z, facing);
-   this.speeder?.setVisible?.(false);
 
    // The scar: the hole it made and the furrow behind it.
    const cb = CRATER_BRUSH;
@@ -1419,7 +1384,6 @@ export class CollisionPass {
     // A fresh craft, and it is visible again — `onRestart` is
     // what moves it, so this happens before the stage, never
     // leaving a hull to blink at the crash site for a frame.
-    this.onRestart?.();
     // visibility is now managed by onRestart (strand vs respawn)
    }
   }

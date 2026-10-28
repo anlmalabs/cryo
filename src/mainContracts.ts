@@ -22,25 +22,19 @@ export type IntroFly = {
  * own copy and the copies drifted — the boot crash was the extreme case,
  * where one module read a state object that was never handed to it.
  *
- * One instance is created in `mainInit` and threaded by reference. There is
- * exactly one writer per field, and the type makes a missing field a compile
- * error rather than a runtime `undefined`.
- *
  * - `flying` — is the player flying the craft (as opposed to on foot).
- * - `storyMode` — is the story/cutscene run active.
  * - `introHold` — seconds to hold the opening shot before moving on.
  * - `introFly` — the flyover target, or `null` when no flyover is running.
  */
 export type FlightState = {
  flying: boolean,
- storyMode: boolean,
  introHold: number,
  introFly: IntroFly | null,
 };
 
 /** Creates the one {@link FlightState} instance the app runs on. */
 export function createFlightState(flying: boolean): FlightState {
- return { flying, storyMode: false, introHold: 0, introFly: null };
+ return { flying, introHold: 0, introFly: null };
 }
 
 /** An escort. Its module was removed; the shape is expressed by its uses. */

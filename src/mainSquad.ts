@@ -2,7 +2,6 @@ import type { CharacterController } from "./character/controller.js";
 import type { SprayField } from "./vfx/particles.js";
 import type { SmokeTrails } from "./vfx/smokeTrails.js";
 import type { Terrain } from "./terrain/terrain.js";
-import type { AudioEngine } from "./audio/engine.js";
 import type { EnemyFire, Wingman } from "./mainContracts.js";
 import {
  CRASH_AUDIBLE,
@@ -25,8 +24,6 @@ export type BuildSquadContext = {
  terrain: Terrain;
  spray: SprayField;
  smoke: SmokeTrails;
- audio: AudioEngine;
- leaveWreck: ((x: number, z: number, facing: number) => null) | null;
 };
 
 export type SquadState = {
@@ -34,7 +31,7 @@ export type SquadState = {
 };
 
 export function buildSquad(ctx: BuildSquadContext): SquadState {
- const { wingmen, character, terrain, spray, smoke, audio, leaveWreck } = ctx;
+ const { wingmen, character, terrain, spray, smoke } = ctx;
 
  /**
   * Where the wingmen's guns report a burst: the infantry's reaction pipe,
@@ -90,10 +87,7 @@ export function buildSquad(ctx: BuildSquadContext): SquadState {
     // total silence. The cube keeps a distant one honestly faint.
     const kn = Math.max(0, 1 - kd / CRASH_AUDIBLE);
     if (kn > 0) {
-     audio.play("speederCrash2", {
-      gain: kn * kn * kn,
-      delay: Math.min(1.6, kd / 343),
-     });
+     // speederCrash2 sample removed (story mode purged); no audio.
     }
    },
    /**
@@ -223,7 +217,6 @@ export function buildSquad(ctx: BuildSquadContext): SquadState {
       0.05, 0.05, 0.05, 0.6, true
      );
     }
-    leaveWreck?.(x, z, facing);
    },
   };
   // The pilot's own back-channel to the same handlers. SimPilot is a

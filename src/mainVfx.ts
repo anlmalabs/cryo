@@ -1,13 +1,11 @@
 import { S, onChange } from "./core/settings.js";
-import { input } from "./core/input.js";
 import { CollisionPass } from "./physics/collisionPass.js";
 import { SnowContact } from "./character/snowContact.js";
 import { SurfWake } from "./vfx/surfWake.js";
 import { SpellSystem } from "./spells/spellSystem.js";
 import { PostChain } from "./post/postChain.js";
 import { OPENING, applyOpening } from "./core/openingShot.js";
-import { RESPAWN_OUT } from "./mainContracts.js";
-import type { FlightState, Wingman, Wreck } from "./mainContracts.js";
+import type { FlightState, Wingman } from "./mainContracts.js";
 import type { Gfx } from "./core/gfx.js";
 import type { CameraRig } from "./core/camera.js";
 import type { Sky } from "./render/sky.js";
@@ -42,11 +40,8 @@ export type VfxContext = {
  smoke: SmokeTrails;
  rig: CameraRig;
  audio: AudioEngine;
- showFigure: () => void;
  speeder: Speeder | null;
  wingmen: Wingman[];
- wrecks: Wreck[];
- leaveWreck: ((x: number, z: number, facing: number) => null) | null;
  /** The one shared flight state; read and written live, never copied. */
  state: FlightState;
 };
@@ -59,7 +54,6 @@ export type VfxState = {
  spells: SpellSystem;
  post: PostChain;
  startFlyover: () => void;
- applyModeExtras: () => void;
 };
 
 export function buildVfx(ctx: VfxContext): VfxState {
@@ -67,10 +61,8 @@ export function buildVfx(ctx: VfxContext): VfxState {
  const terrain = ctx.terrain, character = ctx.character, shipController = ctx.shipController;
  const figure = ctx.figure, spray = ctx.spray, smoke = ctx.smoke;
  const rig = ctx.rig, audio = ctx.audio;
- const showFigure = ctx.showFigure, speeder = ctx.speeder, wingmen = ctx.wingmen;
- const wrecks = ctx.wrecks;
+ const speeder = ctx.speeder, wingmen = ctx.wingmen;
  const state = ctx.state;
- const leaveWreck = ctx.leaveWreck;
  // ------------------------------------------------------------ collisions
  // The craft meet the machines: swept spheres against the walkers' capsule
  // sets, the wrecks and each other, with the consequences routed to their
@@ -81,53 +73,13 @@ export function buildVfx(ctx: VfxContext): VfxState {
  const collision = new CollisionPass({
   activeCharacter: () => (state.flying && shipController) ? shipController : character,
   speeder, wingmen,
-  wrecks, terrain, spray, smoke, rig, audio,
+  terrain, spray, smoke, rig, audio,
   parked: () => {
    if (state.flying || !speeder) return null;
-   if (wrecks.length && wrecks[0]?.active) return null;
    const dx = character.position.x - speeder.position.x;
    const dz = character.position.z - speeder.position.z;
    if (dx * dx + dz * dz < 3.5 * 3.5) return null;
    return speeder.position;
-  },
-  // Where the player's own crash ends up, and what happens after it.
-  // Back in the air where the fight is, and state.flying immediately.
-  //
-  // Dying mid-battle is not the same event as arriving at one: the player's
-  // own craft is staged back down the approach, not teleported into an echelon.
-  // already making way, with control.
-  onRestart: () => {
-   if (S.speeder !== true) return;
-   if (!state.storyMode) {
-    // Free flight: back in the air where the fight is.
-    const bx = character.position.x;
-    const bz = character.position.z;
-    const h = 0;
-    const sc = shipController || character;
-    sc.position.x = bx - Math.sin(h) * RESPAWN_OUT;
-    sc.position.z = bz - Math.cos(h) * RESPAWN_OUT;
-    sc.facing = h;
-    sc.velocity.set(Math.sin(h) * 24, 0, Math.cos(h) * 24);
-    character.position.copy(sc.position);
-    character.facing = sc.facing;
-    character.velocity.copy(sc.velocity);
-    input.riseLevel = 3;
-    state.flying = true;
-    speeder?.setVisible?.(true);
-    figure.setVisible(false);
-    applyModeExtras();
-    return;
-   }
-   // Story mode: strand the ship into the wreck and continue on foot.
-   leaveWreck?.(character.position.x, character.position.z, character.facing);
-   state.flying = false;
-   speeder?.setVisible?.(false);
-   character.position.y = terrain.heightAt(character.position.x, character.position.z);
-   character.groundY = character.position.y;
-   character.velocity.set(0, 0, 0);
-   character.crashing = false; character.crashLanded = false; character.crashDown = false;
-   applyModeExtras();
-   showFigure();
   },
  });
 
@@ -136,7 +88,6 @@ export function buildVfx(ctx: VfxContext): VfxState {
  // without a speeder still runs the parts it has.
 
  speeder?.setVisible(true);
- showFigure();
 
  // Walkers purged: no herd spray/footfall wiring.
 
@@ -151,12 +102,6 @@ export function buildVfx(ctx: VfxContext): VfxState {
  // The five spells, the water body they bend and the ice they leave.
  // Flying hides the whole snowboarding half of the demo: the spells are cast
  // by a figure that is not there, and the surf wake is thrown by a board.
- /** The figure's half of the demo is inert while the player is in the ship. */
- const applyModeExtras = () => {
-  S.showSpells = !state.flying;
-  S.showWake = !state.flying;
- };
- applyModeExtras();
 
  const spells = new SpellSystem(
   gfx, sky, shadows, terrain, character, figure.figure, rig, spray
@@ -195,8 +140,7 @@ export function buildVfx(ctx: VfxContext): VfxState {
   // starts late by design: an open hold for the fly-in, then the static
   // tune-in, then Luke — `leadIn` is that whole runway.
   const lead = 0.5;
-  const voice = audio.buffers.get("lukeIntro")?.duration ?? 3.5;
-  state.introHold = Math.max(5.4, lead + voice + 0.4);
+  state.introHold = Math.max(5.4, lead + 3.5 + 0.4);
   if (!wingmen.length) return;
   for (const w of wingmen) w.flyover(character.position, 0, 300);
   // The player's own entrance: their craft staged 150 m back along the
@@ -218,5 +162,5 @@ export function buildVfx(ctx: VfxContext): VfxState {
 
  const post = new PostChain(gfx, rig, depthPass, sky);
 
- return { collision, contact, wake, spells, post, startFlyover, applyModeExtras };
+ return { collision, contact, wake, spells, post, startFlyover };
 }

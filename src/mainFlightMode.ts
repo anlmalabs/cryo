@@ -11,8 +11,6 @@ export type BuildFlightModeContext = {
  character: CharacterController;
  terrain: Terrain;
  figure: Character;
- showFigure: () => void;
- applyModeExtras: () => void;
  /** The one shared flight state; the toggle writes `flying` on it. */
  state: FlightState;
 };
@@ -22,7 +20,7 @@ export type FlightModeState = {
 };
 
 export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
- const { speeder, shipController, character, terrain, figure, showFigure, applyModeExtras } = ctx;
+ const { speeder, shipController, character, terrain, figure } = ctx;
 
  const toggleMode = () => {
   if (!speeder || !shipController) return;
@@ -34,7 +32,6 @@ export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
    ctx.state.flying = false;
    speeder.setVisible(true);
    speeder.grounded = false;
-   showFigure();
    // Ground the figure at the surface instead of hover height.
    character.position.y = terrain.heightAt(character.position.x, character.position.z);
    character.groundY = character.position.y;
@@ -90,7 +87,6 @@ export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
    speeder.setVisible(true);
    figure.setVisible(false);
   }
-  applyModeExtras();
  };
 
  return { toggleMode };

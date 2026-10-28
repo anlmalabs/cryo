@@ -4,7 +4,7 @@ import { expDamp } from "./core/camera.js";
 import { emitBurnTrail } from "./physics/collisionPass.js";
 import { sample, checkSpike, stats, mark, endFrameDraws } from "./core/perf.js";
 import { DEATH_CAM_RATE, DEATH_CAM_DIST, DEATH_CAM_DIST_PILOT, DEATH_CAM_PITCH, DEATH_CAM_PITCH_PILOT, _vel, _camAt } from "./mainContracts.js";
-import type { FlightState, Wingman, Wreck } from "./mainContracts.js";
+import type { FlightState, Wingman } from "./mainContracts.js";
 import type { Gfx } from "./core/gfx.js";
 import type { CameraRig } from "./core/camera.js";
 import type { Sky } from "./render/sky.js";
@@ -41,7 +41,6 @@ export type FrameContext = {
  character: CharacterController;
  figure: Character;
  contact: SnowContact;
- wrecks: Wreck[];
  wingmen: Wingman[];
  speeder: Speeder | null;
  shipController: CharacterController | null;
@@ -67,7 +66,7 @@ export type FrameContext = {
 };
 
 export function startFrameLoop(ctx: FrameContext): void {
- const { gfx, rig, sky, shadows, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces, state } = ctx;
+ const { gfx, rig, sky, shadows, terrain, character, figure, contact, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces, state } = ctx;
  let prev = ctx.prev, time = ctx.time;
  // Loop-local clocks. These belong to the frame, not to the flight mode: they
  // count down inside the loop and nobody else reads them.
@@ -116,43 +115,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // publishes the mode the frame's update is about to run in.
   const toggleDown = isDown("KeyR");
   if (toggleDown && !prevToggleKey) {
-   const wk = wrecks[0];
-   if (!state.flying && wk && wk.active) {
-    const dx = character.position.x - wk.ctl.position.x;
-    const dz = character.position.z - wk.ctl.position.z;
-    if (dx * dx + dz * dz <= 8 * 8) {
-     // repair: bring the flyable ship back online at the wreck.
-     // `wrecks` only fills when the build has a ship, which is exactly when
-     // shipController and speeder were constructed — narrowing into
-     // locals keeps that explicit rather than relying on it.
-     const sc = shipController;
-     const sp = speeder;
-     if (sc && sp) {
-      sc.position.copy(wk.ctl.position);
-      sc.facing = wk.ctl.facing;
-      sc.velocity.set(0, 0, 0);
-      // The wreck's own pose numbers stand in for a controller here, and
-      // `ctl.surf` is not among them — the hand-off below seeds the ship's
-      // controller, so what the *walk* side is still holding is the state
-      // the exit left behind. Unreset, the stuck-open surf blend keeps the
-      // on-foot figure driving from the wreck's heading and keeps the
-      // recycled wreck input latching thrust on a hull nobody is flying.
-      character.surf = 0;
-      character.surfActive = false;
-      character.stepping = true;
-      sp.position.copy(wk.ctl.position);
-      character.position.copy(sc.position);
-      character.facing = sc.facing;
-      character.position.y = terrain.heightAt(character.position.x, character.position.z);
-      character.groundY = character.position.y;
-      wk.active = false;
-      wk.hull.setVisible(false);
-      toggleMode();
-     }
-    }
-   } else {
-    toggleMode();
-   }
+   toggleMode();
   }
   prevToggleKey = toggleDown;
 
@@ -308,41 +271,6 @@ export function startFrameLoop(ctx: FrameContext): void {
   // row of the overlay as the rest of the scene's inhabitants.
   // walkers/herds purged: no update.
   // The crash sites burn down and freeze over: smoke and fire for the
-  // first half minute, thinning as the heat dies, and then the slow
-  // frost — the hull whitening into the field over a couple of minutes.
-  for (const wk of wrecks) {
-   if (!wk.active) continue;
-   wk.age += dt;
-   if (wk.burnT > 0) {
-    wk.burnT -= dt;
-    wk.smokeT -= dt;
-    if (wk.smokeT <= 0) {
-     const p = wk.ctl.position;
-     const gy = wk.ctl.groundY;
-     const heat = Math.min(1, wk.burnT / 32);
-     wk.smokeT = 0.1 + (1 - heat) * 0.4;
-     smoke.emit(
-      p.x + (Math.random() - 0.5) * 1.4, gy + 1.1,
-      p.z + (Math.random() - 0.5) * 1.4,
-      (Math.random() - 0.5) * 0.5, 1.2 + Math.random() * 0.8,
-      (Math.random() - 0.5) * 0.5,
-      0.55, 1.6, 2.0 + Math.random(),
-      0.06, 0.06, 0.06, 0.5 * (0.4 + 0.6 * heat), true
-     );
-     if (wk.burnT > 3 && Math.random() < 0.75) {
-      smoke.emit(
-       p.x, gy + 0.7, p.z,
-       (Math.random() - 0.5) * 0.8, 0.9,
-       (Math.random() - 0.5) * 0.8,
-       0.4, 0.8, 0.3 + Math.random() * 0.15,
-       3.0, 1.0, 0.24, 0.7 * heat, false
-      );
-     }
-    }
-   }
-   wk.hull.snowOverride = Math.min(1, wk.age / 150);
-   wk.hull.update(dt);
-  }
   if (state.flying) {
    speeder?.tick(dt);
    speeder?.update(dt);
@@ -381,8 +309,6 @@ export function startFrameLoop(ctx: FrameContext): void {
     // may have zoomed it exactly where they like it.
     deathCamDist = rig.distanceTarget;
     if (deathCamPilot === null) {
-     const wk = wrecks[0];
-     if (wk?.active) deathCamPilot = { position: { x: wk.pilotX, y: 0, z: wk.pilotZ } };
     }
    }
    deathCamT += dt;
@@ -443,9 +369,6 @@ export function startFrameLoop(ctx: FrameContext): void {
   // Also picks each walker's level of detail, which needs this frame's
   // camera and this frame's field of view.
   // walkers/herds purged: no sync.
-  for (const wk of wrecks) {
-   if (wk.active) wk.hull.sync(rig.camera.position);
-  }
   speeder?.sync(rig.camera.position);
   for (const w of wingmen) w.sync(rig.camera.position);
   // The tuning rings, after every transform they pin to has settled.

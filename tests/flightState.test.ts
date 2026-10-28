@@ -6,7 +6,6 @@ describe("FlightState", () => {
   it("createFlightState(true) yields expected initial shape", () => {
     expect(createFlightState(true)).toEqual({
       flying: true,
-      storyMode: false,
       introHold: 0,
       introFly: null,
     });

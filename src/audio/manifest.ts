@@ -111,11 +111,6 @@ export const AUDIO_MANIFEST = {
  turnA: { url: "audio/slide-turn-1.mp3", bus: "sfx", gain: 0.7, minGap: 0.42 },
  turnB: { url: "audio/slide-turn-2.mp3", bus: "sfx", gain: 0.7, minGap: 0.42 },
 
- // Reserved for story mode: no play site in this build (the boot entry sound
- // was removed from main.js). The sample is still fetched and decoded so
- // story-mode code can call audio.play("lukeIntro").
- lukeIntro: { url: "audio/luke-voice-1.mp3", bus: "voice", gain: 1.0 },
-
  // Catching air off a crest at speed. Six takes, drawn from a shuffled bag so
  // the order is random but no line comes back before the other five have had a
  // turn. Each carries its own long floor as a backstop under the soundscape's
@@ -199,31 +194,6 @@ export const AUDIO_MANIFEST = {
   gain: 0.9,
   minGap: 0.5,
   needs: "speeder",
- },
-
- // Reserved for story mode: seven and a half seconds of one continuous event.
- //
- // This sample is not an impact, it is a *sequence* — the craft is hit, it
- // falls, it strikes the snow at t≈4.0 s, skips, and the final crash lands at
- // t≈5.5 s with debris settling after. That makes it the clock rather than a
- // reaction to one: the flight is timed to the recording, not the other way
- // round, so it is fired once at the killing hit and nothing else about the
- // fall makes a sound. A second crash layered on the ground contact would be
- // the sample's own crash doubled a frame out of step with itself, which is
- // the one thing that would give the whole choreography away.
- //
- // Hence the six-second floor. It is not a machine-gun guard like the carve
- // sounds' — it is longer than the part of the clip that carries the event,
- // so two wingmen dying a moment apart cannot smear their impacts across each
- // other into mush. The cost is that the second death is silent, and a silent
- // second death is better than two crashes landing on top of one another.
- // Reserved for story mode: no play site in this build. The sample is still
- // fetched and decoded so story-mode code can call audio.play("speederCrash2").
- speederCrash2: {
-  url: "audio/speeder-crash-2.mp3",
-  bus: "sfx",
-  gain: 0.95,
-  minGap: 6,
  },
 
  // A speeder striking a walker's hull — a metal-on-metal impact, a second
