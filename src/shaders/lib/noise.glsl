@@ -20,14 +20,19 @@ const float PI = 3.14159265359;
 
 vec2 noiseWrap(vec2 i) {
     if (NOISE_PERIOD > 0.0) {
-        return mod(i, NOISE_PERIOD);
+        vec2 r = mod(i, NOISE_PERIOD);
+        if (r.x < 0.0) r.x += NOISE_PERIOD;
+        if (r.y < 0.0) r.y += NOISE_PERIOD;
+        return r;
     }
     return i;
 }
 
 float noiseWrap1(float i) {
     if (NOISE_PERIOD > 0.0) {
-        return mod(i, NOISE_PERIOD);
+        float r = mod(i, NOISE_PERIOD);
+        if (r < 0.0) r += NOISE_PERIOD;
+        return r;
     }
     return i;
 }
@@ -75,10 +80,12 @@ vec2 grad2(vec2 i) {
 /// Perlin-style gradient noise. Returns vec3(value, d/dx, d/dy).
 /// Value range is roughly [-1, 1].
 vec3 noised(vec2 p) {
-    vec2 i = floor(p);
     if (NOISE_PERIOD > 0.0) {
-        i = mod(i, NOISE_PERIOD);
+        p = mod(p, NOISE_PERIOD);
+        if (p.x < 0.0) p.x += NOISE_PERIOD;
+        if (p.y < 0.0) p.y += NOISE_PERIOD;
     }
+    vec2 i = floor(p);
     vec2 f = p - i;
 
     // Quintic fade: C2 continuous, so derivatives are smooth too.

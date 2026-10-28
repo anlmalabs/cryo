@@ -95,7 +95,7 @@ vec2 terrainMacroD(vec2 p, float w, float amp) {
 /// Returns vec2(height contribution, rock mask 0..1).
 vec2 rockField(vec2 p, float w) {
     p = terrainWrap(p);
-    float cell = 165.0;
+    float cell = 128.0;
     vec2 gi = floor(p / cell);
 
     float hSum = 0.0;
@@ -154,6 +154,7 @@ vec2 rockField(vec2 p, float w) {
 /// term is a couple of percent of a normal — well under what the detail maps
 /// perturb it by anyway.
 vec2 windLocal(vec2 p) {
+    p = terrainWrap(p);
     float veer = noise2(p * 0.0083 + vec2(31.7, 12.3)) * 0.42;
     float stretch = 2.3 + 2.4 * (noise2(p * 0.0126 + vec2(7.1, 41.9)) * 0.5 + 0.5);
     return vec2(veer, stretch);
@@ -165,6 +166,7 @@ vec2 windLocal(vec2 p) {
 /// into hard sastrugi and leaves hollows smooth, so the two fine layers are
 /// cross-faded by it rather than applied uniformly.
 vec3 terrainFine(vec2 p, float w, float exposure, float amp) {
+    p = terrainWrap(p);
     float h = 0.0;
     vec2 d = vec2(0.0);
 

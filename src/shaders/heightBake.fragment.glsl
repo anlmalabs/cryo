@@ -7,8 +7,6 @@
 // Re-implementing the noise in JS would drift the moment f32 and f64 rounding
 // diverged, and the character would float or sink by centimetres.
 
-#define NOISE_PERIOD 2048.0
-
 precision highp float;
 precision highp int;
 
@@ -26,10 +24,7 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec2 p = worldOrigin + vUV * worldSize;
-    p = mod(p, worldSize);
-    if (p.x < 0.0) p.x += worldSize;
-    if (p.y < 0.0) p.y += worldSize;
-    p = p - worldSize * 0.5;
+    p = mod(p, worldSize) - worldSize * 0.5;
 
     float h = terrainMacro(p, windAngle, heightAmp);
 
