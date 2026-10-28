@@ -112,10 +112,16 @@ void main() {
     float pulse = 0.5 + 0.5 * sin(time * 3.0);
     float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.05, 4.0);
     float expand = 0.6 + 0.4 * pulse;
+    // Intense white center (pinprick star).
     float exponent = 10000.0 / sqrt(sunNorm);
     float brightness = 20.0 * expand * sunNorm;
     float core = pow(max(mu, 0.0), exponent) * brightness;
-    col += vec3(0.62, 0.62, 1.0) * core;
+    col += vec3(1.0, 0.95, 1.0) * core;
+    // Deep-violet bloom/glint ring that expands with the pulse.
+    float ringExp = (400.0 / sqrt(sunNorm)) / mix(1.0, 1.6, pulse);
+    float ringBright = 6.0 * expand * sunNorm;
+    float ring = pow(max(mu, 0.0), ringExp) * ringBright;
+    col += vec3(0.55, 0.20, 0.90) * ring;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
     float n = fbmd(q + vec2(time * 0.005, 0.0), 4, 2.0, 0.5).x;
@@ -149,11 +155,11 @@ void main() {
         // vertical falloff: bright base, faded top
         float vert = smoothstep(0.0, 0.18, dir.y) * (1.0 - smoothstep(0.45, 0.85, dir.y));
         float intensity = auroraStrength * heightMask * band * (0.55 + 0.45 * stri) * vert;
-        // colour: ionized molecular nitrogen (N2+) — deep blue base,
-        // violet upper edge (391.4/427.8 nm). Accurate for a thick N2
-        // atmosphere under a pulsar's high-energy particle wind.
+        // colour: ionized molecular nitrogen (N2+) — deep blue base
+        // (#002244/#001133), violet mid, raspberry-pink upper altitudes.
         float edge = smoothstep(0.4, 0.8, dir.y);
-        vec3 auroraCol = mix(vec3(0.05, 0.22, 0.85), vec3(0.55, 0.20, 0.88), edge);
+        vec3 auroraCol = mix(vec3(0.0, 0.133, 0.267), vec3(0.92, 0.30, 0.62), edge);
+        auroraCol = mix(auroraCol, vec3(0.35, 0.15, 0.78), smoothstep(0.2, 0.6, edge) * (1.0 - smoothstep(0.6, 0.9, edge)));
         col += auroraCol * intensity * 1.6;
     }
 

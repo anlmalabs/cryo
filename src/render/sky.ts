@@ -394,8 +394,13 @@ export class Sky {
   u.windDir.value.set(Math.sin(a), Math.cos(a));
   u.cloudAmount.value = CLOUD_AMOUNT;
 
-  this.sunRadiance.setRGB(0.25 * this.sunScale, 0.28 * this.sunScale, 0.32 * this.sunScale);
-  this.sunRadiance.multiplyScalar(sunPulse);
+  // At the pulse peak the direct light shifts through ionized nitrogen into
+  // a soft lavender/lilac tint; off-peak it stays the white-blue star colour.
+  const lav = 0.5 + 0.5 * pulse; // 0..1
+  const r = 0.25 + 0.18 * lav;
+  const g = 0.28 + 0.10 * lav;
+  const b = 0.32 + 0.22 * lav;
+  this.sunRadiance.setRGB(r * this.sunScale * sunPulse, g * this.sunScale * sunPulse, b * this.sunScale * sunPulse);
   u.sunRadiance.value = this.sunRadiance;
   u.shR.value = this.sh;
   u.ambientIntensity.value = S.ambientIntensity;
