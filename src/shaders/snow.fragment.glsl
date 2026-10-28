@@ -460,8 +460,8 @@ void main() {
     // Soft ambilight bleed: at the pulsar's peak the lavender/magenta sky
     // colour seeps into flat and sloped snow surfaces (gated by direct
     // light so deep crevices stay dark indigo-blue).
-    float bleed = shadow * (1.0 - rockExposed) * 0.09;
-    color += albedo * sunRadiance * bleed * 0.125;
+    float bleed = shadow * (1.0 - rockExposed) * 0.045;
+    color += albedo * sunRadiance * bleed * 0.0625;
 
     // --- spell light -------------------------------------------------------
     // Same wrapped diffuse and the same transmission lobe the sun drives, so a
