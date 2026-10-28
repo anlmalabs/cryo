@@ -246,24 +246,24 @@ export class Heightfield {
   this.maxHeight = hi;
  }
 
-  /**
-   * Bicubic B-spline height lookup, matching the vertex shader's
-   * reconstruction so the ground the character stands on is the ground that
-   * is drawn.
-   * @param {number} x @param {number} z
-   */
+ /**
+  * Bicubic B-spline height lookup, matching the vertex shader's
+  * reconstruction so the ground the character stands on is the ground that
+  * is drawn.
+  * @param {number} x @param {number} z
+  */
  heightAt(x: number, z: number) {
   const h = this.heightCPU;
   if (!h) return 0;
   const res = this.cpuRes;
 
-    // Shift from texel *corner* to texel *centre*: the bicubic weights are
-    // defined around the sample point, and the GPU bake samples texel centres.
-    const worldSize = this.size;
-    const localX = ((x - this.origin.x) % worldSize + worldSize) % worldSize;
-    const localZ = ((z - this.origin.y) % worldSize + worldSize) % worldSize;
-    const fx = (localX / worldSize) * res - HALF_TEXEL;
-    const fz = (localZ / worldSize) * res - HALF_TEXEL;
+  // Shift from texel *corner* to texel *centre*: the bicubic weights are
+  // defined around the sample point, and the GPU bake samples texel centres.
+  const worldSize = this.size;
+  const localX = ((x - this.origin.x) % worldSize + worldSize) % worldSize;
+  const localZ = ((z - this.origin.y) % worldSize + worldSize) % worldSize;
+  const fx = (localX / worldSize) * res - HALF_TEXEL;
+  const fz = (localZ / worldSize) * res - HALF_TEXEL;
 
   const ix = Math.floor(fx);
   const iz = Math.floor(fz);
@@ -278,11 +278,11 @@ export class Heightfield {
 
   let sum = 0;
   for (let j = 0; j < BSPLINE_TAPS; j++) {
-   const zz = clampi(iz - 1 + j, 0, res - 1);
+   const zz = ((iz - 1 + j) % res + res) % res;
    const row = zz * res;
    let rowSum = 0;
    for (let i = 0; i < BSPLINE_TAPS; i++) {
-    const xx = clampi(ix - 1 + i, 0, res - 1);
+    const xx = ((ix - 1 + i) % res + res) % res;
     rowSum += h[row + xx] * wx[i];
    }
    sum += rowSum * wz[j];
@@ -290,29 +290,29 @@ export class Heightfield {
   return sum;
  }
 
-  /**
-   * Surface normal from the same reconstruction, by central difference.
-   * @param {number} x @param {number} z @param {THREE.Vector3} out
-   */
-  normalAt(x: number, z: number, out: THREE.Vector3) {
-    const e = this.cpuTexel || 1;
-    const hx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
-    const hz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
-    out.set(-hx / (2 * e), 1, -hz / (2 * e));
-    out.normalize();
-    return out;
-  }
+ /**
+  * Surface normal from the same reconstruction, by central difference.
+  * @param {number} x @param {number} z @param {THREE.Vector3} out
+  */
+ normalAt(x: number, z: number, out: THREE.Vector3) {
+  const e = this.cpuTexel || 1;
+  const hx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
+  const hz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
+  out.set(-hx / (2 * e), 1, -hz / (2 * e));
+  out.normalize();
+  return out;
+ }
 
-  /** Clamp a world position to the playable area, in place. */
-  clampToPlayArea(v: THREE.Vector3) {
-    const r = PLAY_RADIUS;
-    const d = Math.hypot(v.x, v.z);
-    if (d > r) {
-     const k = r / d;
-     v.x *= k;
-     v.z *= k;
-    }
+ /** Clamp a world position to the playable area, in place. */
+ clampToPlayArea(v: THREE.Vector3) {
+  const r = PLAY_RADIUS;
+  const d = Math.hypot(v.x, v.z);
+  if (d > r) {
+   const k = r / d;
+   v.x *= k;
+   v.z *= k;
   }
+ }
 
  dispose() {
   this._heightRT.dispose();
