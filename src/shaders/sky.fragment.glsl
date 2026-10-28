@@ -115,7 +115,7 @@ void main() {
     float exponent = 10000.0 / sqrt(sunNorm);
     float brightness = 20.0 * expand * sunNorm;
     float core = pow(max(mu, 0.0), exponent) * brightness;
-    col += vec3(0.55, 0.72, 1.0) * core;
+    col += vec3(0.62, 0.62, 1.0) * core;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
     float n = fbmd(q + vec2(time * 0.005, 0.0), 4, 2.0, 0.5).x;
