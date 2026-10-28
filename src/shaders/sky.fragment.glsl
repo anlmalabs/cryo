@@ -101,10 +101,20 @@ void main() {
         col += vec3(0.85, 0.9, 1.0) * star * bright;
     }
 
-    // Pulsar core along key-light direction (HDR 8-16), pulsing.
+    // Pulsar core along key-light direction (HDR 8-16). Its expansion and
+    // shrinking pulse in step with the actual sunlight intensity: the star
+    // swells and brightens when the sun is bright, and contracts and dims
+    // when it is not. `sunIntensity` here is the sunScale (slider *
+    // SUN_SCALE_BASE), so normalize against its shipped default
+    // 4.2 * 5.5 = 23.1 to get a unitless factor.
+    const float PULSAR_SUN_REF = 23.1;
     float mu = dot(dir, sunDir);
     float pulse = 0.5 + 0.5 * sin(time * 3.0);
-    float core = pow(max(mu, 0.0), 1600.0) * 12.0 * (0.6 + 0.4 * pulse);
+    float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.05, 4.0);
+    float expand = 0.6 + 0.4 * pulse;
+    float exponent = 1600.0 / sqrt(sunNorm);
+    float brightness = 12.0 * expand * sunNorm;
+    float core = pow(max(mu, 0.0), exponent) * brightness;
     col += vec3(0.55, 0.72, 1.0) * core;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
