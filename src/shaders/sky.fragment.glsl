@@ -149,30 +149,26 @@ void main() {
         float phi = atan(dir.z, dir.x);
         float heightMask = smoothstep(0.02, 0.20, dir.y) * (1.0 - smoothstep(0.80, 0.98, dir.y));
         // Domain warping for fluid, organic cloud drift.
-        float w1 = noise3(vec3(phi * 0.8, dir.y * 0.5, time * 0.012)) * 0.5 + 0.5;
-        float w2 = noise3(vec3(phi * 0.8 + 4.7, dir.y * 0.5 + 3.1, time * 0.017)) * 0.5 + 0.5;
-        float wx = phi + (w1 - 0.5) * 1.6;
-        float wy = dir.y + (w2 - 0.5) * 0.5;
-        // Low-frequency flow layers at two speeds.
-        float n1 = noise3(vec3(wx * 1.1, wy * 0.7, time * 0.018));
-        float n2 = noise3(vec3(wx * 0.6 + 9.2, wy * 1.3 + 1.7, time * 0.027));
-        float n3 = noise3(vec3(wx * 1.5 + 2.3, wy * 0.9 + 7.4, time * 0.011));
+        float w1 = noise3(vec3(phi * 0.8, dir.y * 0.5, time * 0.06)) * 0.5 + 0.5;
+        float w2 = noise3(vec3(phi * 0.8 + 4.7, dir.y * 0.5 + 3.1, time * 0.08)) * 0.5 + 0.5;
+        float wx = phi + (w1 - 0.5) * 2.5;
+        float wy = dir.y + (w2 - 0.5) * 0.9;
+        float n1 = noise3(vec3(wx * 1.1, wy * 0.7, time * 0.09));
+        float n2 = noise3(vec3(wx * 0.6 + 9.2, wy * 1.3 + 1.7, time * 0.13));
+        float n3 = noise3(vec3(wx * 1.5 + 2.3, wy * 0.9 + 7.4, time * 0.06));
         float flow = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * 0.5 + 0.5;
-        flow = smoothstep(0.22, 0.78, flow);
-        // Gentle vertical falloff.
+        flow = smoothstep(0.18, 0.82, flow);
         float vert = smoothstep(0.0, 0.15, dir.y) * (1.0 - smoothstep(0.70, 0.95, dir.y));
         float intensity = auroraStrength * heightMask * flow * vert;
-        // Slowly shifting color phase across the whole sky.
-        float phase = 0.5 + 0.5 * sin(time * 0.07 + phi * 0.4);
+        float phase = 0.5 + 0.5 * sin(time * 0.35 + phi * 0.6);
         vec3 c0 = vec3(0.35, 0.05, 0.55);   // deep violet
         vec3 c1 = vec3(0.85, 0.18, 0.78);   // vibrant magenta
         vec3 c2 = vec3(1.0, 0.35, 0.72);    // neon pink
-        float t = clamp(dir.y * 1.4 + flow * 0.4 + phase * 0.2, 0.0, 1.0);
+        float t = clamp(dir.y * 1.4 + flow * 0.4 + phase * 0.3, 0.0, 1.0);
         vec3 auroraCol = mix(c0, c1, smoothstep(0.0, 0.5, t));
         auroraCol = mix(auroraCol, c2, smoothstep(0.5, 1.0, t));
-        // Subtle breathing brightness.
-        float breath = 0.85 + 0.15 * (0.5 + 0.5 * sin(time * 0.13));
-        col += auroraCol * intensity * 1.4 * breath;
+        float breath = 0.8 + 0.2 * (0.5 + 0.5 * sin(time * 0.6));
+        col += auroraCol * intensity * 1.6 * breath;
     }
 
     fragColor = vec4(col, 1.0);
