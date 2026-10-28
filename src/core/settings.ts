@@ -23,10 +23,10 @@ export const S = {
  // carries real energy — below ~10 degrees the air mass eats so much of it
  // that the scene goes flat and sky-lit.
  sunElevation: 13.0,
- sunIntensity: 0.18,
- sunTempWarm: 0.2,
- auroraStrength: 1.5,
- ambientIntensity: 0.4,
+ sunIntensity: 4.2,
+ sunTempWarm: 0.0, // 0 = neutral white, 1 = full warm low-sun tint
+ auroraStrength: 1.0,
+ ambientIntensity: 1.0,
  ambientBlue: 1.0, // strength of the cool shadow shift
 
  // ------------------------------------------------------------- atmosphere

@@ -30,7 +30,7 @@ const SH_H = 32;
  * exposure handles overall brightness — but it must be *one* number, applied to
  * both, or the sun/sky ratio stops meaning anything.
  */
-const SUN_SCALE_BASE = 0.18;
+const SUN_SCALE_BASE = 5.5;
 
 /** SH coefficients in the projection loop — nine for bands 0..2. */
 const SH_COEFFS = 9;
@@ -49,17 +49,8 @@ const SKYBOX_HALF_FAR = 0.5;
 
 /** Radians per degree — every slider is in degrees, the maths is not. */
 const DEG2RAD = Math.PI / 180;
-
-/** Air-mass ceiling, for a sun at or below the horizon. */
-const MAX_AIR_MASS = 40;
-
 /** Irradiance divisor: L = albedo * E / PI for Lambertian re-emission. */
 const LAMBERT_PI = Math.PI;
-
-/** Minimum optical depth in the air-mass fit, so it never blows up. */
-const MIN_OPTICAL_DEPTH = 1e-3;
-
-// ------------------------------------------------------- module-scope scratch
 const _dir = new THREE.Vector3();
 const _shBasis = new Float32Array(9);
 const _irrTmp = new Float32Array(3);
@@ -216,36 +207,10 @@ export class Sky {
 
   this.sunScale = /** @type {number} */ (S.sunIntensity) * SUN_SCALE_BASE;
 
-  // Direct sunlight reddens as it grazes: the lower the sun, the longer
-  // the path through the atmosphere and the more of the blue end is
-  // scattered out of the beam. At 13 degrees the beam has already lost
-  // most of its blue, which is what makes the warm-light / cool-shadow
-  // split physical rather than an art choice.
-  const zenithDeg = (Math.acos(Math.min(1, Math.max(-1, this.sunDir.y))) * 180) / Math.PI;
-
-  // Kasten-Young air mass — stays finite at the horizon, unlike 1/cos.
-  //
-  // The 0.50572 and -1.6364 below are the Kasten & Young (1989) apparent
-  // zenith-angle air-mass fit constants, standardized and published; they
-  // stay inline with this citation rather than becoming tunables.
-  const denom =
-   Math.cos(zenithDeg * DEG2RAD) +
-   0.50572 * Math.pow(Math.max(MIN_OPTICAL_DEPTH, 96.07995 - zenithDeg), -1.6364);
-  const airMass = Math.min(denom > 0 ? 1 / denom : MAX_AIR_MASS, MAX_AIR_MASS);
-
-  // Vertical optical depth: scattering coefficient x scale height.
-  const warm = /** @type {number} */ (S.sunTempWarm);
-  const tauR = [0.0464, 0.108, 0.265];
-  const tauM = 0.0252;
-  const r = Math.exp(-(tauR[0] * warm + tauM) * airMass);
-  const g = Math.exp(-(tauR[1] * warm + tauM) * airMass);
-  const b = Math.exp(-(tauR[2] * warm + tauM) * airMass);
-
-  this.sunRadiance.setRGB(r * this.sunScale, g * this.sunScale, b * this.sunScale);
-
-  const m = Math.max(r, Math.max(g, b)) || 1;
-  this.sunColor.setRGB(r / m, g / m, b / m);
-
+  // Neutron-star key light: blackbody at millions of K is blinding blue-white.
+  // sunScale carries the radiance; these RGB ratios are the NS spectrum.
+  this.sunRadiance.setRGB(0.25 * this.sunScale, 0.28 * this.sunScale, 0.32 * this.sunScale);
+  this.sunColor.setRGB(0.69, 0.80, 1.0);
  }
 
  /**

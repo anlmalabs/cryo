@@ -92,15 +92,19 @@ void main() {
     vec3 sp = dir * 180.0;
     vec3 cell = floor(sp);
     vec3 f = fract(sp);
+    float h = hash33(cell).x;
     if (h > 0.988) {
         vec3 o = hash33(cell + vec3(17.0, 31.0, 53.0));
         float d = length(f - (o * 0.8 + 0.1));
         float star = smoothstep(0.06, 0.0, d);
-        float bright = (h - 0.988) * 8.0;
-    float mu = dot(dir, sunDir);
-    float core = pow(max(mu, 0.0), 1600.0) * 0.3;
-    col += vec3(0.918, 0.949, 1.0) * core;
+        float bright = (h - 0.988) * 80.0;
+        col += vec3(0.85, 0.9, 1.0) * star * bright;
+    }
 
+    // Pulsar core along key-light direction (HDR 8-16).
+    float mu = dot(dir, sunDir);
+    float core = pow(max(mu, 0.0), 1600.0) * 12.0;
+    col += vec3(0.55, 0.72, 1.0) * core;
     // Twin rotating jets (lighthouse).
     vec3 upv = (abs(sunDir.y) < 0.9) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
     vec3 e1 = normalize(cross(sunDir, upv));
