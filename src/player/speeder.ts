@@ -1088,10 +1088,10 @@ export class Speeder {
   // in a 2x2 square on the underside of the hull (hull ~4.5 m wide x 5.3 m
   // long): two Jet instances (two nozzles each), one forward pair and one
   // aft pair, each pair spread laterally.
-  const bottomBackZ = [-2.0, 0.4];
+  const bottomBackZ = [-1.6, 0.2];
   for (let i = 0; i < this.bottomJets.length; i++) {
    const n = _nozzleBottoms[i];
-   n.spanX = 0.4 * S.jetSpan;
+   n.spanX = 0.25 * S.jetSpan;
    n.dropY = -0.5 + S.jetDropY;
    n.backZ = bottomBackZ[i] + S.jetBackZ;
    this.bottomJets[i].update(
