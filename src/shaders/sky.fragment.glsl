@@ -105,15 +105,6 @@ void main() {
     float mu = dot(dir, sunDir);
     float core = pow(max(mu, 0.0), 1600.0) * 12.0;
     col += vec3(0.55, 0.72, 1.0) * core;
-    // Twin rotating jets (lighthouse).
-    vec3 upv = (abs(sunDir.y) < 0.9) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    vec3 e1 = normalize(cross(sunDir, upv));
-    vec3 e2 = cross(sunDir, e1);
-    float ang = time * 0.9;
-    vec3 jetAxis = cos(ang) * e1 + sin(ang) * e2;
-    float j1 = pow(max(dot(dir, jetAxis), 0.0), 48.0);
-    float j2 = pow(max(dot(dir, -jetAxis), 0.0), 48.0);
-    col += vec3(0.373, 0.831, 1.0) * (j1 + j2) * 3.5;
 
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
