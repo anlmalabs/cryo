@@ -32,6 +32,7 @@ export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
    ctx.state.flying = false;
    speeder.setVisible(false);
    speeder.grounded = false;
+   figure.setVisible(S.showCharacter !== false);
    // Ground the figure at the surface instead of hover height.
    character.position.y = terrain.heightAt(character.position.x, character.position.z);
    character.groundY = character.position.y;

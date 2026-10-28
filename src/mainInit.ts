@@ -237,7 +237,7 @@ export async function boot() {
  let time = 0;
 
  state.flying = true;
- if (bootAssets.speeder) bootAssets.speeder.setVisible(true);
+ if (bootAssets.speeder) { bootAssets.speeder.setVisible(true); bootAssets.speeder.grounded = false; }
  bootAssets.figure.setVisible(false);
 
  startFrameLoop({

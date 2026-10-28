@@ -71,6 +71,11 @@ export async function buildBootAssets(ctx: BuildBootAssetsContext): Promise<Boot
  if (shipController) {
   shipController.position.copy(character.position);
   shipController.facing = character.facing;
+  shipController._climb = S.speeder !== false ? Math.max(0, S.speederClimbMax || 0) : 0;
+  shipController._climbWant = shipController._climb;
+  shipController._vertEase = 0;
+  shipController._cruiseGround = NaN;
+  shipController.position.y += shipController._climb;
  }
 
  const figure = new Character(gfx, terrain, sky, shadows, character);
