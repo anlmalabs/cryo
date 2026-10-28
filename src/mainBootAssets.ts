@@ -12,7 +12,7 @@ import { DepthPass } from "./render/depthPass.js";
 import { Speeder } from "./player/speeder.js";
 import type { Gfx } from "./core/gfx.js";
 import type { ModelAsset } from "./walkers/modelAsset.js";
-import type { Wingman, FlightState } from "./mainContracts.js";
+import type { FlightState } from "./mainContracts.js";
 import * as loading from "./core/loading.js";
 
 export type BuildBootAssetsContext = {
@@ -36,7 +36,6 @@ export type BootAssets = {
  muzzleMarkers: MuzzleMarkers;
  smoke: SmokeTrails;
  speeder: Speeder | null;
- wingmen: Wingman[];
 };
 
 export async function buildBootAssets(ctx: BuildBootAssetsContext): Promise<BootAssets> {
@@ -95,10 +94,8 @@ export async function buildBootAssets(ctx: BuildBootAssetsContext): Promise<Boot
  }
  speeder?.registerPrepass(depthPass);
 
- const wingmen: Wingman[] = [];
-
  return {
   rig, sky, shadows, depthPass, terrain, character, shipController,
-  figure, spray, muzzleMarkers, smoke, speeder, wingmen,
+  figure, spray, muzzleMarkers, smoke, speeder,
  };
 }

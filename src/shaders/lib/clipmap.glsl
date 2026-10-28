@@ -90,9 +90,9 @@ ClipmapVertex placeClipmapVertex(
     float extent = gridHalfN * spacing;
     float cheb = max(abs(local.x), abs(local.y)) / extent;
 
-    // Completes at 0.86, comfortably before the overlap band where this ring
+    // Completes at 0.78, comfortably before the overlap band where this ring
     // and the next coarser one both draw.
-    float morph = clamp((cheb - 0.70) / 0.16, 0.0, 1.0);
+    float morph = clamp((cheb - 0.62) / 0.16, 0.0, 1.0);
 
     // The coarse lattice is every second vertex of this one.
     vec2 coarseGrid = floor(grid * 0.5) * 2.0;

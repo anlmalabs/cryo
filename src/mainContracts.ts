@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { SmokeTrails } from "./vfx/smokeTrails.js";
 import type { Speeder } from "./player/speeder.js";
 
 
@@ -22,29 +21,7 @@ export function createFlightState(flying: boolean): FlightState {
  return { flying };
 }
 
-/** An escort. Its module was removed; the shape is expressed by its uses. */
-export type Wingman = {
- effects: {
-  smoke: SmokeTrails,
-  enemy: EnemyFire[],
-  raid: { turn: number, size: number },
-  onKillHit: (x: number, y: number, z: number) => void,
-  onBounce: (x: number, y: number, z: number, facing: number) => void,
-  onCrash: (x: number, y: number, z: number, facing: number) => void,
- },
- pilot: { bounced: boolean, _fx: unknown, position: THREE.Vector3, facing: number, velocity: THREE.Vector3, applyImpact(vx: number, vz: number, spin: number, scrambleSec: number): void },
- bounced: boolean,
- _bounceT: number,
- flyover: (target: THREE.Vector3, y: number, distance: number) => void,
- warmUp: () => unknown,
- tick: (dt: number) => void,
- update: (dt: number) => void,
- sync: (cameraPos: THREE.Vector3) => void,
- triangles: number,
-};
 
-/** The infantry's reaction pipe, read (never written) through the effects bag. */
-export type EnemyFire = unknown;
 
 /**
  * The controller stand-in a wreck's hull is hung off.
@@ -85,7 +62,6 @@ export type Wreck = {
 /**
  * The fake burst `SNOWFLOW.squadImpact` publishes, and the pass is handed.
  *
- * Deleted with the trooper herd: nothing calls it now. The binding stays so
  * both publish sites keep resolving, and it is `undefined` rather than absent
  * so a compile-time error is raised the moment it is actually called instead
  * of the call silently vanishing — an inert purge remnant. `| undefined` also

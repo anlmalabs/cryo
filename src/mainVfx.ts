@@ -5,7 +5,7 @@ import { SurfWake } from "./vfx/surfWake.js";
 import { SpellSystem } from "./spells/spellSystem.js";
 import { PostChain } from "./post/postChain.js";
 // opening shot purged
-import type { FlightState, Wingman } from "./mainContracts.js";
+import type { FlightState } from "./mainContracts.js";
 import type { Gfx } from "./core/gfx.js";
 import type { CameraRig } from "./core/camera.js";
 import type { Sky } from "./render/sky.js";
@@ -41,7 +41,6 @@ export type VfxContext = {
  rig: CameraRig;
  audio: AudioEngine;
  speeder: Speeder | null;
- wingmen: Wingman[];
  /** The one shared flight state; read and written live, never copied. */
  state: FlightState;
 };
@@ -60,7 +59,7 @@ export function buildVfx(ctx: VfxContext): VfxState {
  const terrain = ctx.terrain, character = ctx.character, shipController = ctx.shipController;
  const figure = ctx.figure, spray = ctx.spray, smoke = ctx.smoke;
  const rig = ctx.rig, audio = ctx.audio;
- const speeder = ctx.speeder, wingmen = ctx.wingmen;
+ const speeder = ctx.speeder;
  const state = ctx.state;
  // ------------------------------------------------------------ collisions
  // The craft meet the machines: swept spheres against the walkers' capsule
@@ -68,10 +67,9 @@ export function buildVfx(ctx: VfxContext): VfxState {
  // owners — deflection and scramble to the craft, a stumble to the walker,
  // snow, smoke, fire and the report to the field. Gated live by
  // S.collisions; every collaborator is optional, so a boot without a
- // speeder or without wingmen runs the parts it has.
  const collision = new CollisionPass({
   activeCharacter: () => (state.flying && shipController) ? shipController : character,
-  speeder, wingmen,
+  speeder,
   terrain, spray, smoke, rig, audio,
   parked: () => {
    if (state.flying || !speeder) return null;
@@ -88,7 +86,6 @@ export function buildVfx(ctx: VfxContext): VfxState {
 
  speeder?.setVisible(true);
 
- // Walkers purged: no herd spray/footfall wiring.
 
  // Feet and the surf groove write into the terrain state buffer through here.
  const contact = new SnowContact(character, terrain.deform, figure.figure, spray);
@@ -110,7 +107,6 @@ export function buildVfx(ctx: VfxContext): VfxState {
   terrain.material, figure.bodyMat, figure.clothMat,
   wake.material, spray.material
  );
- // Walkers purged: no herd materials.
  spells.registerPrepass(depthPass);
 
  // The rig needs ground heights to keep the spring arm above the snow.

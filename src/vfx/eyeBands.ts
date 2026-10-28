@@ -7,7 +7,6 @@
  * dark behind a dune or when the head faces away, unlike the tuning rings
  * it borrows its data-texture lattice from.
  *
- * The herd hands in two world points per machine — the band's ends, already
  * through the head rotation and the world transform — and everything else
  * (billboarding, the glow) happens on the GPU. Allocation per frame: none.
  */

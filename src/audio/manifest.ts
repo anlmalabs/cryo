@@ -146,9 +146,7 @@ export const AUDIO_MANIFEST = {
  // away as fake.
  //
  // The floor is very short, and it has to be, because `minGap` is keyed on the
- // *sample* and not on the machine: a herd of six shares one counter, so any
  // floor is also a rule about how close together two different walkers may
- // fire. At 0.05 a sixth of the herd's shots were being dropped outright at
  // the top of the count slider — and dropped blind to distance, so a far
  // machine's crack could eat the near one that followed it 40 ms later, which
  // is the loudest sound in the demo going missing. The paired barrels are
@@ -184,9 +182,7 @@ export const AUDIO_MANIFEST = {
  // A craft hitting something — the collision pass's own hits and crashes,
  // player included, and any speeder going into the snow. Fired at the level
  // and delay its distance earns, same physics as the cannon. Gated on the
- // speeder rather than the wingmen now that the player's craft can crash.
  //
- // No longer the AI wingman's death, though — that is `speederCrash2` below,
  // whose recording contains the whole fall rather than one impact.
  speederCrash: {
   url: "audio/speeder-explosion.mp3",

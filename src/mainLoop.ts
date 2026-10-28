@@ -4,7 +4,7 @@ import { expDamp } from "./core/camera.js";
 import { emitBurnTrail } from "./physics/collisionPass.js";
 import { sample, checkSpike, stats, mark, endFrameDraws } from "./core/perf.js";
 import { DEATH_CAM_RATE, DEATH_CAM_DIST, DEATH_CAM_DIST_PILOT, DEATH_CAM_PITCH, DEATH_CAM_PITCH_PILOT, _vel, _camAt } from "./mainContracts.js";
-import type { FlightState, Wingman } from "./mainContracts.js";
+import type { FlightState } from "./mainContracts.js";
 import type { Gfx } from "./core/gfx.js";
 import type { CameraRig } from "./core/camera.js";
 import type { Sky } from "./render/sky.js";
@@ -41,7 +41,6 @@ export type FrameContext = {
  character: CharacterController;
  figure: Character;
  contact: SnowContact;
- wingmen: Wingman[];
  speeder: Speeder | null;
  shipController: CharacterController | null;
  collision: CollisionPass;
@@ -56,7 +55,6 @@ export type FrameContext = {
  post: PostChain;
  toggleMode: () => void;
  renderFrame: () => void;
- pumpBounces: () => void;
  /** The one shared flight state, read live every frame. */
  state: FlightState;
  /** The wall clock the first frame measures its delta from. */
@@ -66,7 +64,7 @@ export type FrameContext = {
 };
 
 export function startFrameLoop(ctx: FrameContext): void {
- const { gfx, rig, sky, shadows, terrain, character, figure, contact, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces, state } = ctx;
+ const { gfx, rig, sky, shadows, terrain, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, state } = ctx;
  let prev = ctx.prev, time = ctx.time;
  // Loop-local clocks. These belong to the frame, not to the flight mode: they
  // count down inside the loop and nobody else reads them.
@@ -188,23 +186,17 @@ export function startFrameLoop(ctx: FrameContext): void {
   // The walkers only read the player's position, so they can sit anywhere
   // after the controller has moved. Here, so their cost lands in the same
   // row of the overlay as the rest of the scene's inhabitants.
-  // walkers/herds purged: no update.
   // The crash sites burn down and freeze over: smoke and fire for the
   if (state.flying) {
    speeder?.tick(dt);
    speeder?.update(dt);
   }
-  for (const w of wingmen) {
-   w.tick(dt);
-   w.update(dt);
-  }
+
   // The skip, if one of the falling craft touched the snow this frame
   // and said so with a latch rather than a call. Cheap — a flag test
-  // per wingman — and it has to run after the pilots have moved, so
   // the contact point it reads is this frame's, not last frame's.
-  pumpBounces();
+
   // After every craft has moved, before the rig frames the result: the
-  // Collision pass works on whichever controller is actually driving this frame.
   collision.character = (state.flying && shipController) ? shipController : character;
   // contacts this frame's motion earned, resolved and reacted to.
   collision.update(dt);
@@ -287,13 +279,11 @@ export function startFrameLoop(ctx: FrameContext): void {
   figure.sync(rig.camera.position);
   // Also picks each walker's level of detail, which needs this frame's
   // camera and this frame's field of view.
-  // walkers/herds purged: no sync.
   speeder?.sync(rig.camera.position);
-  for (const w of wingmen) w.sync(rig.camera.position);
+
   // The tuning rings, after every transform they pin to has settled.
   muzzleMarkers.begin();
   if (S.showMuzzles) {
-   // walkers/herds purged: no muzzle collection.
    speeder?.collectMuzzles?.(muzzleMarkers);
   }
   muzzleMarkers.commit(rig.camera.position);
@@ -301,7 +291,6 @@ export function startFrameLoop(ctx: FrameContext): void {
   // grains it sheds have to be in the pool before the pool is uploaded.
   wake.update(dt, rig.camera.position);
   spray.update(dt, rig.camera.position);
-  // The overlay's burn preview: the wingmen's damage trail, lit on the
   // player craft so the burn sliders can be dialled against a hull the
   // player can actually orbit.
   if (S.burnPreview && speeder && state.flying) {
@@ -340,8 +329,7 @@ export function startFrameLoop(ctx: FrameContext): void {
    (terrain.mesh && terrain.mesh.metadata ? terrain.mesh.metadata.triangles : 0) +
    (S.showCharacter && !state.flying ? figure.triangles : 0) +
    (speeder ? speeder.triangles : 0) +
-   wingmen.reduce((t, w) => t + w.triangles, 0) +
-   // walkers/herds purged: no triangle counts.
+
    (wake.mesh && wake.mesh.visible ? wake.mesh.metadata.triangles : 0) +
    spells.triangles +
    spray.liveCount * 2;

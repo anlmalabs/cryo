@@ -102,7 +102,7 @@ export function makeCapsulePool(n: number): Capsule[] {
    bx: 0, by: 0, bz: 0,   // segment top / nose
    r: 1,                  // radius, metres
    kind: "",              // "" = unoccupied slot; the pass writes the real kind
-   walker: null,          // null = not attached to a herd member or wreck slot
+   walker: null,
    live: false,           // dead entries are skipped by every query
   };
  }

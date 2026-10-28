@@ -20,13 +20,12 @@ import { audio } from "./audio/engine.js";
 import { loadModelAsset } from "./walkers/modelAsset.js";
 
 import { buildBootAssets } from "./mainBootAssets.js";
-import { buildSquad } from "./mainSquad.js";
 import { buildUi } from "./mainUi.js";
 import { buildFlightMode } from "./mainFlightMode.js";
+
 import { createFlightState, squadImpact, CLEAR_COLOR } from "./mainContracts.js";
 
 // --------------------------------------------------------- recovered contracts
-// The flight state `main.ts` carries for the code the walker/escort purge left
 // behind. Both arrays are always empty at runtime — nothing populates them any
 // more — but the collision pass and the presentation loop are still written
 // against *lists* of craft, and their loops stay.
@@ -77,7 +76,6 @@ export async function boot() {
  // `public/video/` used to be tried first and win, which meant a freshly
  // uploaded clip silently lost to a stale file nobody remembered shipping.
  // Only the speeder (player) needs a baked asset now — the walker
- // herd, AT-ST escort and trooper infantry were purged.
  // Only when it is actually going to fly. Off — which is the default — the
  // speeder costs nothing at all: no fetch, no decode, no pipeline.
  // Build-time gate: whether this build includes the ship asset. NOT runtime mode.
@@ -129,12 +127,8 @@ export async function boot() {
  const muzzleMarkers = bootAssets.muzzleMarkers;
  const smoke = bootAssets.smoke;
  const speeder = bootAssets.speeder;
- const wingmen = bootAssets.wingmen;
 
- const squad = buildSquad({ wingmen, character, terrain, spray, smoke });
- const pumpBounces = squad.pumpBounces;
-
- const _vfx = buildVfx({ gfx, sky, shadows, depthPass, terrain, character, shipController, figure, spray, smoke, rig, audio, speeder, wingmen, state });
+ const _vfx = buildVfx({ gfx, sky, shadows, depthPass, terrain, character, shipController, figure, spray, smoke, rig, audio, speeder, state });
  const collision = _vfx.collision;
  const contact = _vfx.contact;
  const wake = _vfx.wake;
@@ -183,13 +177,12 @@ export async function boot() {
  figure.update(0);
  figure.sync(rig.camera.position);
  await figure.warmUp();
- // walkers/herds purged: no sync/warmUp.
  if (speeder) {
   speeder.update(0);
   speeder?.sync(rig.camera.position);
   await speeder.warmUp();
  }
- for (const w of wingmen) await w.warmUp();
+
  spray.update(0, rig.camera.position);
  await spray.warmUp();
  await wake.warmUp();
@@ -241,7 +234,7 @@ export async function boot() {
  bootAssets.figure.setVisible(false);
 
  startFrameLoop({
-  gfx, rig, sky, shadows, terrain, character, figure, contact, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces,
+  gfx, rig, sky, shadows, terrain, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame,
   state, prev, time,
  });
 

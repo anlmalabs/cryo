@@ -4,7 +4,6 @@
  * Everything upstream is a piece: colliders.js knows where things touch,
  * impact.js knows what a touch does to a velocity, the walkers know their own
  * capsules, the craft know how to take a shove. This module is the frame that
- * holds the pieces: once per tick it rebuilds the capsule pool from the herds
  * and the wrecks, sweeps every flying craft's sphere through it, resolves the
  * earliest contact per craft, and routes the consequences — deflection, spin,
  * scramble, stumble, snow, smoke, fire, sound — to their owners.
@@ -28,7 +27,6 @@
  *
  * Everything is preallocated at construction; the frame path allocates
  * nothing. Every collaborator is null-checked so a boot without a speeder,
- * without wingmen, or without audio still runs the parts it has.
  */
 
 import * as THREE from "three";
@@ -48,7 +46,6 @@ import type { AudioEngine } from "../audio/engine.js";
 
 /**
  * What a response needs from whichever controller drives the frame: the
- * player's `CharacterController` or an escort's pilot, both of which publish
  * the same pose and the same impact entry point. Declared structurally so
  * the two do not have to share a base class.
  */
@@ -64,9 +61,6 @@ interface Respondable {
 }
 
 /**
- * The escort wrapper: a pilot plus the collision entry point the pass calls.
- * The herd is gone, so this is expressed by its uses rather than a class, and
- * named for its role rather than after `main.ts`'s own local `Wingman` type —
  * which does not export and does not declare `collisionHit`. The pass only
  * ever calls that on a non-null wing, so it is optional here; both shapes are
  * accepted without an `any`.
@@ -75,14 +69,11 @@ interface Escort {
  /**
   * The pilot: the same published surface the player's `CharacterController`
   * offers, which is what the sweeps respond through. Note `main.ts` declares
-  * its own `Wingman` type without `velocity`/`applyImpact`, so its array does
   * not satisfy this — see the report for the consequence and why it is
   * untypeable from this file's side alone.
   */
  pilot: Respondable & { bounced: boolean };
  /**
-  * Called when a contact is resolved against this escort's craft. Optional:
-  * `main.ts`'s own local `Wingman` type does not declare it, and the herd it
   * would apply to is gone, so the call is guarded at both use sites.
   */
  collisionHit?(severity: Severity, px: number, py: number, pz: number): void;
@@ -118,7 +109,6 @@ interface Wreck {
  * A capsule's back-reference, as the pass uses it: an optional `stumble`
  * (which `colliders.ts`'s `CapsuleOwner` declares, and both a walker and a
  * wreck slot answer differently to) plus the world pose the stumble's side
- * is measured from. Only the herd used to populate the pose — the wrecks
  * carry `ctl` instead — so the pose is read defensively here.
  */
 interface CapsuleRef extends CapsuleOwner {
@@ -134,7 +124,6 @@ interface CollisionCtx {
  character?: CharacterController | null;
  activeCharacter?: (() => CharacterController | null) | null;
  speeder?: Speeder | null;
- wingmen?: Escort[] | null;
  parked?: (() => ParkedPoint | null) | null;
  terrain?: Terrain | null;
  spray?: SprayField | null;
@@ -191,7 +180,6 @@ const TRAUMA: Record<string, number> = { scrape: 0.12, hit: 0.35, crash: 0.9 };
 /** The field-repair burn after the ladder trips, seconds. */
 const PLAYER_BURN = 20;
 
-/** Grace after a ladder step — same idea as the wingmen's `_hitGrace`. */
 const PLAYER_GRACE = 4;
 
 /**
@@ -261,8 +249,7 @@ const ALREADY_TOUCHING = 0.5;
 const SURFING = 0.5;
 
 /** Multiplier that widens the severity thresholds a craft-on-craft contact is
- *  judged against. Two hulls glancing off each other is drama, not a wall, so
- *  a scrape off a wingman should need more closing speed to count as a hit. */
+ *  a scrape off a craft should need more closing speed to count as a hit. */
 const CRAFT_FORGIVENESS = 1.2;
 
 /** Severity to spray count. Scrapes get a light dusting, a crash a full
@@ -336,7 +323,6 @@ const SCRAPE_TRAUMA_FLOOR = 0.15;
 const SMOKE_GREY = 0.09;
 
 /** The fuel-and-fire report a soft 'hit' on another craft plays at, as a
- *  fraction of a full one — a glancing blow off a wingman is a quarter of the
  *  hull going in, and it is played slightly faster for a lighter ring. */
 const SPEEDER_HIT_GAIN = 0.25;
 const SPEEDER_HIT_RATE = 1.1;
@@ -588,8 +574,6 @@ export class CollisionPass {
  /** Returns the driver, re-read each frame because the toggle swaps it. */
  _activeCharacter: () => CharacterController | null;
  speeder: Speeder | null;
- /** The escorts; always empty until the herd returns. */
- wingmen: Escort[];
  /** Where the player left their hull parked in the world, if anywhere. */
  parked: (() => ParkedPoint | null) | null;
  terrain: Terrain | null;
@@ -597,7 +581,6 @@ export class CollisionPass {
  smoke: SmokeTrails | null;
  rig: CameraRig | null;
  audio: AudioEngine | null;
- /** Every capsule this frame: the herd's, the wrecks', then a dead tail. */
  pool: Capsule[];
  /** One record per craft, player first. */
  slots: CraftSlot[];
@@ -644,7 +627,6 @@ export class CollisionPass {
   this.character = ctx.character ?? null;
   this._activeCharacter = ctx.activeCharacter ?? (() => this.character);
   this.speeder = ctx.speeder ?? null;
-  this.wingmen = ctx.wingmen ?? [];
   this.parked = ctx.parked ?? null;
   this.terrain = ctx.terrain ?? null;
   this.spray = ctx.spray ?? null;
@@ -666,14 +648,12 @@ export class CollisionPass {
   // sweep needs where the craft *was*, and neither controller keeps it.
   /** @type {CraftSlot[]} */
   this.slots = [];
-  /** @param {Escort|null} wing */
   const slot = (wing: Escort | null) => ({
    wing, has: false, prevX: 0, prevY: 0, prevZ: 0,
    cx: 0, cy: 0, cz: 0, mx: 0, my: 0, mz: 0,
    active: false, downed: false, squashT: 0, fxT: 0,
   });
   this.slots.push(slot(null));
-  for (const w of this.wingmen) this.slots.push(slot(w));
 
   // ---------------------------------------------------------- scratch
   // Two hit records (candidate and best-so-far), one response, one
@@ -766,7 +746,6 @@ export class CollisionPass {
 
  // ------------------------------------------------------------ frame setup
 
- /** Herd capsules, then a dead tail. */
  _rebuildPool() {
   const pool = this.pool;
   let k = 0;
@@ -795,7 +774,6 @@ export class CollisionPass {
     const on = !!c && !!this.speeder && S.speeder === true && c.surf > SURFING;
     s.active = on;
     // Mid-crash the craft is the fall's, exactly as a downed
-    // escort is its ballistic's: the roll into the snow is
     // scripted, and bouncing it off the machine that just killed
     // it would fight the very sequence that machine started.
     if (on && c.crashing) {
@@ -822,7 +800,6 @@ export class CollisionPass {
     s.has = true;
    }
    s.mx = s.cx - s.prevX; s.my = s.cy - s.prevY; s.mz = s.cz - s.prevZ;
-   // A teleport is not motion. A wingman respawning jumps 480 m from
    // its crash site, the opening flyover restages the flight, and
    // the console can put the player anywhere — swept as travel, any
    // of those drags a segment across the whole battle line and
@@ -921,7 +898,6 @@ export class CollisionPass {
   li.player = s.wing === null;
 
   // The walker feels it too — as a beat, never as a shove. Nudged away
-  // from the side the hit came in on. The pose is only there for the herd,
   // which is gone, so a wreck reads nothing and takes no stumble.
   const pose = wk as CapsuleRef | null;
   if (pose && pose.position && pose.yaw !== undefined
@@ -1063,7 +1039,6 @@ export class CollisionPass {
 
  /**
   * The look and the sound of a contact, by severity. Trauma is the
-  * player's alone — the camera is their body, not the wingmen's.
   *
   * A contact is not an event so much as a state: hold the stick into a
   * leg and the resolver re-contacts every second or third frame for as
@@ -1249,7 +1224,6 @@ export class CollisionPass {
   * The third rung — and for the player that is not a damage state, it is
   * the crash.
   *
-  * The escorts earned a whole choreography for going in and it would be a
   * strange game that gave the person holding the controller less. So the
   * burst goes off on the hull in the air, the stick is taken away, and the
   * craft rolls down into the snow on its own clock; `_playerCrash` picks it
@@ -1288,7 +1262,6 @@ export class CollisionPass {
   * The player's crash, from the moment the snow arrives to the moment they
   * have a craft again.
   *
-  * The landing is the escorts' recipe at the player's own hull — fireball,
   * crater, the trench it ploughed getting there, a wall of snow — and then
   * a beat of lying in it, because a crash that hands control straight back
   * is not a crash, it is a stumble. `RECOVER` later the craft is flying
@@ -1312,7 +1285,6 @@ export class CollisionPass {
    // top of the fall and its own impact is landing on this frame.
    this.rig?.addTrauma(1);
    // The hull stays where it died, and the pilot beside it — the
-   // same graveyard an escort goes to, because a snowspeeder that
    // went in looks the same whoever was flying it. The player's own
    // craft is about to be re-staged miles away, so what is left
    // here reads as the ship they just lost.
@@ -1373,7 +1345,6 @@ export class CollisionPass {
    if (this._pRecover === 0) {
     // And then it starts again, properly — not a craft popped
     // back into the air over its own wreck, but the run from the
-    // top: staged out on the approach, escorts overhead, flying
     // back in to a battle that never stopped without them.
     c.endCrash?.();
     c.velocity.set(0, 0, 0);

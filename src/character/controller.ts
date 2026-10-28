@@ -91,7 +91,6 @@ const STREAK_LO = 7; // m/s, where they start to read
 const STREAK_SPAN = 11; // m/s, saturate by this
 
 /* ------------------------------------------------------------------- crash
- * Seconds from the killing contact to the snow. Half the escorts' 4.0, and
  * for a reason: their fall is cinema watched from outside, this one is
  * happening to the person holding the controller, and every second of it is a
  * second they cannot fly.
@@ -100,7 +99,6 @@ const CRASH_FALL_T = 2.1;
 
 /** The climb the descent profile aims at. Set exactly at the contact test's
  *  own threshold (`2.6 + climb < 1.2`, i.e. climb < -1.4, with a hair past it
- *  so the strict `<` actually fires) — the escorts' `DOWN_CONTACT` trick — so
  *  the landing arrives ON the 2.1 s clock from any starting height instead of
  *  0.1-0.6 s early depending on where the hit caught the craft. */
 const CRASH_CONTACT = -1.5;
@@ -662,9 +660,7 @@ export class CharacterController {
   * into a hillside at speed, and what follows is not a damage state but a
   * crash.
   *
-  * It deliberately reads like the wingmen's: the stick is gone, the
   * momentum is what it was, and the craft rolls around its own long axis
-  * on the way down. The difference is the clock. An escort's death is
   * cinema seen from outside and is allowed five and a half seconds; this
   * one is happening to the person holding the controller, and every one of
   * those seconds is a second they cannot fly, so it is roughly half that.
@@ -757,7 +753,6 @@ export class CharacterController {
    this.facing += this._crashSpin * CRASH_YAW_DRIFT * h;
   }
   // Settled: the wreck keeps whatever attitude it came to rest at —
-  // the escorts' graveyard hulls hold a fixed cant, and a wreck that
   // rolls itself level while lying in the snow gives the whole fall
   // away as animation.
   this.carve = 0;
@@ -769,7 +764,6 @@ export class CharacterController {
 
   // The descent, on a normalised profile from whatever height the hit
   // interrupted down to the deck at u = 1 — so it arrives on the clock
-  // from any altitude, the same trick the escorts' fall uses. The shape
   // holds the craft up for the first beat and then drops the nose.
   const prevClimb = this._climb;
   if (this._crashT < CRASH_FALL_T) {
@@ -835,7 +829,6 @@ export class CharacterController {
   this.speedRaw = sp / SURF_MAX;
   this.acceleration.set(0, 0, 0);
 
-  // Contact. A one-frame latch, exactly like the escorts' — whoever is
   // watching for it owns the fireball, the crater and what happens next.
   if (!this.crashDown && this.position.y - this.groundY < CRASH_LAND_Y) {
    this.crashLanded = true;
@@ -1171,7 +1164,6 @@ export class CharacterController {
   );
 
   // Published for the presentation, which prefers these over its raw
-  // keyboard fallbacks (the wingman's pilot publishes the same pair) —
   // so the jet plume answers the throttle, whichever key that is.
   this.driveHeld = throttleMode ? input.thrust : input.moving;
   this.boostHeld = boostHeld;

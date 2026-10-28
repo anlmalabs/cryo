@@ -80,7 +80,6 @@ export const S = {
   * owns the position, the facing and the physics, and the craft is a different
   * way of *drawing* the same player rather than a second one.
   *
-  * On now, and the herd is the reason it is worth it: a T-47 at ten metres
   * flying at four AT-ATs on the horizon is the shot this demo has been
   * walking toward, and neither half reads as well alone.
   *
@@ -316,7 +315,6 @@ export const S = {
   * The damage burn, positioned: metres behind the hull the trail sheds,
   * and metres above the pilot position. "Burn preview" lights the same
   * smoke-and-fire on the player craft so the sliders can be dialled by
-  * eye instead of waiting for a wingman to be shot down.
   */
  burnPreview: false,
  /** Paint the jet plume flat magenta so its true footprint is visible

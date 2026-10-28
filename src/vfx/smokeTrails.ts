@@ -5,7 +5,6 @@
  * (buoyancy for smoke, quick decay for flame) and drawn in one premultiplied
  * pass so dark smoke genuinely occludes while fire adds.
  *
- * Owned by nobody in particular: the wingmen feed it their damage states,
  * and anything else that wants to burn can emit into the same pool.
  *
  * Allocation per frame: none.

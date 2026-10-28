@@ -6,9 +6,7 @@
 // pass, all three shadow cascades and the depth prepass include this file, so
 // the surface they place is the same surface by construction.
 //
-// One texture holds the whole herd, four rows per machine, and `row0` picks the
 // block. The alternative — a texture each — would be the same bytes in as many
-// uploads as there are walkers, and this way the herd's entire pose crosses to
 // the GPU once per frame however many of them are out there.
 //
 // Two differences from the character's.

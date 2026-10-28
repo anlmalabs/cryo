@@ -418,7 +418,6 @@ export class Speeder {
 
   // ---- the transform texture ----------------------------------------
   // Four rows and one column, because the prop is a one-bone rig. The
-  // walker's vertex shader does not care that the herd it is skinning has a
   // population of one.
   this._texData = new Float32Array(this.boneCount * 4 * 4);
   this.tex = new THREE.DataTexture(
@@ -814,7 +813,6 @@ export class Speeder {
   // Under the throttle scheme the vertical shows on the nose too:
   // proportional to the eased climb *rate*, so the attitude levels off
   // on its own the moment the altitude holds, with a little extra on
-  // the dive so W visibly points the craft at the snow. The wingman's
   // pilot publishes no climbRate and the classic scheme keeps its old
   // attitude exactly.
   //
@@ -869,7 +867,6 @@ export class Speeder {
   // hover: moving at speed is not the same as reheat, and if the plume is
   // already fully out at cruise the boost has nothing left to say.
   // The pilot's stick beats the player's keyboard: an AI-driven craft
-  // (the wingman) publishes driveHeld/boostHeld on its controller, and
   // the player's controller publishes none, falling through to `input`.
   const c2 = this.controller;
   const drive = (c2.driveHeld ?? input.moving) ? 1 : 0;
