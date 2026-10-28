@@ -88,21 +88,6 @@ export function startFrameLoop(ctx: FrameContext): void {
  let burnPreviewT = 0;
  /** The previous frame's mode-toggle key, for the edge trigger. */
  let prevToggleKey = false;
- /**
-  * The cockpit's line to the pilot. Silent unless the player pushes the stick
-  * during the opening hold — then "stand by" says the lock is deliberate —
-  * and one "you have control" at the handover. `flightMsgT` is the seconds
-  * left before the line fades.
-  */
- const flightMsg = document.getElementById("flightmsg");
- let flightMsgT = 0;
- const showFlightMsg = (text: string, seconds: number, good?: boolean) => {
-  if (!flightMsg) return;
-  flightMsg.textContent = text;
-  flightMsg.classList.toggle("good", !!good);
-  flightMsg.classList.add("show");
-  flightMsgT = seconds;
- };
  gfx.renderer.setAnimationLoop(() => {
   const now = performance.now();
   let dtMs = now - prev;
@@ -127,72 +112,6 @@ export function startFrameLoop(ctx: FrameContext): void {
   input.flying = state.flying;
   pollInput();
 
-  // The opening hold: escorts overhead, Luke on the wire, stick frozen.
-  // Movement only — the mouse still looks around, which is the point of
-  // an entrance. Releases with the craft already making way, so control
-  // arrives mid-flight rather than from a standstill.
-  if (state.introHold > 0) {
-   state.introHold -= dt;
-   // A push on the locked stick gets an answer, not silence: the
-   // "stand by" line holds while they keep asking and fades ~1.5 s
-   // after they stop.
-   if (input.moving || input.fire || input.sprint
-    || input.thrust || input.boost || input.vert !== 0) {
-    showFlightMsg("⟨ stand by — escort inbound ⟩", 1.5);
-   }
-   input.moveX = 0;
-   input.moveZ = 0;
-   input.moving = false;
-   input.sprint = false;
-   input.thrust = false;
-   input.boost = false;
-   input.vert = 0;
-   input.fire = false;
-   if (state.introHold <= 0) {
-    showFlightMsg("you have control", 2.6, true);
-    if (shipController) {
-     const sc = shipController;
-     const f = sc.facing;
-     sc.velocity.set(
-      Math.sin(f) * 16, 0, Math.cos(f) * 16
-     );
-     character.position.copy(sc.position);
-     character.facing = sc.facing;
-     character.velocity.copy(sc.velocity);
-    }
-   }
-   // The player's entrance: velocity fed straight into the
-   // controller, which integrates, terrain-snaps and banks exactly
-   // as it does under a stick. The approach slows as it closes, so
-   // arrival hands over a craft settling in rather than slamming to
-   // a stop — and the hold's own release seeds the forward way.
-   const fly = state.introFly;
-   if (fly) {
-    const fdx = fly.toX - character.position.x;
-    const fdz = fly.toZ - character.position.z;
-    const remaining = Math.hypot(fdx, fdz);
-    if (remaining < 4 || state.introHold <= 0) {
-     state.introFly = null;
-    } else {
-     const v = Math.min(34, Math.max(12, remaining * 0.45));
-     const h = fly.heading;
-     const sc = shipController ?? character;
-     sc.velocity.set(
-      Math.sin(h) * v, 0, Math.cos(h) * v
-     );
-     character.position.copy(sc.position);
-     character.facing = sc.facing;
-     character.velocity.copy(sc.velocity);
-    }
-   }
-  }
-
-  // The flight message's clock, outside the hold: "you have control"
-  // fades after the lock is already gone.
-  if (flightMsgT > 0) {
-   flightMsgT -= dt;
-   if (flightMsgT <= 0 && flightMsg) flightMsg.classList.remove("show");
-  }
 
   // Per-system CPU timing. There is no dependable GPU timer in WebGL2, so
   // the overlay's GPU row shows its dash and these rows stay `cpu`.

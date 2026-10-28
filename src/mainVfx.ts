@@ -1,4 +1,4 @@
-import { S, onChange } from "./core/settings.js";
+import { onChange } from "./core/settings.js";
 import { CollisionPass } from "./physics/collisionPass.js";
 import { SnowContact } from "./character/snowContact.js";
 import { SurfWake } from "./vfx/surfWake.js";
@@ -53,7 +53,6 @@ export type VfxState = {
  wake: SurfWake;
  spells: SpellSystem;
  post: PostChain;
- startFlyover: () => void;
 };
 
 export function buildVfx(ctx: VfxContext): VfxState {
@@ -122,45 +121,7 @@ export function buildVfx(ctx: VfxContext): VfxState {
  // wherever the default rule put things.
  applyOpening(OPENING, rig, character, terrain);
 
- // The flight's entrance: the three escorts restaged behind the player at
- // altitude and speed, aimed at the centre of the walker line — the game
- // opens with the formation sweeping overhead toward the battle. Called on
- // the boot gate's click rather than here: the simulation runs behind the
- // boot screen, and a flyover staged now would be long gone before the
- // player ever saw the field.
- const startFlyover = () => {
-  // The opening beat: hold the player's stick until the escorts have
-  // passed overhead and Luke's line has landed. Sized off the actual
-  // clip and the actual formation timing rather than guessed — the
-  // last ship starts 160 m back at 32 m/s. The run loop counts this
-  // down, freezing movement input (the look stays free) and seeding
-  // the craft's forward way the moment the hold releases.
-  // The voice is the film's when the film made it down, the mp3's when
-  // it didn't — whichever is actually going to play. The film's voice
-  // starts late by design: an open hold for the fly-in, then the static
-  // tune-in, then Luke — `leadIn` is that whole runway.
-  const lead = 0.5;
-  state.introHold = Math.max(5.4, lead + 3.5 + 0.4);
-  if (!wingmen.length) return;
-  for (const w of wingmen) w.flyover(character.position, 0, 300);
-  // The player's own entrance: their craft staged 150 m back along the
-  // formation's bearing, making way toward the spot the boot pinned.
-  // Flown by feeding the controller's velocity each frame (the intro
-  // block in the run loop), so the presentation, the camera and the
-  // snow all read a genuinely moving craft rather than a teleport.
-  if (S.speeder === true) {
-   const h = Math.atan2(0 - character.position.x, 300 - character.position.z);
-   state.introFly = {
-    toX: 0, toZ: 300,
-    heading: Math.atan2(0 - character.position.x, 300 - character.position.z),
-   };
-   character.position.x -= Math.sin(h) * 150;
-   character.position.z -= Math.cos(h) * 150;
-   character.facing = h;
-  }
- };
-
  const post = new PostChain(gfx, rig, depthPass, sky);
 
- return { collision, contact, wake, spells, post, startFlyover };
+ return { collision, contact, wake, spells, post };
 }
