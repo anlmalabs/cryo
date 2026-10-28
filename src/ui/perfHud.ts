@@ -75,7 +75,17 @@ function graphBarColour(ms: number): string {
  return "#6fb2e0";
 }
 
-export function createPerfHud() {
+/** The performance HUD's public surface. */
+export type PerfHud = {
+ readonly visible: boolean;
+ toggle(): void;
+ /** `gfx` is accepted for signature parity with `fpsMeter.update` and the
+  *  overlay's own row pump; the HUD reads nothing off the device. */
+ update(dtMs: number, gfx: unknown): void;
+ dispose(): void;
+};
+
+export function createPerfHud(): PerfHud {
  const style = document.createElement("style");
  style.textContent = CSS;
  document.head.appendChild(style);

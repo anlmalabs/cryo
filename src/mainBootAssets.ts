@@ -13,7 +13,7 @@ import { DepthPass } from "./render/depthPass.js";
 import { Speeder } from "./player/speeder.js";
 import type { Gfx } from "./core/gfx.js";
 import type { ModelAsset } from "./walkers/modelAsset.js";
-import type { Wingman, Wreck } from "./mainContracts.js";
+import type { Wingman, Wreck, FlightState } from "./mainContracts.js";
 import {
  WRECK_CLIMB, WRECK_LEAN,
  PILOT_TOSS_BASE, PILOT_TOSS_SPREAD, PILOT_THROW_BASE, PILOT_THROW_SPREAD,
@@ -24,9 +24,8 @@ export type BuildBootAssetsContext = {
  gfx: Gfx;
  canvas: HTMLCanvasElement;
  FLYING: boolean;
- flying: boolean;
- /** Live flight state, so `showFigure` follows later mode changes. */
- isFlying: () => boolean;
+ /** The one shared flight state, so `showFigure` follows later mode changes. */
+ state: FlightState;
  speederReady: Promise<ModelAsset> | null;
 };
 
@@ -98,7 +97,7 @@ export async function buildBootAssets(ctx: BuildBootAssetsContext): Promise<Boot
  // nothing draws it.
  const figure = new Character(gfx, terrain, sky, shadows, character);
  figure.registerPrepass(depthPass);
- const showFigure = () => figure.setVisible(S.showCharacter !== false && !ctx.isFlying());
+ const showFigure = () => figure.setVisible(S.showCharacter !== false && !ctx.state.flying);
  onChange("showCharacter", showFigure);
 
  // Airborne snow: footfall kick now, the surf plume and spell spray later.

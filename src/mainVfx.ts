@@ -1,4 +1,3 @@
-import * as THREE from "three";
 import { S, onChange } from "./core/settings.js";
 import { input } from "./core/input.js";
 import { CollisionPass } from "./physics/collisionPass.js";
@@ -8,16 +7,70 @@ import { SpellSystem } from "./spells/spellSystem.js";
 import { PostChain } from "./post/postChain.js";
 import { OPENING, applyOpening } from "./core/openingShot.js";
 import { RESPAWN_OUT } from "./mainContracts.js";
-export interface VfxContext { [k: string]: any; }
-export function buildVfx(ctx: VfxContext): { collision: any; contact: any; wake: any; spells: any; post: any; startFlyover: () => void; applyModeExtras: () => void; flying: boolean; leaveWreck: any; storyMode: boolean; introHold: number; introFly: any; } {
+import type { FlightState, Wingman, Wreck } from "./mainContracts.js";
+import type { Gfx } from "./core/gfx.js";
+import type { CameraRig } from "./core/camera.js";
+import type { Sky } from "./render/sky.js";
+import type { ShadowSystem } from "./render/shadows.js";
+import type { DepthPass } from "./render/depthPass.js";
+import type { Terrain } from "./terrain/terrain.js";
+import type { CharacterController } from "./character/controller.js";
+import type { Character } from "./character/character.js";
+import type { SprayField } from "./vfx/particles.js";
+import type { SmokeTrails } from "./vfx/smokeTrails.js";
+import type { Speeder } from "./player/speeder.js";
+import type { AudioEngine } from "./audio/engine.js";
+
+/**
+ * Everything `buildVfx` needs from the boot.
+ *
+ * The context was an untyped bag once, and the boot crash came straight out of
+ * that: a field the module read was never handed to it, and nothing said so
+ * until the first frame. The bag is gone — every field is named, typed and
+ * required, so a missing one is a compile error.
+ */
+export type VfxContext = {
+ gfx: Gfx;
+ sky: Sky;
+ shadows: ShadowSystem;
+ depthPass: DepthPass;
+ terrain: Terrain;
+ character: CharacterController;
+ shipController: CharacterController | null;
+ figure: Character;
+ spray: SprayField;
+ smoke: SmokeTrails;
+ rig: CameraRig;
+ audio: AudioEngine;
+ showFigure: () => void;
+ speeder: Speeder | null;
+ wingmen: Wingman[];
+ wrecks: Wreck[];
+ leaveWreck: ((x: number, z: number, facing: number) => null) | null;
+ /** The one shared flight state; read and written live, never copied. */
+ state: FlightState;
+};
+
+/** What `buildVfx` hands back: the systems it built and the two mode hooks. */
+export type VfxState = {
+ collision: CollisionPass;
+ contact: SnowContact;
+ wake: SurfWake;
+ spells: SpellSystem;
+ post: PostChain;
+ startFlyover: () => void;
+ applyModeExtras: () => void;
+};
+
+export function buildVfx(ctx: VfxContext): VfxState {
  const gfx = ctx.gfx, sky = ctx.sky, shadows = ctx.shadows, depthPass = ctx.depthPass;
  const terrain = ctx.terrain, character = ctx.character, shipController = ctx.shipController;
  const figure = ctx.figure, spray = ctx.spray, smoke = ctx.smoke;
- const rig = ctx.rig, audio = ctx.audio, S = ctx.S, onChange = ctx.onChange;
+ const rig = ctx.rig, audio = ctx.audio;
  const showFigure = ctx.showFigure, speeder = ctx.speeder, wingmen = ctx.wingmen;
- const wrecks = ctx.wrecks, FLYING = ctx.FLYING, speederReady = ctx.speederReady;
+ const wrecks = ctx.wrecks;
  const state = ctx.state;
- let leaveWreck = ctx.leaveWreck;
+ const leaveWreck = ctx.leaveWreck;
  // ------------------------------------------------------------ collisions
  // The craft meet the machines: swept spheres against the walkers' capsule
  // sets, the wrecks and each other, with the consequences routed to their
@@ -92,7 +145,7 @@ export function buildVfx(ctx: VfxContext): { collision: any; contact: any; wake:
 
  // The breaking wave, its bow crest and the plume it sheds.
  const wake = new SurfWake(gfx, sky, shadows, character, spray, terrain);
- onChange("showWake", (v: any) => wake.setEnabled(v));
+ onChange("showWake", (v) => wake.setEnabled(v));
  wake.registerPrepass(depthPass);
 
  // The five spells, the water body they bend and the ice they leave.
@@ -165,5 +218,5 @@ export function buildVfx(ctx: VfxContext): { collision: any; contact: any; wake:
 
  const post = new PostChain(gfx, rig, depthPass, sky);
 
- return { collision, contact, wake, spells, post, startFlyover, applyModeExtras, flying: state.flying, leaveWreck, storyMode: state.storyMode, introHold: state.introHold, introFly: state.introFly };
+ return { collision, contact, wake, spells, post, startFlyover, applyModeExtras };
 }

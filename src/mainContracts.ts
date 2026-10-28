@@ -2,6 +2,47 @@ import * as THREE from "three";
 import { SmokeTrails } from "./vfx/smokeTrails.js";
 import type { Speeder } from "./player/speeder.js";
 
+/**
+ * Where the intro flyover is heading.
+ *
+ * Written by the flyover itself and read by the frame loop, which is why it
+ * travels on {@link FlightState} rather than being copied between modules.
+ */
+export type IntroFly = {
+ toX: number,
+ toZ: number,
+ heading: number,
+};
+
+/**
+ * The flight mode, shared by every module that touches it.
+ *
+ * Before the `main.ts` split these were four closure variables in one scope;
+ * the split copied their *values* between modules, so each module wrote its
+ * own copy and the copies drifted — the boot crash was the extreme case,
+ * where one module read a state object that was never handed to it.
+ *
+ * One instance is created in `mainInit` and threaded by reference. There is
+ * exactly one writer per field, and the type makes a missing field a compile
+ * error rather than a runtime `undefined`.
+ *
+ * - `flying` — is the player flying the craft (as opposed to on foot).
+ * - `storyMode` — is the story/cutscene run active.
+ * - `introHold` — seconds to hold the opening shot before moving on.
+ * - `introFly` — the flyover target, or `null` when no flyover is running.
+ */
+export type FlightState = {
+ flying: boolean,
+ storyMode: boolean,
+ introHold: number,
+ introFly: IntroFly | null,
+};
+
+/** Creates the one {@link FlightState} instance the app runs on. */
+export function createFlightState(flying: boolean): FlightState {
+ return { flying, storyMode: false, introHold: 0, introFly: null };
+}
+
 /** An escort. Its module was removed; the shape is expressed by its uses. */
 export type Wingman = {
  effects: {

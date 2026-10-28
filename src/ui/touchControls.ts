@@ -165,7 +165,13 @@ export interface TouchHooks {
  onToggleOverlay?: () => void;
 }
 
-export function createTouchControls(hooks?: TouchHooks | null) {
+/** The touch controls' public surface. */
+export type TouchControls = {
+ readonly visible: boolean;
+ dispose(): void;
+};
+
+export function createTouchControls(hooks?: TouchHooks | null): TouchControls {
  const style = document.createElement("style");
  style.textContent = CSS;
  document.head.appendChild(style);

@@ -30,8 +30,6 @@ export type BuildSquadContext = {
 };
 
 export type SquadState = {
- enemyFire: EnemyFire[];
- raid: { turn: number, size: number };
  pumpBounces: () => void;
 };
 
@@ -264,5 +262,5 @@ export function buildSquad(ctx: BuildSquadContext): SquadState {
   }
  };
 
- return { enemyFire, raid, pumpBounces };
+ return { pumpBounces };
 }

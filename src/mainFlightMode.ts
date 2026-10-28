@@ -3,6 +3,7 @@ import type { CharacterController } from "./character/controller.js";
 import type { Character } from "./character/character.js";
 import type { Terrain } from "./terrain/terrain.js";
 import type { Speeder } from "./player/speeder.js";
+import type { FlightState } from "./mainContracts.js";
 
 export type BuildFlightModeContext = {
  speeder: Speeder | null;
@@ -12,8 +13,8 @@ export type BuildFlightModeContext = {
  figure: Character;
  showFigure: () => void;
  applyModeExtras: () => void;
- isFlying: () => boolean;
- setFlying: (value: boolean) => void;
+ /** The one shared flight state; the toggle writes `flying` on it. */
+ state: FlightState;
 };
 
 export type FlightModeState = {
@@ -25,12 +26,12 @@ export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
 
  const toggleMode = () => {
   if (!speeder || !shipController) return;
-  if (ctx.isFlying()) {
+  if (ctx.state.flying) {
    character.position.copy(shipController.position);
    character.facing = shipController.facing;
    terrain.heightfield.clampToPlayArea(character.position);
    terrain.heightfield.clampToPlayArea(shipController.position);
-   ctx.setFlying(false);
+   ctx.state.flying = false;
    speeder.setVisible(true);
    speeder.grounded = false;
    showFigure();
@@ -85,7 +86,7 @@ export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
    shipController.terrainSlam = null;
    terrain.heightfield.clampToPlayArea(shipController.position);
    terrain.heightfield.clampToPlayArea(character.position);
-   ctx.setFlying(true);
+   ctx.state.flying = true;
    speeder.setVisible(true);
    figure.setVisible(false);
   }

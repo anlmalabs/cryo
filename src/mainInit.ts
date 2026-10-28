@@ -8,47 +8,23 @@
 
 import { buildVfx } from "./mainVfx.js";
 import { startFrameLoop } from "./mainLoop.js";
-import * as THREE from "three";
 
 import { registerShaders } from "./shaders/registry.js";
 import { S, onChange, applyPreset, type SettingValue } from "./core/settings.js";
-import {
- sample, checkSpike, stats, mark, installDrawCounter, endFrameDraws,
-} from "./core/perf.js";
-import { initInput, pollInput, endFrame, input, isDown } from "./core/input.js";
-import { CameraRig, expDamp } from "./core/camera.js";
+import { installDrawCounter, stats } from "./core/perf.js";
+import { input } from "./core/input.js";
 import { createGfx } from "./core/gfx.js";
-import { CharacterController } from "./character/controller.js";
-import { Character } from "./character/character.js";
-import { SnowContact } from "./character/snowContact.js";
-import { SprayField } from "./vfx/particles.js";
-
-import { MuzzleMarkers } from "./vfx/muzzleMarkers.js";
-import { SmokeTrails } from "./vfx/smokeTrails.js";
-import { SurfWake } from "./vfx/surfWake.js";
-import { SpellSystem } from "./spells/spellSystem.js";
-import { Speeder } from "./player/speeder.js";
-import { CollisionPass, emitBurnTrail } from "./physics/collisionPass.js";
-import { Overlay } from "./ui/overlay.js";
-import { createFpsMeter } from "./ui/fpsMeter.js";
-import { createPerfHud } from "./ui/perfHud.js";
-import { Sky } from "./render/sky.js";
-import { ShadowSystem } from "./render/shadows.js";
-import { Terrain } from "./terrain/terrain.js";
-import { DepthPass } from "./render/depthPass.js";
-import { PostChain } from "./post/postChain.js";
 import { whenReady } from "./core/gpuUtil.js";
 import * as loading from "./core/loading.js";
 import { audio } from "./audio/engine.js";
-import { createSoundButton } from "./ui/soundButton.js";
-import { createTouchControls } from "./ui/touchControls.js";
-import { OPENING, applyOpening, installShotCapture } from "./core/openingShot.js";
+import { installShotCapture } from "./core/openingShot.js";
 import { loadModelAsset } from "./walkers/modelAsset.js";
 
 import { buildBootAssets } from "./mainBootAssets.js";
 import { buildSquad } from "./mainSquad.js";
 import { buildUi, chooseMode } from "./mainUi.js";
 import { buildFlightMode } from "./mainFlightMode.js";
+import { createFlightState, squadImpact, CLEAR_COLOR } from "./mainContracts.js";
 
 // --------------------------------------------------------- recovered contracts
 // The flight state `main.ts` carries for the code the walker/escort purge left
@@ -69,8 +45,6 @@ declare global {
   SNOWFLOW?: unknown;
  }
 }
-
-import { Wingman, EnemyFire, WreckController, Wreck, squadImpact, _vel, _camAt, CLEAR_COLOR, CRASH_AUDIBLE, DEATH_CAM_RATE, DEATH_CAM_DIST, DEATH_CAM_DIST_PILOT, RESPAWN_OUT, DEATH_CAM_PITCH, DEATH_CAM_PITCH_PILOT, WRECK_CLIMB, WRECK_LEAN, PILOT_TOSS_BASE, PILOT_TOSS_SPREAD, PILOT_THROW_BASE, PILOT_THROW_SPREAD, SKIP_SPLASH_SWAY, SKIP_PUFF_SWAY, CRASH_UP_MIN, CRASH_UP_SPREAD, SKIP_UP_MIN, SKIP_UP_SPREAD, CRASH_LIFE_MIN, CRASH_LIFE_SPREAD, SKIP_LIFE_MIN, SKIP_LIFE_SPREAD, SKIP_RADIUS, CRASH_RADIUS, PLUME_BASE_Y, CRASH_RING_MIN, CRASH_RING_SPREAD, SKIP_RING_MIN, SKIP_RING_SPREAD, RING_HEIGHT, RING_LIFT_MIN, RING_LIFT_SPREAD, SKIP_RING_RADIUS, CRASH_RING_RADIUS, CRASH_RING_LIFE_MIN, CRASH_RING_LIFE_SPREAD, SKIP_RING_LIFE_MIN, SKIP_RING_LIFE_SPREAD, SKIP_PUFF_GREY, SKIP_PUFF_LIFE, SKIP_PUFF_LIFE_SPREAD, CRASH_CLOUD_Y, CRASH_CLOUD_RADIUS } from "./mainContracts.js";
 
 export async function boot() {
  const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -108,9 +82,13 @@ export async function boot() {
  // Only when it is actually going to fly. Off — which is the default — the
  // speeder costs nothing at all: no fetch, no decode, no pipeline.
  // Build-time gate: whether this build includes the ship asset. NOT runtime mode.
- // Runtime mode is the `flying` variable below, toggled live by toggleMode().
+ // Runtime mode is the shared `state.flying`, toggled live by toggleMode().
  const FLYING = S.speeder === true;
- let flying = FLYING;
+ // The one flight state, created here and threaded by reference through every
+ // module that reads or writes it. Before the module split these were four
+ // closure variables in one scope; the split copied their *values* between
+ // modules and the copies drifted apart. One object, one writer per field.
+ const state = createFlightState(FLYING);
  // `srgbAlbedo` is deliberately *off*.
  //
  // The hull reading dark looked like an sRGB-decoded map being read as linear,
@@ -124,8 +102,8 @@ export async function boot() {
 
  await loading.phase("creating device", 0.05);
 
- // WebGL2 + EXT_color_buffer_float gate lives inside createGfx; it fails
- // the boot screen itself with the precise reason, so a null is just "stop".
+ // WebGL2 + EXT_color_buffer_float gate lives inside createGfx; it fails the
+ // boot screen itself with the precise reason, so a null is just "stop".
  const gfx = createGfx(canvas);
  if (!gfx) return;
 
@@ -139,7 +117,7 @@ export async function boot() {
 
  await loading.phase("building scene", 0.12);
 
- const bootAssets = await buildBootAssets({ gfx, canvas, FLYING, flying, isFlying: () => flying, speederReady });
+ const bootAssets = await buildBootAssets({ gfx, canvas, FLYING, state, speederReady });
  const rig = bootAssets.rig;
  const sky = bootAssets.sky;
  const shadows = bootAssets.shadows;
@@ -154,15 +132,13 @@ export async function boot() {
  const speeder = bootAssets.speeder;
  const wingmen = bootAssets.wingmen;
  const wrecks = bootAssets.wrecks;
- let leaveWreck = bootAssets.leaveWreck;
+ const leaveWreck = bootAssets.leaveWreck;
  const showFigure = bootAssets.showFigure;
 
  const squad = buildSquad({ wingmen, character, terrain, spray, smoke, audio, leaveWreck });
- const enemyFire = squad.enemyFire;
- const raid = squad.raid;
  const pumpBounces = squad.pumpBounces;
 
- const _vfx = buildVfx({ gfx, sky, shadows, depthPass, terrain, character, shipController, figure, spray, smoke, rig, audio, S, onChange, showFigure, flying, speeder, wingmen, wrecks, leaveWreck, FLYING, speederReady });
+ const _vfx = buildVfx({ gfx, sky, shadows, depthPass, terrain, character, shipController, figure, spray, smoke, rig, audio, showFigure, speeder, wingmen, wrecks, leaveWreck, state });
  const collision = _vfx.collision;
  const contact = _vfx.contact;
  const wake = _vfx.wake;
@@ -170,13 +146,8 @@ export async function boot() {
  const post = _vfx.post;
  const startFlyover = _vfx.startFlyover;
  const applyModeExtras = _vfx.applyModeExtras;
- flying = _vfx.flying;
- leaveWreck = _vfx.leaveWreck;
- let storyMode = _vfx.storyMode;
- let introHold = _vfx.introHold;
- let introFly = _vfx.introFly;
 
- const flightMode = buildFlightMode({ speeder, shipController, character, terrain, figure, showFigure, applyModeExtras, isFlying: () => flying, setFlying: (value: boolean) => { flying = value; } });
+ const flightMode = buildFlightMode({ speeder, shipController, character, terrain, figure, showFigure, applyModeExtras, state });
  const toggleMode = flightMode.toggleMode;
 
  // ------------------------------------------------------------ the frame
@@ -208,7 +179,6 @@ export async function boot() {
 
  const ui = buildUi({ canvas, rig, character, audio, captureShot });
  const overlay = ui.overlay;
- const toggleOverlay = ui.toggleOverlay;
  const fpsMeter = ui.fpsMeter;
  const perfHud = ui.perfHud;
  const touchControls = ui.touchControls;
@@ -270,51 +240,20 @@ export async function boot() {
  spells.finishWarmUp();
 
  // ------------------------------------------------------------- run loop
+ // Seeded *here*, before the menu gate below is awaited: the first frame's
+ // delta is measured from this instant, so the wait for the player to pick a
+ // mode counts as the first frame's elapsed time (clamped to 100 ms). Moving
+ // the seed into the loop would silently change that first frame's step.
  let prev = performance.now();
  let time = 0;
- /** Seconds of opening hold left — set by `startFlyover`, counted here. */
- // introHold provided by buildVfx
- /** Seconds into the player's crash, driving the camera's circle of the
-  *  wreck. Zero whenever the craft is flying. */
- let deathCamT = 0;
- /** The framing the player had before the crash, handed back after it. */
- let deathCamDist = 0;
- /** The body the crash camera is circling — the player's own pilot, once
-  *  they have been thrown clear. Null during the fall and after. */
- let deathCamPilot: { position: THREE.Vector3 } | null = null;
- /**
-  * The cockpit's line to the pilot. Silent unless the player pushes the
-  * stick during the opening hold — then "stand by" says the lock is
-  * deliberate — and one "you have control" at the handover. `flightMsgT`
-  * is the seconds left before the line fades.
-  */
- const flightMsg = document.getElementById("flightmsg");
- let flightMsgT = 0;
- const showFlightMsg = (text: string, seconds: number, good?: boolean) => {
-  if (!flightMsg) return;
-  flightMsg.textContent = text;
-  flightMsg.classList.toggle("good", !!good);
-  flightMsg.classList.add("show");
-  flightMsgT = seconds;
- };
- /** Cadence clock for the overlay's burn preview trail. */
- let burnPreviewT = 0;
- /**
-  * The player's fly-in, or null once they have arrived — set by
-  * `startFlyover` alongside the escorts' own staging.
-  */
- // introFly provided by buildVfx
-
- let prevToggleKey = false;
 
  // ------------------------------------------------------- main menu gate
- const chosenStory = await chooseMode({ character, leaveWreck, speeder, applyModeExtras, showFigure, setFlying: (value: boolean) => { flying = value; } });
- storyMode = chosenStory;
+ // The choice is written onto the shared state; the loop below reads it live.
+ await chooseMode({ character, leaveWreck, speeder, applyModeExtras, showFigure, state });
 
  startFrameLoop({
-  gfx, rig, sky, shadows, depthPass, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, showFlightMsg, renderFrame, pumpBounces, leaveWreck, applyModeExtras, showFigure,
-  isFlying: () => flying, setFlying: (value: boolean) => { flying = value; },
-  prev, time, introHold, deathCamT, deathCamDist, deathCamPilot, flying, prevToggleKey, introFly, flightMsgT, flightMsg, burnPreviewT,
+  gfx, rig, sky, shadows, terrain, character, figure, contact, wrecks, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces,
+  state, prev, time,
  });
 
  // ------------------------------------------------------- audio + the gate
@@ -360,7 +299,8 @@ export async function boot() {
  // The instant the player is coming in — boot screen starting its fade —
  // stage the formation behind them, so the escorts thunder overhead in the
  // first seconds of the game rather than at some point during the loading.
- if (!storyMode) startFlyover();
+ // Eliminate initial no-controls sequence in free flight mode only.
+ if (state.storyMode) startFlyover();
 
  // After the loading screen has gone: it sits at a higher z-index than the
  // overlay, so opening the panel before this would hide it behind a full

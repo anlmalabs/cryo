@@ -66,7 +66,15 @@ interface SoundAudio {
  *   `onEnable` fires the first time this button unlocks the engine — that is the
  *   soundscape's cue to open its continuous voices.
  */
-export function createSoundButton(audio: SoundAudio, hooks?: { onEnable?: () => void }) {
+/** The sound button's public surface. */
+export type SoundButton = {
+ /** Fade the button in. Called once the boot screen is out of the way. */
+ reveal(): void;
+ sync(): void;
+ el: HTMLButtonElement;
+};
+
+export function createSoundButton(audio: SoundAudio, hooks?: { onEnable?: () => void }): SoundButton {
  const style = document.createElement("style");
  style.textContent = CSS;
  document.head.appendChild(style);

@@ -40,7 +40,16 @@ const CSS = `
 /** Refresh period, ms. The overlay's own readouts use the same 4 Hz. */
 const PERIOD = 250;
 
-export function createFpsMeter() {
+/** The frame-rate readout's public surface. */
+export type FpsMeter = {
+ readonly visible: boolean;
+ toggle(): void;
+ /** @param dtMs */
+ update(dtMs: number): void;
+ dispose(): void;
+};
+
+export function createFpsMeter(): FpsMeter {
  const style = document.createElement("style");
  style.textContent = CSS;
  document.head.appendChild(style);

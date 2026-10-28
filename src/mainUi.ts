@@ -2,12 +2,13 @@ import { initInput } from "./core/input.js";
 import { CameraRig } from "./core/camera.js";
 import { CharacterController } from "./character/controller.js";
 import { Overlay } from "./ui/overlay.js";
-import { createFpsMeter } from "./ui/fpsMeter.js";
-import { createPerfHud } from "./ui/perfHud.js";
-import { createSoundButton } from "./ui/soundButton.js";
-import { createTouchControls } from "./ui/touchControls.js";
+import { createFpsMeter, type FpsMeter } from "./ui/fpsMeter.js";
+import { createPerfHud, type PerfHud } from "./ui/perfHud.js";
+import { createSoundButton, type SoundButton } from "./ui/soundButton.js";
+import { createTouchControls, type TouchControls } from "./ui/touchControls.js";
 import type { AudioEngine } from "./audio/engine.js";
 import type { Speeder } from "./player/speeder.js";
+import type { FlightState } from "./mainContracts.js";
 
 export type BuildUiContext = {
  canvas: HTMLCanvasElement;
@@ -19,11 +20,10 @@ export type BuildUiContext = {
 
 export type UiState = {
  overlay: Overlay;
- fpsMeter: ReturnType<typeof createFpsMeter>;
- perfHud: ReturnType<typeof createPerfHud>;
- touchControls: ReturnType<typeof createTouchControls>;
- soundButton: ReturnType<typeof createSoundButton>;
- toggleOverlay: () => void;
+ fpsMeter: FpsMeter;
+ perfHud: PerfHud;
+ touchControls: TouchControls;
+ soundButton: SoundButton;
 };
 
 export type ChooseModeContext = {
@@ -32,7 +32,8 @@ export type ChooseModeContext = {
  speeder: Speeder | null;
  applyModeExtras: () => void;
  showFigure: () => void;
- setFlying: (value: boolean) => void;
+ /** The one shared flight state; the choice writes `storyMode` and `flying` on it. */
+ state: FlightState;
 };
 
 export function buildUi(ctx: BuildUiContext): UiState {
@@ -71,14 +72,21 @@ export function buildUi(ctx: BuildUiContext): UiState {
   }
  }, { passive: true });
 
- return { overlay, fpsMeter, perfHud, touchControls, soundButton, toggleOverlay };
+ return { overlay, fpsMeter, perfHud, touchControls, soundButton };
 }
 
-/** Main-menu gate. Resolves with true for story mode, false for free flight. */
-export async function chooseMode(ctx: ChooseModeContext): Promise<boolean> {
- const { character, leaveWreck, speeder, applyModeExtras, showFigure, setFlying } = ctx;
+/**
+ * Main-menu gate.
+ *
+ * The choice is written onto the shared flight state rather than returned:
+ * `storyMode` is read by the crash-restart handler and by the boot's own
+ * flyover decision, both of which run after this resolves, and a returned
+ * copy was exactly the kind of value-copy that let the modules drift apart.
+ */
+export async function chooseMode(ctx: ChooseModeContext): Promise<void> {
+ const { character, leaveWreck, speeder, applyModeExtras, showFigure, state } = ctx;
 
- const storyMode = await new Promise<boolean>((resolve) => {
+ await new Promise<void>((resolve) => {
   const menu = document.createElement("div");
   menu.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(ellipse at 30% 20%,rgba(40,70,140,0.35),transparent 60%),radial-gradient(ellipse at 70% 80%,rgba(80,40,120,0.25),transparent 60%),rgba(4,6,14,0.92);color:#dfe6f5;font-family:ui-monospace,monospace;";
   const title = document.createElement("div");
@@ -108,7 +116,10 @@ export async function chooseMode(ctx: ChooseModeContext): Promise<boolean> {
    chosen = true;
    menu.remove();
    window.removeEventListener("keydown", onKey);
-   resolve(story);
+   // The shared state is written here, before the promise resolves, so the
+   // rest of the boot sees the mode the menu settled on.
+   state.storyMode = story;
+   resolve();
   };
   const onKey = (e: KeyboardEvent) => {
    if (e.code === "KeyS") choose(true);
@@ -119,13 +130,12 @@ export async function chooseMode(ctx: ChooseModeContext): Promise<boolean> {
   flyBtn.addEventListener("click", () => choose(false));
  });
 
- if (storyMode) {
+ if (state.storyMode) {
   const x = character.position.x, z = character.position.z, f = character.facing;
   leaveWreck?.(x, z, f);
-  setFlying(false);
+  state.flying = false;
   speeder?.setVisible?.(false);
   applyModeExtras();
   showFigure();
  }
- return storyMode;
 }
