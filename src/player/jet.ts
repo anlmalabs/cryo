@@ -51,6 +51,8 @@ export class Jet {
  /** Craft-local direction the plume blows (unit vector). Back thrusters:
   *  (0,0,-1); bottom thrusters: (0,-1,0). */
  _dirLocal!: THREE.Vector3;
+ /** Number of nozzles (plumes) this jet draws. */
+ _nozzles!: number;
 
  gfx!: Gfx;
  /** Plume phase clock, seconds — drives the shader's boil and jitter. */
@@ -63,15 +65,18 @@ export class Jet {
  _viewProj!: THREE.Matrix4;
  material!: THREE.RawShaderMaterial;
  mesh!: JetMesh;
- constructor(gfx: Gfx, dirLocal?: THREE.Vector3) {
+ constructor(gfx: Gfx, dirLocal?: THREE.Vector3, nozzles?: number) {
   this.gfx = gfx;
   this._dirLocal = dirLocal ? dirLocal.clone() : new THREE.Vector3(0, 0, -1);
+  this._nozzles = nozzles ?? NOZZLES;
   this._time = 0;
   this._cameraPos = new THREE.Vector3();
   // Per-instance, because they are the uniform VALUES: as module scratch
   // (the original layout) a second craft's jet would overwrite the
   // player's flame every frame — both plumes drawn from one buffer.
-  this._origins = new Float32Array(NOZZLES * 4);
+  // Shader declares jetOrigin[2]; keep the buffer at that size even for
+  // a single-nozzle jet so the uniform upload is complete.
+  this._origins = new Float32Array(2 * 4);
   this._dir = new THREE.Vector4(0, 0, -1, LENGTH);
   this._params = new THREE.Vector4(0, 0, WIDTH, FLARE);
   /**
@@ -99,10 +104,10 @@ export class Jet {
  }
 
  _buildMesh() {
-  const positions = new Float32Array(NOZZLES * (RUNGS + 1) * 2 * 3);
-  const indices = new Uint16Array(NOZZLES * RUNGS * 6);
+  const positions = new Float32Array(this._nozzles * (RUNGS + 1) * 2 * 3);
+  const indices = new Uint16Array(this._nozzles * RUNGS * 6);
   let v = 0, i = 0;
-  for (let n = 0; n < NOZZLES; n++) {
+  for (let n = 0; n < this._nozzles; n++) {
    const base = v;
    for (let r = 0; r <= RUNGS; r++) {
     const t = r / RUNGS;
@@ -129,7 +134,7 @@ export class Jet {
   // NaN radius) from the lattice indices.
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
   const mesh = new THREE.Mesh(geometry, this.material) as JetMesh;
-  mesh.metadata = { triangles: NOZZLES * RUNGS * 2, vertices: v };
+  mesh.metadata = { triangles: this._nozzles * RUNGS * 2, vertices: v };
   return mesh;
  }
 
@@ -182,7 +187,7 @@ export class Jet {
   const backZ = nozzle.backZ;
   const dropY = nozzle.dropY;
   const origins = this._origins;
-  for (let n = 0; n < NOZZLES; n++) {
+  for (let n = 0; n < this._nozzles; n++) {
    const lx = n === 0 ? -spanX : spanX;
    const o = n * 4;
    origins[o] = world[0] * lx + world[3] * dropY + world[6] * backZ + world[9];
