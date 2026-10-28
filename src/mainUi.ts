@@ -15,7 +15,6 @@ export type BuildUiContext = {
  rig: CameraRig;
  character: CharacterController;
  audio: AudioEngine;
- captureShot: () => string;
 };
 
 export type UiState = {
@@ -34,9 +33,9 @@ export type ChooseModeContext = {
 };
 
 export function buildUi(ctx: BuildUiContext): UiState {
- const { canvas, rig, character, audio: audioEngine, captureShot } = ctx;
+ const { canvas, rig, character, audio: audioEngine } = ctx;
 
- const overlay = new Overlay({ rig, character, actions: { captureShot } });
+ const overlay = new Overlay({ rig, character, actions: {} });
  const toggleOverlay = () => overlay.toggle();
  // The same two numbers the overlay carries, on their own, for when the panel
  // would cover the thing being measured.

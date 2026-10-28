@@ -17,7 +17,6 @@ import { createGfx } from "./core/gfx.js";
 import { whenReady } from "./core/gpuUtil.js";
 import * as loading from "./core/loading.js";
 import { audio } from "./audio/engine.js";
-import { installShotCapture } from "./core/openingShot.js";
 import { loadModelAsset } from "./walkers/modelAsset.js";
 
 import { buildBootAssets } from "./mainBootAssets.js";
@@ -167,12 +166,7 @@ export async function boot() {
   post.render(gfx);
  };
 
- // F2 snapshots the camera, the player and the herd as a paste-able block —
- // wired before the overlay so its "Start location · copy" button can share
- // the exact same capture. See `core/openingShot.js` for what to do with it.
- const captureShot = installShotCapture(rig, character);
-
- const ui = buildUi({ canvas, rig, character, audio, captureShot });
+ const ui = buildUi({ canvas, rig, character, audio });
  const overlay = ui.overlay;
  const fpsMeter = ui.fpsMeter;
  const perfHud = ui.perfHud;
@@ -303,7 +297,6 @@ export async function boot() {
   overlay, touchControls, terrain, sky, shadows, post, depthPass,
   audio,
   S, input, perfStats: stats,
-  captureShot,
   /** Fake a cannon burst at (x, z) — for testing the squad's reactions. */
   // Inert purge remnant: never assigned, so a call throws exactly as it
   // would have without the `| undefined` on the binding above. `?.` here
