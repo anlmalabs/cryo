@@ -24,7 +24,6 @@ import type { PostChain } from "./post/postChain.js";
 import type { Overlay } from "./ui/overlay.js";
 import type { FpsMeter } from "./ui/fpsMeter.js";
 import type { PerfHud } from "./ui/perfHud.js";
-import type { Vector3 } from "three";
 
 /**
  * Everything the frame loop reads.
@@ -85,7 +84,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   * sized for it, so the slot stays and the assignment is the missing piece
   * rather than the shape being wrong.
   */
- let deathCamPilot: { position: Vector3 } | null = null;
+ let deathCamPilot: { position: { x: number; y: number; z: number } } | null = null;
  /** Cadence clock for the overlay's burn preview trail. */
  let burnPreviewT = 0;
  /** The previous frame's mode-toggle key, for the edge trigger. */

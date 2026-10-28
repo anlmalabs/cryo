@@ -30,7 +30,7 @@ const SH_H = 32;
  * exposure handles overall brightness — but it must be *one* number, applied to
  * both, or the sun/sky ratio stops meaning anything.
  */
-const SUN_SCALE_BASE = 5.5;
+const SUN_SCALE_BASE = 0.18;
 
 /** SH coefficients in the projection loop — nine for bands 0..2. */
 const SH_COEFFS = 9;
