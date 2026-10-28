@@ -53,15 +53,15 @@ float terrainMacro(vec2 p, float w, float amp) {
     // --- broad dunes -------------------------------------------------------
     // Compressed along the wind, so ridge lines run across it. Derivative
     // damping keeps crests smooth and lets detail pool in the troughs.
-    mat2 m1 = windMat(w, 2.1, 1.0, 58.0);
-    vec3 broad = fbmDamped(m1 * p, 5, 2.03, 0.5, 0.9);
-    float h = broad.x * 6.0;
+    mat2 m1 = windMat(w, 2.1, 1.0, 240.0);
+    vec3 broad = fbmDamped(m1 * p, 6, 2.03, 0.5, 0.9);
+    float h = broad.x * 40.0;
 
     // A second, much larger and gentler swell so the field never reads as one
     // repeating dune wavelength. This is what gives the horizon its long roll.
-    mat2 m0 = windMat(w, 1.35, 1.0, 210.0);
-    vec3 swell = fbmDamped(m0 * p, 3, 2.11, 0.55, 0.3);
-    h += swell.x * 40.0;
+    mat2 m0 = windMat(w, 1.35, 1.0, 420.0);
+    vec3 swell = fbmDamped(m0 * p, 4, 2.11, 0.55, 0.3);
+    h += swell.x * 90.0;
 
     // --- medium drifts and wind lobes --------------------------------------
     // The domain is sheared along the wind by the broad height, which steepens
