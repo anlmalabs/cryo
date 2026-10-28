@@ -406,13 +406,4 @@ export class Sky {
   u.fogStart.value = S.fogStart;
   u.aerialStrength.value = S.aerialStrength;
  }
-
- dispose() {
-  this._lutRT.dispose();
-  this._shRT.dispose();
-  this.mesh.geometry.dispose();
-  this.gfx.scene.remove(this.mesh);
-  this.material.dispose();
-  this._bakePass.material.dispose();
- }
 }

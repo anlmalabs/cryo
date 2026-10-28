@@ -1006,4 +1006,3 @@ export class Figure {
  }
 }
 
-export { HIP_HEIGHT };

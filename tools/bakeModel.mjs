@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 /**
  * Bake a skinned, animated GLB into the SNWK v2 asset `modelAsset.js` loads.
  *

@@ -214,9 +214,4 @@ export class Jet {
   await whenReady(this.gfx, this.material, "jet material");
  }
 
- dispose() {
-  this.gfx.scene.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
- }
 }

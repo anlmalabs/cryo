@@ -19,7 +19,7 @@
  */
 
 /** Must match `SPELL_LIGHT_MAX` in `lib/spellLights.glsl`. */
-export const MAX_SPELL_LIGHTS = 4;
+const MAX_SPELL_LIGHTS = 4;
 
 /**
  * Uniform names every consumer material must declare. Exported so the material

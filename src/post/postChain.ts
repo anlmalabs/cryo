@@ -677,26 +677,6 @@ export class PostChain {
   if (this._historyValid < 1) this._historyValid += 0.5;
  }
 
- /** Discard the temporal history — after a teleport, or a resolution change. */
- resetHistory() {
-  this._historyValid = 0;
- }
-
- dispose() {
-  if (this._unsub) this._unsub();
-  for (let i = 0; i < this.passes.length; i++) {
-   this.passes[i].material.dispose();
-  }
-  this.sceneColor.dispose();
-  this.history[0].dispose();
-  this.history[1].dispose();
-  this._shaftsRT.dispose();
-  this._bloomA.dispose();
-  this._bloomB.dispose();
-  this._bloomC.dispose();
-  this._dofRT.dispose();
-  this._compositeRT.dispose();
- }
 }
 
 // --------------------------------------------------------------------- helpers

@@ -32,7 +32,7 @@ import { getShader } from "../shaders/registry.js";
  * target — 4x the VRAM and 4x the cost of a pass that runs every frame — to
  * resolve detail the fragment shader's grain layer already synthesises.
  */
-export const COVERAGE = 80;
+const COVERAGE = 80;
 
 /** Rows in the brush data texture. Must match `deformSim.fragment.glsl`. */
 const BRUSH_ROWS = 3;
@@ -346,9 +346,4 @@ export class DeformationField {
   this._warmed = true;
  }
 
- dispose() {
-  this._targets[0].dispose();
-  this._targets[1].dispose();
-  this.brushTex.dispose();
- }
 }

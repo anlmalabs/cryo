@@ -7,8 +7,6 @@ import { createPerfHud, type PerfHud } from "./ui/perfHud.js";
 import { createSoundButton, type SoundButton } from "./ui/soundButton.js";
 import { createTouchControls, type TouchControls } from "./ui/touchControls.js";
 import type { AudioEngine } from "./audio/engine.js";
-import type { Speeder } from "./player/speeder.js";
-import type { FlightState } from "./mainContracts.js";
 
 export type BuildUiContext = {
  canvas: HTMLCanvasElement;
@@ -25,12 +23,6 @@ export type UiState = {
  soundButton: SoundButton;
 };
 
-export type ChooseModeContext = {
- character: CharacterController;
- speeder: Speeder | null;
- /** The one shared flight state; the choice writes `flying` on it. */
- state: FlightState;
-};
 
 export function buildUi(ctx: BuildUiContext): UiState {
  const { canvas, rig, character, audio: audioEngine } = ctx;
@@ -69,48 +61,4 @@ export function buildUi(ctx: BuildUiContext): UiState {
  }, { passive: true });
 
  return { overlay, fpsMeter, perfHud, touchControls, soundButton };
-}
-
-/**
- * Main-menu gate.
- *
- * The choice is written onto the shared flight state rather than returned:
- * flyover decision, both of which run after this resolves, and a returned
- * copy was exactly the kind of value-copy that let the modules drift apart.
- */
-export async function chooseMode(ctx: ChooseModeContext): Promise<void> {
- const { state } = ctx;
- await new Promise<void>((resolve) => {
-  const menu = document.createElement("div");
-  menu.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(ellipse at 30% 20%,rgba(40,70,140,0.35),transparent 60%),radial-gradient(ellipse at 70% 80%,rgba(80,40,120,0.25),transparent 60%),rgba(4,6,14,0.92);color:#dfe6f5;font-family:ui-monospace,monospace;";
-  const title = document.createElement("div");
-  title.textContent = "SNOWFLOW";
-  title.style.cssText = "font-size:1.6rem;letter-spacing:0.35em;text-transform:uppercase;font-weight:300;margin-bottom:4px;";
-  const sub = document.createElement("div");
-  sub.textContent = "Enter — free flight";
-  sub.style.cssText = "font-size:0.72rem;letter-spacing:0.18em;text-transform:uppercase;opacity:0.6;margin-bottom:18px;";
-  const btnStyle = "min-width:220px;padding:10px 20px;font-size:0.8rem;letter-spacing:0.2em;text-transform:uppercase;cursor:pointer;background:rgba(255,255,255,0.04);color:#dfe6f5;border:1px solid rgba(255,255,255,0.18);border-radius:2px;transition:background .15s,border-color .15s;";
-  const flyBtn = document.createElement("button");
-  flyBtn.textContent = "Free Flight  (Enter)";
-  flyBtn.style.cssText = btnStyle;
-  flyBtn.addEventListener("mouseenter", () => { flyBtn.style.background = "rgba(255,255,255,0.1)"; flyBtn.style.borderColor = "rgba(255,255,255,0.4)"; });
-  flyBtn.addEventListener("mouseleave", () => { flyBtn.style.background = "rgba(255,255,255,0.04)"; flyBtn.style.borderColor = "rgba(255,255,255,0.18)"; });
-  menu.append(title, sub, flyBtn);
-  document.body.append(menu);
-
-  let chosen = false;
-  const choose = () => {
-   if (chosen) return;
-   chosen = true;
-   menu.remove();
-   window.removeEventListener("keydown", onKey);
-   state.flying = true;
-   resolve();
-  };
-  const onKey = (e: KeyboardEvent) => {
-   if (e.code === "Enter") choose();
-  };
-  window.addEventListener("keydown", onKey);
-  flyBtn.addEventListener("click", () => choose());
- });
 }

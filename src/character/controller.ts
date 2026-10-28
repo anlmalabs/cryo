@@ -1299,7 +1299,7 @@ export class CharacterController {
  * @param {number} b target angle, radians
  * @returns {number} the delta the shorter way round
  */
-export function angleDelta(a: number, b: number): number {
+function angleDelta(a: number, b: number): number {
  let d = b - a;
  while (d > Math.PI) d -= Math.PI * 2;
  while (d < -Math.PI) d += Math.PI * 2;
@@ -1314,7 +1314,7 @@ export function angleDelta(a: number, b: number): number {
  * @param {number} dt elapsed seconds
  * @returns {number} the eased angle, not wrapped
  */
-export function angleDamp(
+function angleDamp(
  cur: number, target: number, rate: number, dt: number
 ): number {
  return cur + angleDelta(cur, target) * (1 - Math.exp(-rate * dt));

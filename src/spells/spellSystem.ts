@@ -369,12 +369,6 @@ export class SpellSystem {
   for (let i = 0; i < this.spells.length; i++) this.spells[i].cancel();
  }
 
- /** Live spell count, for the overlay. */
- get activeCount() {
-  let n = 0;
-  for (let i = 0; i < this.spells.length; i++) if (this.spells[i].active) n++;
-  return n;
- }
 
  /**
   * Register the ice formations with the depth prepass.
@@ -414,10 +408,5 @@ export class SpellSystem {
  finishWarmUp() {
   this.water.finishWarmUp();
   this.crystals.finishWarmUp();
- }
-
- dispose() {
-  this.water.dispose();
-  this.crystals.dispose();
  }
 }

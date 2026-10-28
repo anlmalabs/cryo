@@ -1076,15 +1076,6 @@ export class SurfWake {
    d[o2] = WARMUP_CURL; d[o2 + 1] = WARMUP_CURL; d[o2 + 2] = a01; d[o2 + 3] = 0;
   }
  }
-
- dispose() {
-  this.gfx.scene.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
-  for (let i = 0; i < this._depthMats.length; i++) this._depthMats[i].dispose();
-  if (this.prepassMat) this.prepassMat.dispose();
-  this.dataTex.dispose();
- }
 }
 
 // -----------------------------------------------------------------------------
@@ -1144,4 +1135,3 @@ function smoothstep01(t: number): number {
  return x * x * (3 - 2 * x);
 }
 
-export { COLS as WAKE_COLS, ROWS as WAKE_ROWS };

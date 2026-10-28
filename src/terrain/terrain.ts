@@ -606,18 +606,4 @@ export class Terrain {
   return this.heightfield.normalAt(x, z, out);
  }
 
- dispose() {
-  this.gfx.scene.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
-  if (this.prepassMat) this.prepassMat.dispose();
-  if (this._depthMats) {
-   for (let i = 0; i < this._depthMats.length; i++) {
-    this._depthMats[i].dispose();
-   }
-  }
-  this._detailRT.dispose();
-  this.deform.dispose();
-  this.heightfield.dispose();
- }
 }

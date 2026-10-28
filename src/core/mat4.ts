@@ -179,7 +179,7 @@ export function xformPoint(m: Float32Array, om: number, x: number, y: number, z:
  * @param {Float32Array} dst
  * @param {number} od
  */
-export function xformDir(m: Float32Array, om: number, x: number, y: number, z: number, dst: Float32Array, od: number) {
+function xformDir(m: Float32Array, om: number, x: number, y: number, z: number, dst: Float32Array, od: number) {
  dst[od] = m[om] * x + m[om + 4] * y + m[om + 8] * z;
  dst[od + 1] = m[om + 1] * x + m[om + 5] * y + m[om + 9] * z;
  dst[od + 2] = m[om + 2] * x + m[om + 6] * y + m[om + 10] * z;

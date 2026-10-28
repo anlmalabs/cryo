@@ -90,7 +90,7 @@ export async function buildBootAssets(ctx: BuildBootAssetsContext): Promise<Boot
  let speeder: Speeder | null = null;
  if (FLYING && speederReady !== null && shipController) {
   const asset = await speederReady;
-  speeder = new Speeder(gfx, terrain, sky, shadows, asset, shipController, spray);
+  speeder = new Speeder(gfx, terrain, sky, shadows, asset, shipController);
  }
  speeder?.registerPrepass(depthPass);
 

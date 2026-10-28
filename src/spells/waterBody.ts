@@ -37,7 +37,7 @@ import type { SpellLights } from "./spellLights.js";
 import type { CameraRig } from "../core/camera.js";
 
 /** Must match `vec4 strandParams[8]` in `water.vertex.glsl`. */
-export const STRAND_MAX = 8;
+const STRAND_MAX = 8;
 
 /**
  * Spine *samples* per strand — the width of the data texture, and the most
@@ -66,7 +66,7 @@ export const STRAND_COLS = 64;
  * It is also the sampling rate the relief field has to stay under; see the note
  * on `waterRelief`.
  */
-export const LATTICE_COLS = 176;
+const LATTICE_COLS = 176;
 
 /**
  * Vertices around the section.
@@ -83,7 +83,7 @@ export const LATTICE_COLS = 176;
  * around the section, rather than along it, is exactly what stops a tube reading
  * as a string of beads.
  */
-export const RING = 24;
+const RING = 24;
 
 export const PROFILE_TUBE = 0;
 export const PROFILE_SHEET = 1;
@@ -443,10 +443,6 @@ export class WaterBody {
   this.lights.apply(this.material);
  }
 
- /** Live strand count, for the overlay. */
- get liveStrands() {
-  return this._live;
- }
 
  get triangles() {
   return this.mesh.visible
@@ -507,12 +503,6 @@ export class WaterBody {
   this.mesh.visible = false;
  }
 
- dispose() {
-  if (this.mesh.parent) this.mesh.parent.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
-  this.dataTex.dispose();
- }
 }
 
 /**

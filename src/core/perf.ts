@@ -45,9 +45,9 @@ export const BUDGET_90FPS_MS = 11.1;
 export const BUDGET_60FPS_MS = 16.7;
 
 /** fps at or above which the frame is considered good. */
-export const FPS_GOOD = 88;
+const FPS_GOOD = 88;
 /** fps at or above which the frame is merely acceptable. */
-export const FPS_WARN = 60;
+const FPS_WARN = 60;
 /**
  * The overlay's `fpsLow` (1% low) row warns below this — a DIFFERENT band from
  * `FPS_GOOD`, deliberately: the low-fps figure is the worst 1% of frames, so it

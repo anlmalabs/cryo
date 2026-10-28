@@ -519,13 +519,4 @@ export class ShadowSystem {
    });
   }
  }
-
- dispose() {
-  for (const rt of this._rts) rt.dispose();
-  for (const m of this.materials) m.dispose();
-  this._rts.length = 0;
-  this.maps.length = 0;
-  this.materials.length = 0;
-  for (const list of this._casters) list.length = 0;
- }
 }

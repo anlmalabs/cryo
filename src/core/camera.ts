@@ -55,7 +55,7 @@ const reducedMotionMQ = window.matchMedia?.(REDUCED_MOTION_QUERY) ?? null;
  * is a subscription rather than a snapshot — an OS setting flipped while the
  * page is open shows up on the very next frame.
  */
-export let reducedMotion = reducedMotionMQ?.matches === true;
+let reducedMotion = reducedMotionMQ?.matches === true;
 
 reducedMotionMQ?.addEventListener("change", (e: MediaQueryListEvent) => {
  reducedMotion = e.matches;

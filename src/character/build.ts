@@ -40,11 +40,11 @@ import {
 // ------------------------------------------------------------- material slots
 export const M_ROBE = 0;     // deep indigo wool
 export const M_MANTLE = 1;   // lighter blue-grey over-mantle
-export const M_TUNIC = 2;    // pale cream under-layer
-export const M_LEATHER = 3;  // belt and boots
-export const M_SKIN = 4;     // face, deep in shade
-export const M_TRIM = 5;     // pale blue banding
-export const M_FUR = 6;      // hood and cuff trim
+const M_TUNIC = 2;    // pale cream under-layer
+const M_LEATHER = 3;  // belt and boots
+const M_SKIN = 4;     // face, deep in shade
+const M_TRIM = 5;     // pale blue banding
+const M_FUR = 6;      // hood and cuff trim
 
 /** Segments around a limb. 14 is smooth at the distances this is seen from. */
 const SEG = 14;
@@ -580,7 +580,7 @@ const HOOD_UV_SWEEP = 0.45;
  *  @param {number[]} out receives `[x, y, z]` in metres, bind space
  *  @returns {number[]} `out`, for chaining
  */
-export function hoodRimPoint(s: number, out: number[]): number[] {
+function hoodRimPoint(s: number, out: number[]): number[] {
  const a = s * Math.PI * 2;
  // U spans the rim horizontally, W vertically, both perpendicular to FACE_DIR.
  const ux = 1, uy = 0, uz = 0;

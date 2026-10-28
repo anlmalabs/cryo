@@ -21,10 +21,10 @@
 import * as THREE from "three";
 
 /** Quads per side, per ring. Must be divisible by 4. */
-export const GRID_N = 160;
+const GRID_N = 160;
 
 /** Number of rings. */
-export const LEVELS = 8;
+const LEVELS = 8;
 
 /** Vertex spacing of the innermost ring, metres. */
 export const BASE_SPACING = 0.085;
@@ -134,10 +134,10 @@ export function buildClipmapMesh() {
 }
 
 /** Half-extent of the finest ring, metres — used to size the deformation area. */
-export const INNER_EXTENT = HALF * BASE_SPACING;
+const INNER_EXTENT = HALF * BASE_SPACING;
 
 /** Half-extent of the whole clipmap, metres. */
-export const OUTER_EXTENT = HALF * BASE_SPACING * Math.pow(2, LEVELS - 1);
+const OUTER_EXTENT = HALF * BASE_SPACING * Math.pow(2, LEVELS - 1);
 
 /** Half of `GRID_N` — the lattice is centred on ±this. */
 export const GRID_HALF_N = HALF;

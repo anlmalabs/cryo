@@ -43,7 +43,7 @@ import { whenReady } from "../core/gpuUtil.js";
  * Cleared depth. Beyond the camera's far plane, so the sky reads as "nothing
  * here" to every consumer without any of them needing a separate mask.
  */
-export const DEPTH_FAR = 9000;
+const DEPTH_FAR = 9000;
 
 /** Clear color of the prepass target. */
 const CLEAR = [DEPTH_FAR, 0, 0, 1];
@@ -142,13 +142,5 @@ export class DepthPass {
     "prepass:" + (this.materials[i].name || i)
    );
   }
- }
-
- dispose() {
-  if (this._unsub) this._unsub();
-  this.rtt.dispose();
-  for (let i = 0; i < this.materials.length; i++) this.materials[i].dispose();
-  this.materials.length = 0;
-  this.casters.length = 0;
  }
 }

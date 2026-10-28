@@ -145,7 +145,7 @@ export function transport(out: Float32Array, o: number, rx: number, ry: number, 
  * @param {number} maxDist
  * @returns {number} distance along the ray, or -1 for a miss
  */
-export function groundRay(terrain: GroundQuery, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): number {
+function groundRay(terrain: GroundQuery, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): number {
  const STEP = RAY_STEP;
 
  let prevT = 0;

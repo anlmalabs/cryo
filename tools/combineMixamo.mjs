@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 /**
  * Combine Mixamo FBX downloads into a single GLB with every animation clip.
  *

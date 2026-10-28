@@ -674,7 +674,7 @@ export const SCHEMA = [
 /** A quality preset name: `PRESETS`' keys. */
 export type PresetName = "ultra" | "high" | "balanced";
 
-export const PRESETS: Record<PresetName, Partial<Record<SettingKey, SettingValue>>> = {
+const PRESETS: Record<PresetName, Partial<Record<SettingKey, SettingValue>>> = {
  ultra: {},
  high: { deformResolution: 2048, resolutionScale: 1.0, ssr: true, dof: true },
  balanced: {

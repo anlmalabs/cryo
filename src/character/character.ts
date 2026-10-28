@@ -736,20 +736,4 @@ export class Character {
    await whenReady(this.gfx, m, m.name);
   }
  }
-
- dispose() {
-  const scene = this.gfx.scene;
-  for (const mesh of [this.bodyMesh, this.clothMesh, this.furMesh]) {
-   scene.remove(mesh);
-   mesh.geometry.dispose();
-  }
-  this.bodyMat.dispose();
-  this.clothMat.dispose();
-  this.furMat.dispose();
-  for (let i = 0; i < this._depthMats.length; i++) this._depthMats[i].dispose();
-  if (this._prepassMats) {
-   for (let i = 0; i < this._prepassMats.length; i++) this._prepassMats[i].dispose();
-  }
-  this.charTex.dispose();
- }
 }

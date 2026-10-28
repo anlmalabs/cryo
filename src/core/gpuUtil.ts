@@ -277,6 +277,6 @@ export async function bakeOnce(pass: FullscreenPass, target: THREE.WebGLRenderTa
  * Compile every material currently in the main scene.
  * @param {import("./gfx.js").Gfx} gfx
  */
-export function compileAll(gfx: GfxLike) {
+function compileAll(gfx: GfxLike) {
  return gfx.renderer.compileAsync(gfx.scene, gfx.threeCamera);
 }

@@ -368,4 +368,3 @@ async function loadLayers(
  return out;
 }
 
-export { layersFor as modelTextureLayers };

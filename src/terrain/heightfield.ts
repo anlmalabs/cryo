@@ -28,12 +28,12 @@ import { S } from "../core/settings.js";
 import { FullscreenPass, bakeOnce } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 
-export const WORLD_SIZE = 2048; // metres across the whole field
+const WORLD_SIZE = 2048; // metres across the whole field
 export const HEIGHT_RES = 4096; // 0.5 m per texel
-export const AUX_RES = 2048;
+const AUX_RES = 2048;
 
 /** Half-extent the player is kept inside, leaving margin for the far rings. */
-export const PLAY_RADIUS = 1000000; // effectively infinite
+const PLAY_RADIUS = 1000000; // effectively infinite
 
 /**
  * CPU mirror decimation: the readback keeps every other texel in both axes,
@@ -314,11 +314,6 @@ export class Heightfield {
   }
  }
 
- dispose() {
-  this._heightRT.dispose();
-  this._auxRT.dispose();
-  this.heightCPU = null;
- }
 }
 
 const _w = new Float32Array(4);

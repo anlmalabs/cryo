@@ -294,16 +294,6 @@ export class Overlay {
   // The widgets themselves are registered by `_mkGroup` as it appends each row.
   for (let g = 0; g < SCHEMA.length; g++) this._mkGroup(SCHEMA[g]);
  }
-
- /**
-  * Late-bind the systems the camera readout samples.
-  *
-  * @param {OverlayRefs} refs
-  */
- attach(refs: OverlayRefs) {
-  if (refs.rig) this.rig = refs.rig;
-  if (refs.character) this.character = refs.character;
- }
  /**
   * One readout: a label and its value span, registered in `readouts` under
   * `key` and `key + "_row"` so both the text and its warn/bad class can be

@@ -31,15 +31,15 @@ import type { CameraRig } from "../core/camera.js";
 import type { DepthPass } from "../render/depthPass.js";
 
 /** Pool size. Two full formations' worth. */
-export const CRYSTAL_MAX = 96;
+const CRYSTAL_MAX = 96;
 
 /** Vertices per crystal: two rings of six, plus an apex. Matches the include. */
-export const VERTS = 13;
+const VERTS = 13;
 
-export const RING = 6;
+const RING = 6;
 
 /** How many cascades a 40 cm prism is worth drawing into. */
-export const CRYSTAL_CASCADES = 2;
+const CRYSTAL_CASCADES = 2;
 
 /**
  * Seconds a spent prism takes to retreat from full size to nothing.
@@ -47,7 +47,7 @@ export const CRYSTAL_CASCADES = 2;
  * Sublimation is a linear shrink rather than a fade, so the prism goes back
  * into the drift it came out of and nothing pops.
  */
-export const SUBLIME_SECONDS = 6.0;
+const SUBLIME_SECONDS = 6.0;
 
 /**
  * Metres the warm-up crystal is planted *above* its ground point.
@@ -56,7 +56,7 @@ export const SUBLIME_SECONDS = 6.0;
  * warm-up would compile a pipeline whose blend/depth state no longer matches
  * the first real cast.
  */
-export const WARM_UP_LIFT = 0.02;
+const WARM_UP_LIFT = 0.02;
 
 /**
  * Fractional parts of the Fibonacci-sphere vertex seed.
@@ -74,9 +74,9 @@ export const WARM_UP_LIFT = 0.02;
  * used to decorrelate the three inputs. See also
  * `src/vfx/particles.ts`, which uses the same family.
  */
-export const GOLDEN_ANGLE = 0.618034;
-export const SEED_X_WEIGHT = 0.137;
-export const SEED_Z_WEIGHT = 0.311;
+const GOLDEN_ANGLE = 0.618034;
+const SEED_X_WEIGHT = 0.137;
+const SEED_Z_WEIGHT = 0.311;
 
 /**
  * Fallback fragment bodies (G1): the depth and prepass fragments are owned by
@@ -527,14 +527,6 @@ export class CrystalField {
   this.mesh.visible = false;
  }
 
- dispose() {
-  if (this.mesh.parent) this.mesh.parent.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
-  for (let i = 0; i < this._depthMats.length; i++) this._depthMats[i].dispose();
-  if (this.prepassMat) this.prepassMat.dispose();
-  this.dataTex.dispose();
- }
 }
 
 /** Static lattice: `position` is (crystal, vertex, 0). */

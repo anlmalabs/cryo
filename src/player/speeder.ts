@@ -289,8 +289,6 @@ export class Speeder {
  shadows!: ShadowSystem;
  /** The controller that decides where the player is; this only dresses it. */
  controller!: FlightController;
- /** The owner's spray field, kept for the owner's own reference only. */
- spray?: unknown;
 
  /** Craft half-extents, as the baked header reports them: `{min, max}`. */
  bounds!: CraftBounds;
@@ -372,7 +370,6 @@ export class Speeder {
   shadows: ShadowSystem,
   asset: ModelAsset,
   controller: FlightController,
-  spray?: unknown
  ) {
   this.gfx = gfx;
   this.terrain = terrain;
@@ -1141,19 +1138,5 @@ export class Speeder {
   if (this.bolts) await this.bolts.warmUp();
   await this.jet.warmUp();
   for (const j of this.bottomJets) await j.warmUp();
- }
-
- dispose() {
-  this.gfx.scene.remove(this.mesh);
-  this.material.dispose();
-  this.tex.dispose();
-  this.albedoTex.dispose();
-  this.ormTex.dispose();
-  this.geometry.dispose();
-  if (this.bolts) this.bolts.dispose();
-  this.jet.dispose();
-  for (const j of this.bottomJets) j.dispose();
-  for (const m of this._depthMats) m.dispose();
-  this._prepassMat?.dispose();
  }
 }

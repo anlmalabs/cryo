@@ -50,7 +50,7 @@ function assetBaseEnv(): ImportMetaEnv {
 }
 
 /** Trailing slashes stripped, so `asset()` never emits a double slash. */
-export const ASSET_BASE = String(
+const ASSET_BASE = String(
  assetBaseEnv().VITE_ASSET_BASE ?? DEFAULT_BASE
 ).replace(/\/+$/, "");
 
@@ -60,7 +60,7 @@ export const ASSET_BASE = String(
  * @param {string} path relative to the store root, e.g. `audio/ambiance.mp3`
  * @returns {string} an absolute URL, or `path` untouched when no base is set
  */
-export function asset(path: string): string {
+function asset(path: string): string {
  const clean = path.replace(/^\/+/, "");
  return ASSET_BASE ? `${ASSET_BASE}/${clean}` : clean;
 }

@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 /**
  * Bake a GLB capital ship into `public/models/destroyer.bin` (format "SDST").
  *

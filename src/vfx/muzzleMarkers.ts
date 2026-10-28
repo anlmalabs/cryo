@@ -143,11 +143,4 @@ export class MuzzleMarkers {
   this.texture.needsUpdate = true;
   this.mesh.visible = this._count > 0;
  }
-
- dispose() {
-  this.gfx.scene.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
-  this.texture.dispose();
- }
 }

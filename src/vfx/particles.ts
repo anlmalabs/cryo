@@ -452,13 +452,6 @@ export class SprayField {
  async warmUp() {
   await whenReady(this.gfx, this.material, "spray material");
  }
-
- dispose() {
-  this.gfx.scene.remove(this.mesh);
-  this.mesh.geometry.dispose();
-  this.material.dispose();
-  this.dataTex.dispose();
- }
 }
 
 /**
@@ -501,4 +494,3 @@ function buildQuadMesh() {
  return mesh;
 }
 
-export { CAPACITY as SPRAY_CAPACITY };
