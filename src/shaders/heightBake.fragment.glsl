@@ -24,6 +24,7 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec2 p = worldOrigin + vUV * worldSize;
+    p = mod(p, worldSize) - worldSize * 0.5; // make it tileable around origin
 
     float h = terrainMacro(p, windAngle, heightAmp);
 

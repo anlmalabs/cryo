@@ -54,7 +54,7 @@ float sampleHeightBicubic(sampler2D tex, vec2 uv, float res) {
 
 /// World XZ → height-texture UV.
 vec2 worldToHeightUV(vec2 p, vec2 origin, float size) {
-    return (p - origin) / size;
+    return fract((p - origin) / size);
 }
 
 struct ClipmapVertex {

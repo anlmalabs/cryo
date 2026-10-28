@@ -33,7 +33,7 @@ export const HEIGHT_RES = 4096; // 0.5 m per texel
 export const AUX_RES = 2048;
 
 /** Half-extent the player is kept inside, leaving margin for the far rings. */
-export const PLAY_RADIUS = 620;
+export const PLAY_RADIUS = 1000000; // effectively infinite
 
 /**
  * CPU mirror decimation: the readback keeps every other texel in both axes,
@@ -111,7 +111,7 @@ export class Heightfield {
    format: THREE.RGFormat,
    internalFormat: "RG32F",
    filter,
-   wrap: THREE.ClampToEdgeWrapping,
+   wrap: THREE.RepeatWrapping,
    depth: false,
   });
   this.heightTex = this._heightRT.texture;
@@ -120,7 +120,7 @@ export class Heightfield {
    type: THREE.HalfFloatType,
    format: THREE.RGBAFormat,
    filter: THREE.LinearFilter,
-   wrap: THREE.ClampToEdgeWrapping,
+   wrap: THREE.RepeatWrapping,
    depth: false,
   });
   this.auxTex = this._auxRT.texture;
@@ -246,21 +246,24 @@ export class Heightfield {
   this.maxHeight = hi;
  }
 
- /**
-  * Bicubic B-spline height lookup, matching the vertex shader's
-  * reconstruction so the ground the character stands on is the ground that
-  * is drawn.
-  * @param {number} x @param {number} z
-  */
+  /**
+   * Bicubic B-spline height lookup, matching the vertex shader's
+   * reconstruction so the ground the character stands on is the ground that
+   * is drawn.
+   * @param {number} x @param {number} z
+   */
  heightAt(x: number, z: number) {
   const h = this.heightCPU;
   if (!h) return 0;
   const res = this.cpuRes;
 
-  // Shift from texel *corner* to texel *centre*: the bicubic weights are
-  // defined around the sample point, and the GPU bake samples texel centres.
-  const fx = ((x - this.origin.x) / this.size) * res - HALF_TEXEL;
-  const fz = ((z - this.origin.y) / this.size) * res - HALF_TEXEL;
+    // Shift from texel *corner* to texel *centre*: the bicubic weights are
+    // defined around the sample point, and the GPU bake samples texel centres.
+    const worldSize = this.size;
+    const localX = ((x - this.origin.x) % worldSize + worldSize) % worldSize;
+    const localZ = ((z - this.origin.y) % worldSize + worldSize) % worldSize;
+    const fx = (localX / worldSize) * res - HALF_TEXEL;
+    const fz = (localZ / worldSize) * res - HALF_TEXEL;
 
   const ix = Math.floor(fx);
   const iz = Math.floor(fz);
@@ -287,29 +290,29 @@ export class Heightfield {
   return sum;
  }
 
- /**
-  * Surface normal from the same reconstruction, by central difference.
-  * @param {number} x @param {number} z @param {THREE.Vector3} out
-  */
- normalAt(x: number, z: number, out: THREE.Vector3) {
-  const e = this.cpuTexel || 1;
-  const hx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
-  const hz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
-  out.set(-hx / (2 * e), 1, -hz / (2 * e));
-  out.normalize();
-  return out;
- }
-
- /** Clamp a world position to the playable area, in place. */
- clampToPlayArea(v: THREE.Vector3) {
-  const r = PLAY_RADIUS;
-  const d = Math.hypot(v.x, v.z);
-  if (d > r) {
-   const k = r / d;
-   v.x *= k;
-   v.z *= k;
+  /**
+   * Surface normal from the same reconstruction, by central difference.
+   * @param {number} x @param {number} z @param {THREE.Vector3} out
+   */
+  normalAt(x: number, z: number, out: THREE.Vector3) {
+    const e = this.cpuTexel || 1;
+    const hx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
+    const hz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
+    out.set(-hx / (2 * e), 1, -hz / (2 * e));
+    out.normalize();
+    return out;
   }
- }
+
+  /** Clamp a world position to the playable area, in place. */
+  clampToPlayArea(v: THREE.Vector3) {
+    const r = PLAY_RADIUS;
+    const d = Math.hypot(v.x, v.z);
+    if (d > r) {
+     const k = r / d;
+     v.x *= k;
+     v.z *= k;
+    }
+  }
 
  dispose() {
   this._heightRT.dispose();
