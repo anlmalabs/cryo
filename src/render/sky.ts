@@ -379,28 +379,20 @@ export class Sky {
   const u = this.material.uniforms;
   const cam = rig.camera;
 
-  // The pulsar core pulses at 3 rad/s; drive the actual sunlight intensity
-  // from the same pulse so the scene lighting expands/shrinks in step with
-  // the star rather than staying on a static slider value.
-  const pulse = 0.5 + 0.5 * Math.sin(time * 3.0);
-  const sunPulse = 0.6 + 0.4 * pulse;
-
   u.viewProjection.value = cam.viewProjection;
   u.cameraPosition.value = cam.position;
   u.skyScale.value = cam.maxZ * SKYBOX_HALF_FAR;
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
-  u.sunIntensity.value = this.sunScale * sunPulse;
+  // Stable sunlight: ambient/direct lighting does not strobe. Only the
+  // pulsar core and the snow/water glints shimmer (see terrain/water update).
+  u.sunIntensity.value = this.sunScale;
   u.time.value = time;
 
   const a = /** @type {number} */ (S.windDirection) * DEG2RAD;
   u.windDir.value.set(Math.sin(a), Math.cos(a));
   u.cloudAmount.value = CLOUD_AMOUNT;
 
-  // Recompute the base radiance from the slider (stable) before pulsing, so
-  // the pulse never compounds across frames.
-  this.sunRadiance.setRGB(0.25 * this.sunScale, 0.28 * this.sunScale, 0.32 * this.sunScale);
-  this.sunRadiance.multiplyScalar(sunPulse);
   u.sunRadiance.value = this.sunRadiance;
   u.shR.value = this.sh;
   u.ambientIntensity.value = S.ambientIntensity;

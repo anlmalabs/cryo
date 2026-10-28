@@ -436,7 +436,9 @@ export class WaterBody {
   u.aerialStrength.value = S.aerialStrength;
   u.ambientIntensity.value = S.ambientIntensity;
   u.sssStrength.value = S.sssStrength;
-  u.glintIntensity.value = S.glintIntensity;
+  // Pulsar shimmer: water glints pulse in step with the star.
+  const glintPulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(this._t * 3.0));
+  u.glintIntensity.value = (S.glintIntensity as number) * glintPulse;
   u.glintGrazing.value = S.glintGrazing;
   u.waterDepthTint.value = S.waterDepthTint;
 

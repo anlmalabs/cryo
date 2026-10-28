@@ -154,6 +154,8 @@ export class Terrain {
  _u!: TerrainUniforms;
  /** The deform texture currently bound, to catch the ping-pong swap. */
  _boundDeform!: THREE.Texture;
+ /** Pulsar shimmer clock. */
+ _clock: number = 0;
 
  /**
   * @param gfx the shared renderer handle
@@ -527,6 +529,7 @@ export class Terrain {
   * @param {number} dt seconds
   */
  update(cameraPos: THREE.Vector3, focus: { x: number; z: number }, dt: number) {
+  this._clock += dt;
   const u = this._u;
   const windAngle = (/** @type {number} */ (S.windDirection) * Math.PI) / 180;
 
@@ -573,7 +576,10 @@ export class Terrain {
   }
 
   u.detailStrength.value = S.detailNormalStrength;
-  u.glintIntensity.value = S.glintIntensity;
+  // Pulsar shimmer: glints pulse at the star's 3 rad/s cadence so the
+  // field shimmers in step with the pulsar without strobing the whole scene.
+  const glintPulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(this._clock * 3.0));
+  u.glintIntensity.value = (S.glintIntensity as number) * glintPulse;
   u.glintGrazing.value = S.glintGrazing;
   u.sssStrength.value = S.sssStrength;
   u.sssRadius.value = S.sssRadius;
