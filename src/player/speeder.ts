@@ -1102,7 +1102,7 @@ export class Speeder {
   // Nose bottom thruster: single plume, forward on the underside.
   _nozzle.spanX = 0;
   _nozzle.dropY = -0.5 + S.jetDropY;
-  _nozzle.backZ = 2.0 + S.jetBackZ;
+  _nozzle.backZ = 0.9 + S.jetBackZ;
   this.noseBottomJet.update(
    this._lastDt || FALLBACK_DT, this._world, _nozzle,
    this._throttle || 0, cameraPos
