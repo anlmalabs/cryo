@@ -115,12 +115,16 @@ void main() {
     float spin = time * 2.0;
     float tilt = 0.52; // ~30 degrees
     vec3 mag = cos(tilt) * sunDir + sin(tilt) * (cos(spin) * e1 + sin(spin) * e2);
-    // Beam emanates from the core: bright near sunDir, fading outward along
-    // mag; narrow cone so it reads as a jet, not a streak across the sky.
-    float nearCore = pow(max(dot(dir, sunDir), 0.0), 16.0);
-    float b1 = pow(max(dot(dir,  mag), 0.0), 512.0);
-    float b2 = pow(max(dot(dir, -mag), 0.0), 512.0);
-    col += vec3(0.373, 0.831, 1.0) * (b1 + b2) * nearCore * 2.0;
+    // Jet: narrow cone around the rotating magnetic axis, gated so the
+    // glow hugs the core (brightest at its base next to the star) instead
+    // of floating along the beam's full length.
+    float baseProj = dot(sunDir, mag);               // cos(tilt)
+    float narrow = pow(max(dot(dir, mag), 0.0), 1024.0);
+    float fromCore = smoothstep(baseProj - 0.05, baseProj + 0.15, dot(dir, mag));
+    col += vec3(0.373, 0.831, 1.0) * narrow * fromCore * 2.5;
+    float narrow2 = pow(max(dot(dir, -mag), 0.0), 1024.0);
+    float fromCore2 = smoothstep(-baseProj - 0.05, -baseProj + 0.15, dot(dir, -mag));
+    col += vec3(0.373, 0.831, 1.0) * narrow2 * fromCore2 * 2.5;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
     float n = fbmd(q + vec2(time * 0.005, 0.0), 4, 2.0, 0.5).x;
