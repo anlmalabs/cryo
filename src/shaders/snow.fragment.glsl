@@ -457,6 +457,12 @@ void main() {
 
     vec3 color = direct + ambient;
 
+    // Soft ambilight bleed: at the pulsar's peak the lavender/magenta sky
+    // colour seeps into flat and sloped snow surfaces (gated by direct
+    // light so deep crevices stay dark indigo-blue).
+    float bleed = shadow * (1.0 - rockExposed) * 0.18;
+    color += albedo * sunRadiance * bleed * 0.25;
+
     // --- spell light -------------------------------------------------------
     // Same wrapped diffuse and the same transmission lobe the sun drives, so a
     // ribbon of lit water lying across a berm glows *through* the crest instead
