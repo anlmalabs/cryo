@@ -124,7 +124,7 @@ void main() {
     col += vec3(0.55, 0.20, 0.90) * ring;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
-    float n = fbmd(q + vec2(time * 0.18, 0.0), 4, 2.0, 0.5).x;
+    float n = fbmd(q + vec2(time * 0.06, 0.0), 4, 2.0, 0.5).x;
     float fil = smoothstep(0.15, 0.55, n);
     float fil2 = smoothstep(0.35, 0.75, n);
     vec3 filCol = mix(vec3(1.0, 0.416, 0.239), vec3(1.0, 0.541, 0.361), fil2);
@@ -151,24 +151,24 @@ void main() {
         float heightMask = smoothstep(0.02, 0.20, dir.y) * (1.0 - smoothstep(0.80, 0.98, dir.y));
         vec3 p0 = dir * 1.6;
         // Domain warping in 3D space (seamless).
-        float w1 = noise3(p0 * 0.8 + vec3(0.0, 0.0, time * 1.2)) * 0.5 + 0.5;
-        float w2 = noise3(p0 * 0.8 + vec3(4.7, 3.1, time * 1.7)) * 0.5 + 0.5;
+        float w1 = noise3(p0 * 0.8 + vec3(0.0, 0.0, time * 0.6)) * 0.5 + 0.5;
+        float w2 = noise3(p0 * 0.8 + vec3(4.7, 3.1, time * 0.85)) * 0.5 + 0.5;
         vec3 pw = p0 + vec3((w1 - 0.5) * 2.5, (w2 - 0.5) * 0.9, 0.0);
-        float n1 = noise3(pw * 1.1 + vec3(0.0, 0.0, time * 1.4));
-        float n2 = noise3(pw * 0.6 + vec3(9.2, 1.7, time * 2.0));
-        float n3 = noise3(pw * 1.5 + vec3(2.3, 7.4, time * 1.1));
+        float n1 = noise3(pw * 1.1 + vec3(0.0, 0.0, time * 0.7));
+        float n2 = noise3(pw * 0.6 + vec3(9.2, 1.7, time * 1.0));
+        float n3 = noise3(pw * 1.5 + vec3(2.3, 7.4, time * 0.55));
         float flow = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * 0.5 + 0.5;
         flow = smoothstep(0.18, 0.82, flow);
         float vert = smoothstep(0.0, 0.15, dir.y) * (1.0 - smoothstep(0.70, 0.95, dir.y));
         float intensity = auroraStrength * heightMask * flow * vert;
-        float phase = 0.5 + 0.5 * sin(time * 1.5 + dir.x * 0.5 + dir.z * 0.3);
+        float phase = 0.5 + 0.5 * sin(time * 0.75 + dir.x * 0.5 + dir.z * 0.3);
         vec3 c0 = vec3(0.35, 0.05, 0.55);   // deep violet
         vec3 c1 = vec3(0.85, 0.18, 0.78);   // vibrant magenta
         vec3 c2 = vec3(1.0, 0.35, 0.72);    // neon pink
         float t = clamp(dir.y * 1.4 + flow * 0.4 + phase * 0.3, 0.0, 1.0);
         vec3 auroraCol = mix(c0, c1, smoothstep(0.0, 0.5, t));
         auroraCol = mix(auroraCol, c2, smoothstep(0.5, 1.0, t));
-        float breath = 0.7 + 0.3 * (0.5 + 0.5 * sin(time * 2.0));
+        float breath = 0.7 + 0.3 * (0.5 + 0.5 * sin(time * 0.5));
         col += auroraCol * intensity * 1.6 * breath;
     }
 
