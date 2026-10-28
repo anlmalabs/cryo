@@ -345,6 +345,7 @@ export class Speeder {
  _bottomLightTimer?: number;
  _prevRiseLevel?: number;
  _prevBoost?: boolean;
+ _prevY?: number;
  _liftSpeed?: number;
  _throttle?: number;
  _visible!: boolean;
@@ -910,11 +911,22 @@ export class Speeder {
   // Bottom repulsors pulse for 1s on an E press, then return to idle.
   if (this._prevRiseLevel === undefined) this._prevRiseLevel = input.riseLevel;
   if (this._prevBoost === undefined) this._prevBoost = !!input.boost;
+  if (this._prevBoost === undefined) this._prevBoost = !!input.boost;
   const boostEdge = !!input.boost && !this._prevBoost;
   this._prevBoost = !!input.boost;
+  if (this._prevRiseLevel === undefined) this._prevRiseLevel = input.riseLevel;
   const riseEdge = input.riseLevel !== this._prevRiseLevel;
   this._prevRiseLevel = input.riseLevel;
-  const ePressed = boostEdge || riseEdge;
+  // Only pulse when the ship is actually climbing (not descending).
+  // Track vertical position across frames; pulse only if altitude rose.
+  if (this._prevY === undefined) this._prevY = this.position.y;
+  const climbing = this.position.y >= (this._prevY ?? this.position.y);
+  this._prevY = this.position.y;
+  // In throttle scheme, E (boost) climbs only when vert < 0 (W dives, S climbs? check);
+  // simplest robust gate: pulse when climb target increased.
+  const c3 = this.controller;
+  const climbUp = (c3.climb ?? 0) > 0 || (c3.climbRate ?? 0) > 0;
+  const ePressed = (boostEdge || riseEdge) && (climbing || climbUp);
   if (ePressed) this._bottomLightTimer = 1.0;
   if (this._bottomLightTimer && this._bottomLightTimer > 0) {
    this._bottomLightTimer = Math.max(0, this._bottomLightTimer - dt);
