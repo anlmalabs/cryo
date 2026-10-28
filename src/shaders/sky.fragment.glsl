@@ -101,30 +101,11 @@ void main() {
         col += vec3(0.85, 0.9, 1.0) * star * bright;
     }
 
-    // Pulsar core along key-light direction (HDR 8-16).
+    // Pulsar core along key-light direction (HDR 8-16), pulsing.
     float mu = dot(dir, sunDir);
-    float core = pow(max(mu, 0.0), 1600.0) * 12.0;
+    float pulse = 0.5 + 0.5 * sin(time * 3.0);
+    float core = pow(max(mu, 0.0), 1600.0) * 12.0 * (0.6 + 0.4 * pulse);
     col += vec3(0.55, 0.72, 1.0) * core;
-    // Pulsar lighthouse beams: anchored to the core (sunDir), rotating
-    // magnetic axis. Each beam is a narrow streak emanating radially from
-    // the core point, so it reads as jets shooting out of the star rather
-    // than an orbiting sphere.
-    vec3 upv = (abs(sunDir.y) < 0.9) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    vec3 e1 = normalize(cross(sunDir, upv));
-    vec3 e2 = cross(sunDir, e1);
-    float spin = time * 2.0;
-    float tilt = 0.52; // ~30 degrees
-    vec3 mag = cos(tilt) * sunDir + sin(tilt) * (cos(spin) * e1 + sin(spin) * e2);
-    // Jet: narrow cone around the rotating magnetic axis, gated so the
-    // glow hugs the core (brightest at its base next to the star) instead
-    // of floating along the beam's full length.
-    float baseProj = dot(sunDir, mag);               // cos(tilt)
-    float narrow = pow(max(dot(dir, mag), 0.0), 1024.0);
-    float fromCore = smoothstep(baseProj - 0.05, baseProj + 0.15, dot(dir, mag));
-    col += vec3(0.373, 0.831, 1.0) * narrow * fromCore * 2.5;
-    float narrow2 = pow(max(dot(dir, -mag), 0.0), 1024.0);
-    float fromCore2 = smoothstep(-baseProj - 0.05, -baseProj + 0.15, dot(dir, -mag));
-    col += vec3(0.373, 0.831, 1.0) * narrow2 * fromCore2 * 2.5;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
     float n = fbmd(q + vec2(time * 0.005, 0.0), 4, 2.0, 0.5).x;
