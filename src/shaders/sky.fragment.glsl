@@ -146,21 +146,22 @@ void main() {
         // Uniform magenta-purple ion cloud: a seamless, fluid gradient
         // driven by low-frequency noise so the emission is evenly
         // distributed across the sky (no isolated pink-spot artifacts).
-        float phi = atan(dir.z, dir.x);
+        // Seamless on the sphere: sample noise in 3D using dir directly so
+        // the phi=+pi / phi=-pi wrap is invisible (no vertical seam).
         float heightMask = smoothstep(0.02, 0.20, dir.y) * (1.0 - smoothstep(0.80, 0.98, dir.y));
-        // Domain warping for fluid, organic cloud drift.
-        float w1 = noise3(vec3(phi * 0.8, dir.y * 0.5, time * 1.2)) * 0.5 + 0.5;
-        float w2 = noise3(vec3(phi * 0.8 + 4.7, dir.y * 0.5 + 3.1, time * 1.7)) * 0.5 + 0.5;
-        float wx = phi + (w1 - 0.5) * 2.5;
-        float wy = dir.y + (w2 - 0.5) * 0.9;
-        float n1 = noise3(vec3(wx * 1.1, wy * 0.7, time * 1.4));
-        float n2 = noise3(vec3(wx * 0.6 + 9.2, wy * 1.3 + 1.7, time * 2.0));
-        float n3 = noise3(vec3(wx * 1.5 + 2.3, wy * 0.9 + 7.4, time * 1.1));
+        vec3 p0 = dir * 1.6;
+        // Domain warping in 3D space (seamless).
+        float w1 = noise3(p0 * 0.8 + vec3(0.0, 0.0, time * 1.2)) * 0.5 + 0.5;
+        float w2 = noise3(p0 * 0.8 + vec3(4.7, 3.1, time * 1.7)) * 0.5 + 0.5;
+        vec3 pw = p0 + vec3((w1 - 0.5) * 2.5, (w2 - 0.5) * 0.9, 0.0);
+        float n1 = noise3(pw * 1.1 + vec3(0.0, 0.0, time * 1.4));
+        float n2 = noise3(pw * 0.6 + vec3(9.2, 1.7, time * 2.0));
+        float n3 = noise3(pw * 1.5 + vec3(2.3, 7.4, time * 1.1));
         float flow = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * 0.5 + 0.5;
         flow = smoothstep(0.18, 0.82, flow);
         float vert = smoothstep(0.0, 0.15, dir.y) * (1.0 - smoothstep(0.70, 0.95, dir.y));
         float intensity = auroraStrength * heightMask * flow * vert;
-        float phase = 0.5 + 0.5 * sin(time * 1.5 + phi * 0.5);
+        float phase = 0.5 + 0.5 * sin(time * 1.5 + dir.x * 0.5 + dir.z * 0.3);
         vec3 c0 = vec3(0.35, 0.05, 0.55);   // deep violet
         vec3 c1 = vec3(0.85, 0.18, 0.78);   // vibrant magenta
         vec3 c2 = vec3(1.0, 0.35, 0.72);    // neon pink
