@@ -30,7 +30,7 @@ export function buildFlightMode(ctx: BuildFlightModeContext): FlightModeState {
    terrain.heightfield.clampToPlayArea(character.position);
    terrain.heightfield.clampToPlayArea(shipController.position);
    ctx.state.flying = false;
-   speeder.setVisible(true);
+   speeder.setVisible(false);
    speeder.grounded = false;
    // Ground the figure at the surface instead of hover height.
    character.position.y = terrain.heightAt(character.position.x, character.position.z);

@@ -569,10 +569,7 @@ export class CharacterController {
    * `S.speederClimbMax`, so "higher but not too high" is the shape of the
    * curve rather than a ceiling it bangs into.
    */
-  // The game opens at the ladder's top rung (see `input.riseLevel`):
-  // seeded here so the craft *starts* at altitude rather than spending
-  // its first seconds climbing off the deck.
-  this._climb = S.speeder !== false ? Math.max(0, Number(S.speederClimbMax) || 0) : 0;
+  this._climb = 0;
   /** Throttle scheme: where the vertical keys have flown the craft to. */
   this._climbWant = 0;
   /** The vertical keys, slewed (~80 ms) so the climb engages as a ramp. */

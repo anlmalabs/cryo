@@ -237,6 +237,8 @@ export async function boot() {
  let time = 0;
 
  state.flying = true;
+ if (bootAssets.speeder) bootAssets.speeder.setVisible(true);
+ bootAssets.figure.setVisible(false);
 
  startFrameLoop({
   gfx, rig, sky, shadows, terrain, character, figure, contact, wingmen, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, pumpBounces,

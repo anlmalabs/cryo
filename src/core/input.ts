@@ -36,7 +36,7 @@ export const input = {
   * on, 2 and 3 climb clean above them. E steps up and wraps back to the
   * deck. Starts at the top rung — the game opens at altitude.
   */
- riseLevel: 3,
+ riseLevel: 1,
 
  // The throttle flight scheme (`S.flightThrottle`), all three inert in the
  // classic scheme and on foot — see pollInput.
