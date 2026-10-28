@@ -210,7 +210,7 @@ export class Sky {
   // Neutron-star key light: blackbody at millions of K is blinding blue-white.
   // sunScale carries the radiance; these RGB ratios are the NS spectrum.
   this.sunRadiance.setRGB(0.25 * this.sunScale, 0.28 * this.sunScale, 0.32 * this.sunScale);
-  this.sunColor.setRGB(0.69, 0.80, 1.0);
+  this.sunColor.setRGB(0.62, 0.72, 1.0);
  }
 
  /**

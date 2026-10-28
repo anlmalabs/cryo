@@ -149,9 +149,11 @@ void main() {
         // vertical falloff: bright base, faded top
         float vert = smoothstep(0.0, 0.18, dir.y) * (1.0 - smoothstep(0.45, 0.85, dir.y));
         float intensity = auroraStrength * heightMask * band * (0.55 + 0.45 * stri) * vert;
-        // colour: green dominant, upper red/violet edge
+        // colour: ionized molecular nitrogen (N2+) — deep blue base,
+        // violet upper edge (391.4/427.8 nm). Accurate for a thick N2
+        // atmosphere under a pulsar's high-energy particle wind.
         float edge = smoothstep(0.4, 0.8, dir.y);
-        vec3 auroraCol = mix(vec3(0.12, 0.95, 0.38), vec3(0.85, 0.25, 0.75), edge);
+        vec3 auroraCol = mix(vec3(0.05, 0.22, 0.85), vec3(0.55, 0.20, 0.88), edge);
         col += auroraCol * intensity * 1.6;
     }
 
