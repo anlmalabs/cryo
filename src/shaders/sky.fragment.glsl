@@ -143,24 +143,27 @@ void main() {
 
     // ---- aurora curtains (sky-only additive emission) --------------------
     if (auroraStrength > 0.001) {
+        // Uniform magenta-purple ion cloud: a seamless, fluid gradient
+        // driven by low-frequency noise so the emission is evenly
+        // distributed across the sky (no isolated pink-spot artifacts).
         float phi = atan(dir.z, dir.x);
-        // gate to upper sky
-        float heightMask = smoothstep(0.05, 0.25, dir.y) * (1.0 - smoothstep(0.75, 0.95, dir.y));
-        // low-frequency banding into sheets
-        float band = noise3(vec3(phi * 1.6, dir.y * 0.8, time * 0.03));
-        band = smoothstep(0.15, 0.75, band * 0.5 + 0.5);
-        // fine vertical striation
-        float stri = noise3(vec3(phi * 18.0, dir.y * 3.0, time * 0.12));
-        stri = stri * 0.5 + 0.5;
-        // vertical falloff: bright base, faded top
-        float vert = smoothstep(0.0, 0.18, dir.y) * (1.0 - smoothstep(0.45, 0.85, dir.y));
-        float intensity = auroraStrength * heightMask * band * (0.55 + 0.45 * stri) * vert;
-        // colour: ionized molecular nitrogen (N2+) — deep blue base
-        // (#002244/#001133), violet mid, raspberry-pink upper altitudes.
-        float edge = smoothstep(0.4, 0.8, dir.y);
-        vec3 auroraCol = mix(vec3(0.0, 0.133, 0.267), vec3(0.92, 0.30, 0.62), edge);
-        auroraCol = mix(auroraCol, vec3(0.35, 0.15, 0.78), smoothstep(0.2, 0.6, edge) * (1.0 - smoothstep(0.6, 0.9, edge)));
-        col += auroraCol * intensity * 1.6;
+        float heightMask = smoothstep(0.02, 0.20, dir.y) * (1.0 - smoothstep(0.80, 0.98, dir.y));
+        // Low-frequency Perlin/Simplex-style flow: slow, seamless drift.
+        float n1 = noise3(vec3(phi * 1.2, dir.y * 0.6, time * 0.015));
+        float n2 = noise3(vec3(phi * 0.7 + 5.3, dir.y * 1.1 + 2.1, time * 0.022));
+        float flow = (n1 * 0.6 + n2 * 0.4) * 0.5 + 0.5;
+        flow = smoothstep(0.25, 0.75, flow);
+        // Gentle vertical falloff.
+        float vert = smoothstep(0.0, 0.15, dir.y) * (1.0 - smoothstep(0.70, 0.95, dir.y));
+        float intensity = auroraStrength * heightMask * flow * vert;
+        // Seamless magenta -> violet -> neon-pink gradient, uniform mix.
+        vec3 c0 = vec3(0.35, 0.05, 0.55);   // deep violet
+        vec3 c1 = vec3(0.85, 0.18, 0.78);   // vibrant magenta
+        vec3 c2 = vec3(1.0, 0.35, 0.72);    // neon pink
+        float t = clamp(dir.y * 1.6 + flow * 0.35, 0.0, 1.0);
+        vec3 auroraCol = mix(c0, c1, smoothstep(0.0, 0.5, t));
+        auroraCol = mix(auroraCol, c2, smoothstep(0.5, 1.0, t));
+        col += auroraCol * intensity * 1.4;
     }
 
     fragColor = vec4(col, 1.0);
