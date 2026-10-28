@@ -25,7 +25,7 @@ void main() {
     vec3 col = vec3(1.0, 0.13, 0.05) * (bar * 0.55 + core * 0.9);
 
     // The crew. Dark figures crossing the lit glass, now and then: each band
-    // runs two walkers on their own slow clocks, most of each lap spent
+    // runs two models on their own slow clocks, most of each lap spent
     // off-slit so the movement stays an occasional glimpse rather than a
     // metronome. A figure is a soft full-height occluder — at any distance
     // this reads, which is all a silhouette has to do.

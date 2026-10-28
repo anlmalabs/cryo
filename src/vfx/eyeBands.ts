@@ -1,5 +1,5 @@
 /**
- * The walkers' eyes.
+ * The models' eyes.
  *
  * One thin red glow-band per machine, laid across the head's viewport slit
  * and riding the head's own look — the AT-AT's lit cockpit strip from the

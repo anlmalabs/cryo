@@ -116,7 +116,7 @@ export const S = {
   * than anything standing on the ground does, and because the right value is
   * a thing to be looked at rather than derived. Two reasons it is owed some:
   * it hovers *above* an 85%-albedo field and is surrounded by it, where the
-  * walker stands on one and sees a half-space; and it is the only opaque
+  * model stands on one and sees a half-space; and it is the only opaque
   * object in the scene close enough to the camera to fall inside `fogStart`,
   * so it receives none of the aerial inscatter that is quietly carrying
   * everything else.
@@ -146,7 +146,7 @@ export const S = {
   * on a hull this dark it reads as black glass: the diffuse term has almost
   * nothing to return, so what the eye picks up is a broad specular sheen of
   * reflected sky, which at dawn is warm and lands as tan panels that look
-  * painted on. A snowspeeder is matte military paint. The walker's own maps
+  * painted on. A snowspeeder is matte military paint. The model's own maps
   * sit at 0.9 for the same reason.
   *
   * Worth knowing when tuning this against `speederAmbient`: ambient scales
@@ -213,7 +213,7 @@ export const S = {
  /**
   * Metres the speeder's bolt actually flies before fading. Separate from
   * `boltLength` (the drawn ribbon) so the shot reaches the field and
-  * craters it like the walker's does, instead of dying beside the canopy.
+  * craters it like the model's does, instead of dying beside the canopy.
   */
  boltRange: 400,
  /**
@@ -363,7 +363,7 @@ export const S = {
 
 
  /**
-  * Draw a ring at every point a cannon bolt is born — walker chin guns and
+  * Draw a ring at every point a cannon bolt is born — model chin guns and
   * speeder wingtips — through hulls, riding the muzzle sliders live. A
   * tuning tool: leave it off when not placing muzzles.
   */

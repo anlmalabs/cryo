@@ -183,7 +183,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // figure has been solved.
   figure.update(dt);
   contact.update(dt);
-  // The walkers only read the player's position, so they can sit anywhere
+  // The models only read the player's position, so they can sit anywhere
   // after the controller has moved. Here, so their cost lands in the same
   // row of the overlay as the rest of the scene's inhabitants.
   // The crash sites burn down and freeze over: smoke and fire for the
@@ -277,7 +277,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // After the shadow refit, so the figure's uniforms carry this frame's
   // cascade matrices rather than last frame's.
   figure.sync(rig.camera.position);
-  // Also picks each walker's level of detail, which needs this frame's
+  // Also picks each model's level of detail, which needs this frame's
   // camera and this frame's field of view.
   speeder?.sync(rig.camera.position);
 

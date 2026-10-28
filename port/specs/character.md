@@ -530,7 +530,7 @@ Summary.
 None. No binary files, no textures, no audio. All geometry is built in JS
 at boot (`buildBody`/`buildFur`/`buildClothMesh`); the palette is two 8-entry
 constant tables in `character.ts`; `charTex` is CPU-generated per frame.
-(`models/walker`/`models/speeder` .bin assets belong to the walkers/speeder
+(`models/model`/`models/speeder` .bin assets belong to the models/speeder
 subsystems, not this one.)
 
 ---

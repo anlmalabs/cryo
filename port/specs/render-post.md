@@ -95,7 +95,7 @@ avoids mid-frame UBO juggling. `cascades` limits small objects (a 2 m character)
 cascades.
 
 The *receiving* side lives in `lib/shadowLookup.wgsl` together with `pcssShadow` in
-`lib/shading.wgsl`. Both are compiled into consumer materials (terrain, character, walkers,
+`lib/shading.wgsl`. Both are compiled into consumer materials (terrain, character, models,
 wake and water, all other subsystems), reading the three maps as three separate bindings.
 
 ### 1.3 Sky
@@ -354,7 +354,7 @@ Produced by this subsystem, consumed elsewhere:
 | Resource | Format / size | Owner | Update | Consumers |
 |---|---|---|---|---|
 | `depthPass.rtt` ("scenePrepass") | RGBA16F, render size, NEAREST, clamp, own depth buffer | DepthPass | every frame, before beauty pass, jittered camera | post passes (ssr/taa/shafts/dof as `depthTex`); cleared `r=9000` |
-| `shadows.maps[0..2]` | R32F color, 2048², bilinear, clamp | ShadowSystem | every frame (custom RTs before prepass) | terrain/character/walkers/wake/water materials as `cascade0/1/2` via `lib/shadowLookup.wgsl` |
+| `shadows.maps[0..2]` | R32F color, 2048², bilinear, clamp | ShadowSystem | every frame (custom RTs before prepass) | terrain/character/models/wake/water materials as `cascade0/1/2` via `lib/shadowLookup.wgsl` |
 | `shadows.matrixData` | 48 floats (3 mat4, column-major Babylon layout) | ShadowSystem | every `update()` | consumer material UBOs as `cascadeMatrices` |
 | `shadows.paramData` | 12 floats (3 vec4: depthRange, orthoWidth, 0, 0) | ShadowSystem | every `update()` | `cascadeParams` |
 | `shadows.splits` | 4 floats `[26,95,330,330]` | ShadowSystem | static | `cascadeSplits` |
@@ -651,7 +651,7 @@ POISSON[12], `pcssShadow`, `shIrradiance` (Ramamoorthi constants as written),
 
 None. This subsystem consumes no binary/texture/audio assets. Everything is
 procedural (sky LUT baked at runtime; shadow maps and prepass rendered per frame; post
-chain is pure math). The `.bin`/`.webp` assets in the repo belong to the walker/speeder
+chain is pure math). The `.bin`/`.webp` assets in the repo belong to the model/speeder
 subsystems.
 
 ---

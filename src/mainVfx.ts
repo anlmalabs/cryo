@@ -62,9 +62,9 @@ export function buildVfx(ctx: VfxContext): VfxState {
  const speeder = ctx.speeder;
  const state = ctx.state;
  // ------------------------------------------------------------ collisions
- // The craft meet the machines: swept spheres against the walkers' capsule
+ // The craft meet the machines: swept spheres against the models' capsule
  // sets, the wrecks and each other, with the consequences routed to their
- // owners — deflection and scramble to the craft, a stumble to the walker,
+ // owners — deflection and scramble to the craft, a stumble to the model,
  // snow, smoke, fire and the report to the field. Gated live by
  // S.collisions; every collaborator is optional, so a boot without a
  const collision = new CollisionPass({

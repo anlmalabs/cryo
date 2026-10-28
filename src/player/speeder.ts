@@ -1,16 +1,14 @@
 /**
  * The airspeeder — the thing the player is, when they are not the figure.
  *
- * It is drawn by the walker's own pipelines and reads out of the walker's own
- * asset container, which is not a shortcut so much as the point of having baked
- * the walker that way: the baker flattens a static prop into a single-bone rig,
- * so a craft with no skeleton and no clip arrives as a machine with one bone
- * whose matrix never changes, and every shader, material and level-of-detail path
- * written for the walker takes it without knowing what it is.
+ * It is drawn from its own baked asset container: the baker flattens a static
+ * prop into a single-bone rig, so a craft with no skeleton and no clip arrives
+ * as a machine with one bone whose matrix never changes, and every shader,
+ * material and level-of-detail path takes it without knowing what it is.
  *
- * What is genuinely different is the motion. A walker is placed on the ground; a
- * speeder is placed *above* it, and everything that sells the hover is in how it
- * sits rather than in where it is:
+ * What is genuinely different is the motion. The craft is placed *above* the
+ * ground, and everything that sells the hover is in how it sits rather than in
+ * where it is:
  *
  *   height   The ground under the nose and the tail, not under the centre, so it
  *            noses up over a crest and drops into a trough instead of clipping
@@ -22,7 +20,7 @@
  *   bob      A slow idle wallow that fades out with speed, because a craft
  *            holding station drifts and one at nineteen metres a second does not.
  *
- * The guns are the walker's, pointed the other way: the same pooled bolts, the
+ * The guns are the craft's, pointed the other way: the same pooled bolts, the
  * same craters and glazing where they land.
  *
  * Allocation per frame: none.
@@ -44,7 +42,7 @@ import type { Terrain } from "../terrain/terrain.js";
 import type { Sky } from "../render/sky.js";
 import type { ShadowSystem } from "../render/shadows.js";
 import type { DepthPass } from "../render/depthPass.js";
-import type { ModelAsset, WalkerLOD, WalkerMaterial, WalkerHeader } from "../walkers/modelAsset.js";
+import type { ModelAsset, ModelLOD, ModelMaterial, ModelHeader } from "../player/modelAsset.js";
 import type { MuzzleMarkers } from "../vfx/muzzleMarkers.js";
 
 /** Metres of clearance under the hull at rest. */
@@ -69,7 +67,7 @@ const BOB_HEIGHT = 0.22;
 const BOB_ROLL = 0.05;
 
 /**
- * Debug view names, in the order `walker.fragment.glsl` branches on them. Index
+ * Debug view names, in the order `speeder.fragment.glsl` branches on them. Index
  * 0 is "off", so the list and the shader's `v == n` cases line up by position.
  */
 const DEBUG_VIEWS = [
@@ -190,7 +188,7 @@ const _nozzleBottoms = [
 ];
 /**
  * The pooled cannon bolts the owner hands over (`this.bolts`). The pool is
- * shared with the walker's chin guns, so it is not modelled here beyond what
+ * shared with the craft's chin guns, so it is not modelled here beyond what
  * this craft actually does with it: rebind its view-projection, tick it,
  * spawn one bolt, and warm/tear it down. `THREE` is imported for the mesh
  * type only — the pool's own module stays unread from here.
@@ -209,7 +207,7 @@ interface BoltPool {
  dispose(): void;
 }
 
-/** The hull mesh, carrying the same `metadata` the walkers' meshes do so the
+/** The hull mesh, carrying the same `metadata` the craft's meshes do so the
  *  triangle and vertex counts stay readable off the object. */
 type SpeederMesh = THREE.Mesh<
  THREE.BufferGeometry,
@@ -328,7 +326,7 @@ export class Speeder {
  ormTex!: THREE.DataArrayTexture;
  material!: THREE.RawShaderMaterial;
  mesh!: SpeederMesh;
- _materials!: WalkerMaterial[];
+ _materials!: ModelMaterial[];
  factors!: Float32Array;
  _viewProj!: THREE.Matrix4;
  _cameraPos!: THREE.Vector3;
@@ -382,11 +380,11 @@ export class Speeder {
   this.shadows = shadows;
   this.controller = controller;
 
-  // `WalkerHeader` in `modelAsset.ts` declares 12 of the fields the baker
+  // `ModelHeader` in `modelAsset.ts` declares 12 of the fields the baker
   // writes and omits these three — `bounds`, `basisScale`, `transScale`
-  // (bakeWalker.mjs:620, :623-624). They are real and present at runtime;
+  // (bakeModel.mjs:620, :623-624). They are real and present at runtime;
   // they are read through this widen-until-declared supplement.
-  const h = asset.header as WalkerHeader & {
+  const h = asset.header as ModelHeader & {
    bounds: CraftBounds;
    basisScale: number;
    transScale: number;
@@ -445,7 +443,7 @@ export class Speeder {
   const size = asset.albedoSize || h.textureSize;
   // Not the same edge as the albedo's: a model whose materials carry no
   // metallic-roughness maps gets a one-texel ORM rather than a full array
-  // of white. See `loadWalkerAsset`.
+  // of white. See `loadModelAsset`.
   const ormSize = asset.ormSize || size;
   const layers = asset.layers || 4;
   const aniso = Math.min(16, gfx.renderer.capabilities.getMaxAnisotropy());
@@ -460,7 +458,7 @@ export class Speeder {
   // reads as zero, not a lighting problem.
   //
   // If sampling a mip of this array is what returns zero, mips-off restores
-  // it, at the cost of aliasing on the panel lines. The walkers would not
+  // it, at the cost of aliasing on the panel lines. The craft would not
   // have revealed the same bug: at two hundred metres they are about
   // two-thirds aerial inscatter.
   this.albedoTex = new THREE.DataArrayTexture(asset.albedo, size, size, layers);
@@ -521,7 +519,7 @@ export class Speeder {
   shadows.registerCaster(this.mesh, (c: number) => this._makeDepthMaterial(c), 2);
 
   // ---- the guns -------------------------------------------------------
-  // Its own look: the walker's bolt is sized to read at two hundred metres
+  // Its own look: the craft's bolt is sized to read at two hundred metres
   // and scaled by the machine firing it, neither of which suits a cannon
   // five metres from the camera.
   // The pool is not this craft's to make: the owner hands one over by
@@ -587,15 +585,15 @@ export class Speeder {
    this.factors[o + 3] = m.albedoImage < 0 ? 0.18 : tint;
   }
   // Slot 7's x, which no material occupies: the flat fill. See the note in
-  // walker.fragment.glsl for why it rides here rather than in a uniform of
-  // its own. The walker leaves this zero and is untouched.
+  // speeder.fragment.glsl for why it rides here rather than in a uniform of
+  // its own. The craft leaves this zero and is untouched.
   this.factors[28] = S.speederFill;
   // Slot 7's y: how much of the sun's warm cast to take off this craft.
-  // 0 means unchanged, which is what the walker's zeroed array reads.
+  // 0 means unchanged, which is what the craft's zeroed array reads.
   this.factors[29] = S.speederDesat;
  }
 
- _makeGeometry(lod: WalkerLOD) {
+ _makeGeometry(lod: ModelLOD) {
   const geom = new THREE.BufferGeometry();
   geom.setAttribute("position", new THREE.BufferAttribute(lod.positions, 3));
   geom.setAttribute("normal", new THREE.BufferAttribute(lod.normals, 3));
@@ -645,7 +643,7 @@ export class Speeder {
    debugView: { value: 0 },
    debugGain: { value: 1 / Math.max(0.001, S.exposure) },
 
-   walkerTex: { value: this.tex },
+   hullTex: { value: this.tex },
    albedoTex: { value: this.albedoTex },
    ormTex: { value: this.ormTex },
    skyLUT: { value: (sky && sky.lut) || gfx.blackTex },
@@ -663,8 +661,8 @@ export class Speeder {
 
   return makeMaterial({
    name: "speeder",
-   vertex: getShader("walkerVertexShader"),
-   fragment: getShader("walkerPixelShader"),
+   vertex: getShader("speederVertexShader"),
+   fragment: getShader("speederPixelShader"),
    uniforms,
    side: THREE.DoubleSide,
   });
@@ -673,12 +671,12 @@ export class Speeder {
  _makeDepthMaterial(cascade: number) {
   const mat = makeMaterial({
    name: "speederDepth" + cascade,
-   vertex: getShader("walkerDepthVertexShader"),
+   vertex: getShader("speederDepthVertexShader"),
    fragment: getShader("terrainDepthPixelShader"),
    uniforms: {
     lightViewProjection: { value: new THREE.Matrix4() },
     boneRow: { value: 0 },
-    walkerTex: { value: this.tex },
+    hullTex: { value: this.tex },
    },
    // The define exists only to make the two cascade materials distinct
    // programs; nothing in the shader reads it.
@@ -692,12 +690,12 @@ export class Speeder {
  registerPrepass(depth: DepthPass) {
   const mat = makeMaterial({
    name: "speederPrepass",
-   vertex: getShader("walkerPrepassVertexShader"),
+   vertex: getShader("speederPrepassVertexShader"),
    fragment: getShader("prepassPixelShader"),
    uniforms: {
     viewProjection: { value: this._viewProj },
     boneRow: { value: 0 },
-    walkerTex: { value: this.tex },
+    hullTex: { value: this.tex },
    },
    side: THREE.DoubleSide,
   });
@@ -1068,7 +1066,7 @@ export class Speeder {
 
   u.shadowTexel.value = (sh && sh.texelSize) || 1 / 2048;
   u.shadowSoftness.value = 1.4;
-  // Far looser than the walker's, and this is the reason the hull went
+  // Far looser than a ground machine's, and this is the reason the hull went
   // black at random.
   //
   // The craft casts into the near cascades and then shadow-tests against
@@ -1095,7 +1093,7 @@ export class Speeder {
   // the snow frosts over, slowly, through this override.
   u.snowCover.value = this.snowOverride ?? 0;
   // Debug modes bypass the shading entirely — see `debugView` in
-  // walker.fragment.glsl. The gain undoes the exposure the post chain is
+  // speeder.fragment.glsl. The gain undoes the exposure the post chain is
   // about to apply, so a raw value of 1.0 reads as white rather than grey.
   u.debugView.value = DEBUG_VIEWS.indexOf(S.speederDebug) + 0;
   u.debugGain.value = 1 / Math.max(0.001, S.exposure);

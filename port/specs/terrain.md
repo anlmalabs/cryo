@@ -15,7 +15,7 @@ Note: `lib/ridge.wgsl` (`snowRidge` include) is authored alongside the terrain n
 
 ## 1. Purpose & behavior
 
-The terrain subsystem renders an "infinite" wind-carved snow field and maintains the *terrain state buffer*, the persistent, additive record of everything that deforms the snow (footprints, the surf wake groove, spell craters, walker feet).
+The terrain subsystem renders an "infinite" wind-carved snow field and maintains the *terrain state buffer*, the persistent, additive record of everything that deforms the snow (footprints, the surf wake groove, spell craters, model feet).
 
 ### 1.1 The landform
 Three frequency bands.
@@ -106,7 +106,7 @@ Output: linear HDR radiance into the scene colour target (post chain does exposu
 From `main.ts` run loop.
 
 Order matters:
-1. `character.update` → `contact.update` (queues foot brushes) → walkers/speeder (queue their brushes)
+1. `character.update` → `contact.update` (queues foot brushes) → models/speeder (queue their brushes)
 2. `rig.update`, `post.update` (TAA jitter published), `sky.update/render`, `shadows.update` (refit cascades)
 3. `spells.update` (queues spell brushes, before terrain so this frame's brushes are staged)
 4. `terrain.update(cameraPos, character.position, dt)`: runs the deform sim then rebinds the freshly-written target on all four materials, then pushes all uniforms (beauty + prepass + 3 depth materials)
@@ -133,7 +133,7 @@ Construction and lifecycle:
 Per-frame entry points:
 
 - `update(cameraPos: Vector3, focus: {x,z}, dt: seconds)` advances the deform sim (`deform.update(dt, focus)`), rebinds if flipped, then uploads every uniform to all 5 materials (exact list in section 4 tables). `focus` is the character position. Also `material.wireframe = S.wireframe`.
-- `heightAt(x, z)` / `normalAt(x, z, out)` delegate to the heightfield (CPU, bicubic B-spline; see below). Called by: character controller, camera rig ground clamp (`rig.groundAt`), figure/cloth, walkers, speeder, spells, wake, particles, opening shot.
+- `heightAt(x, z)` / `normalAt(x, z, out)` delegate to the heightfield (CPU, bicubic B-spline; see below). Called by: character controller, camera rig ground clamp (`rig.groundAt`), figure/cloth, models, speeder, spells, wake, particles, opening shot.
 
 Externally consumed members:
 
@@ -186,7 +186,7 @@ Cross-subsystem data contracts.
 
 | Object | Format / size | Owner | Updates | Consumers |
 |---|---|---|---|---|
-| `terrain.heightfield.heightCPU` via `heightAt`/`normalAt` | Float32Array 2048², 1 m/texel | Heightfield | once at boot | character controller, camera rig (`rig.groundAt`), figure, cloth, walkers, speeder, spells, wake, spray, opening shot |
+| `terrain.heightfield.heightCPU` via `heightAt`/`normalAt` | Float32Array 2048², 1 m/texel | Heightfield | once at boot | character controller, camera rig (`rig.groundAt`), figure, cloth, models, speeder, spells, wake, spray, opening shot |
 | `heightfield.minHeight/maxHeight` | floats | Heightfield | once | `shadows.setHeightBounds(min−4, max+6)` |
 | `terrain.deform` (brush API + `texture`, `center`, `size`, `texel`) | RGBA16F 2048² toroidal window, 80 m | DeformationField | 1 sim pass/frame | brush writers: `character/snowContact.ts`, `spells/{crystallize,ribbon,vortex,bloom,sweep}.ts`, `src/main.ts` and `src/physics/collisionPass.ts` (the craft crash and its contacts); texture readers: the wake material (`vfx/surfWake.ts` samples deform state), terrain's own 4 materials |
 | `terrain.mesh` + `metadata.triangles` | clipmap mesh | Terrain | static | main.ts (rendering group 1, stats), shadows renderList, depth prepass renderList |
@@ -207,7 +207,7 @@ Cross-subsystem data contracts.
 | `viewProjection` | mat4 | Babylon binding from active camera (carries the frame's TAA jitter) | Three port: pass `camera.projectionMatrix · viewMatrix` (with jitter applied by the post subsystem) explicitly |
 | `S` settings store | plain object | core/settings.ts | see §2 |
 
-Shared WGSL includes crossing subsystem lines: `snowNoise` (terrain ⇄ sky ridge ⇄ vfx), `snowTerrain` (terrain bake + runtime + wake), `snowDeform` (terrain + wake), `snowShading`, `snowShadowLookup` (terrain + character + walker + wake, which must keep byte-identical lookups), `snowSpellLights`, `snowAtmosphere`, `snowRidge` (sky only).
+Shared WGSL includes crossing subsystem lines: `snowNoise` (terrain ⇄ sky ridge ⇄ vfx), `snowTerrain` (terrain bake + runtime + wake), `snowDeform` (terrain + wake), `snowShading`, `snowShadowLookup` (terrain + character + model + wake, which must keep byte-identical lookups), `snowSpellLights`, `snowAtmosphere`, `snowRidge` (sky only).
 
 ---
 
@@ -382,7 +382,7 @@ Pure ALU; translates directly; uniforms come from the sky material (`S.showMount
 
 ## 6. Assets
 
-**None.** The terrain subsystem consumes no binary/texture/audio assets. Every texture is generated at boot (height/aux/detail bakes) or at runtime (deform sim; `public/models/*.bin/webp` belong to the walker/speeder subsystems). Inputs are: the settings store, the shared WGSL library text, and the sky/shadow products listed in §3.
+**None.** The terrain subsystem consumes no binary/texture/audio assets. Every texture is generated at boot (height/aux/detail bakes) or at runtime (deform sim; `public/models/*.bin/webp` belong to the model/speeder subsystems). Inputs are: the settings store, the shared WGSL library text, and the sky/shadow products listed in §3.
 
 ---
 
@@ -395,7 +395,7 @@ The risks are listed in ranked order:
 4. Coordinate/NDC convention flips (WebGPU → WebGL). Three places: (a) shadow UV `0.5 + ndc.y·0.5` and depth `ndc.z ∈ [0,1]` assumptions inside the shadow lookup and `shadowMapDelta`; WebGL NDC is [−1,1] z and RTTs are y-up, so both the matrix construction (shadow subsystem) and the lookup must change together. (b) ProceduralTexture UV vs Three fullscreen-pass UV orientation (deform sim, bakes): self-consistent as long as write and read agree, but the CPU readback row order must match `heightAt`'s indexing because Babylon `readPixels` returns bottom-up in WebGL vs WebGPU top-down, so validate `heightAt(x,z)` against a rendered frame early. (c) Triangle winding (left-handed CW → right-handed CCW): flip index order or cull side.
 5. Uniform volume & per-frame upload cost. The snow material has ~40 scalar/vector uniforms + mat4[3] + vec4[9] + vec4[3] + 8 samplers, mirrored (subset) on 4 more materials, re-pushed every frame. In WebGL this is fine at draw time but naive per-uniform `setValue` paths through Three are CPU-visible; share one uniforms object across the 5 terrain materials and mutate `.value` in place. Watch texture-unit count: 8 samplers in the fragment stage + 3 in the vertex stage is within the 16-unit minimum but audit combined usage (vertex+fragment units are separate limits in WebGL2: MAX_VERTEX_TEXTURE_IMAGE_UNITS ≥ 16 required, with the minimum being 16 for fragment and 16 for vertex units in WebGL2; safe).
 6. Row-vector × matrix translations in the noise/terrain libs. `deriv * xform`, `sas.yz * m3`, `dHdq * M` patterns: WGSL `v * m` = GLSL `v * m` (both mean row-vector × matrix, i.e. `transpose(m) · v`). Verbatim translation is correct, but any "helpful" rewrite to `m * v` silently rotates every derivative and the dunes light wrong while the silhouette stays right. Golden-test `heightBake` + `auxBake` output against captured WebGPU reference images.
-7. Deform sim ordering within the frame. Brushes are queued by character/spells/walkers *before* `terrain.update`; the sim renders; the freshly-written target is bound to all four materials the same frame ("simulate first, then bind", because a frame-late bind shows as marks staggering behind fast movement). In Three, run the sim render at the top of `terrain.update` before setting uniforms, and before the cascade/prepass/beauty renders.
+7. Deform sim ordering within the frame. Brushes are queued by character/spells/models *before* `terrain.update`; the sim renders; the freshly-written target is bound to all four materials the same frame ("simulate first, then bind", because a frame-late bind shows as marks staggering behind fast movement). In Three, run the sim render at the top of `terrain.update` before setting uniforms, and before the cascade/prepass/beauty renders.
 8. CPU/GPU height agreement. `heightAt` must keep: 2×2 box downsample (not point sample), the `−0.5` sample-centre convention, the identical B-spline weights, clamped edges, and stride derivation on readback. A quarter-texel mismatch sinks the character into slopes. Test: sample a grid of (x,z), compare against a GPU debug readback.
 9. `detailTex` mip generation + explicit-gradient sampling. Three generates mips for render targets only when `generateMipmaps: true` on the RT and filtering set accordingly; the fade-in scheme *requires* correct trilinear mips and `textureGrad`. Also RGBA8 unorm here, so no sRGB: create with `colorSpace = NoColorSpace` / linear, or normals decode wrong.
 10. Boot/preset ordering. `S.deformResolution` is read once in the DeformationField constructor, so apply the mobile/balanced preset before constructing Terrain, exactly as `main.ts` does. Similarly `windDirection`/`macroHeightScale` freeze into the bake at boot.

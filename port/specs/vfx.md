@@ -170,7 +170,7 @@ spray.update(0, rig.camera.position); await spray.warmUp(); await wake.warmUp();
 Per frame (order matters):
 ```
 character update → post.update (camera jitter) → sky.update/render →
-shadows.update → spells.update → terrain.update → figure/walkers/speeder sync →
+shadows.update → spells.update → terrain.update → figure/models/speeder sync →
 wake.update(dt, camPos)   // BEFORE spray: wake emits grains into the pool
 spray.update(dt, camPos)  // then the pool is simulated + uploaded
 → render

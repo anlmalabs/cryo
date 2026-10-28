@@ -124,7 +124,7 @@ Notes that are load-bearing:
 - `music.gain = 1.20` is a measured loudness match, derived in the `music` entry's comment at `src/audio/manifest.ts`. EBU R 128 integrated loudness puts the bed at −16.8 LUFS and the track at −19.5, so the track needs 2.7 dB to come level. The soundscape then holds the bed at 0.88 of unity while the player stands still, which gives `10^(2.7/20) * 0.88 = 1.20` rather than 1.36. That is the value to use if the entry is restored.
 - The `music` entry is currently stubbed out: it is commented out in `src/audio/manifest.ts` with "Music stubbed out: no score track loaded or played", so no score track loads or plays in the live build, and the current `AUDIO_MANIFEST` carries no 1.20 gain. The derivation above is future-relevant rather than a description of live state. Of the rest of the `music` path, only the `S.musicVolume` fader survives: the `Soundscape` voice, its duck and its entrance envelope went with the module.
 - `ambience` is deliberately unity so `S.ambienceVolume` is the single ceiling.
-- The walker's samples are gone with the herd: neither `walkerStep` nor `walkerShot` has a manifest entry, and `audio/at-walker-canon.mp3` is not on disk.
+- The model's samples are gone with the herd: neither `modelStep` nor `modelShot` has a manifest entry, and `audio/at-model-canon.mp3` is not on disk.
 - `trim` exists because MP3 decode leaves encoder padding that clicks on native loops; `crossfade > 0` switches an asset to the overlap scheduler.
 
 ### 1.3 Soundscape
@@ -144,8 +144,8 @@ What survived of the soundscape's job sits in two call sites instead:
   the same cubed falloff and the same 343 m/s delay.
 
 The per-frame polling contract the soundscape had (`spells.castCount`,
-`spells.ribbon.splashCount`, `walker.stepCount`, `walker.shotCount`, `speeder.shotCount`) has no
-consumer left either: the walker herd was purged, and the spell and speeder counters are
+`spells.ribbon.splashCount`, `model.stepCount`, `model.shotCount`, `speeder.shotCount`) has no
+consumer left either: the model herd was purged, and the spell and speeder counters are
 published but never read, so the manifest's spell entries (`spell1` to `spell5`, `spell2Land`)
 have no play site in this build.
 
@@ -295,7 +295,7 @@ Other consumers:
 | whole `SCHEMA` array, `S.preset` | overlay widget build and sync |
 | `audioMuted` | sound button, via `set`/`onChange` |
 
-`S.showWalker` is gone from the settings store with the herd.
+`S.showModel` is gone from the settings store with the herd.
 
 Settings API shape: `S` (flat mutable object), `SCHEMA` (widget metadata `{group, items:[{k,l,t:"f"|"b"|"e"|"c"|"a",min,max,step,opts}]}`), `set(k,v)` (notify), `onChange(keys, fn) → unsubscribe`, `applyPreset(name)` accepting `"ultra"`, `"high"` or `"balanced"`, and `PRESETS`.
 
@@ -313,10 +313,10 @@ Consumed (owner in parentheses):
 | `controller.speed01` (0..1, normalized to slide top speed) | character/controller | (no consumer left) | the soundscape read it for the ambience/jet/slide levels and gates; nothing reads it for sound now |
 | `controller.surf` (eased slide blend 0..1) | character/controller | overlay | overlay readout; the slide, turn and air gates were the soundscape's |
 | `controller.carve` (eased lateral load, signed) | character/controller | (no consumer left) | the turn-hit gain + gate were the soundscape's; the wake is still shaped from the same signal |
-| `controller.position` (`{x,y,z}`), `controller.groundY` | character/controller | overlay | readouts; the air detection and the walker distances were the soundscape's |
+| `controller.position` (`{x,y,z}`), `controller.groundY` | character/controller | overlay | readouts; the air detection and the model distances were the soundscape's |
 | `controller.speed` (m/s), `controller.facing` (rad) | character/controller | overlay | readouts + pose script |
 | `spells.castCount`, `spells.lastCast` (1..5), `spells.ribbon.splashCount` | spells/spellSystem | (no consumer left) | published, never read: the soundscape that polled them is gone |
-| `walkers.count`, `walkers.walkers[i].stepCount`, `.shotCount`, `.position.{x,z}` | walkers/walker (WalkerHerd) | (gone) | the herd was purged |
+| `models.count`, `models.models[i].stepCount`, `.shotCount`, `.position.{x,z}` | models/model (modelHerd) | (gone) | the herd was purged |
 | `speeder.shotCount` | player/speeder | (no consumer left) | published, never read |
 | `rig.camera.position`, `rig.yaw`, `rig.pitch`, `rig.distance`, `rig.distanceTarget`, `rig.fov` (rad, vertical) | core/camera (CameraRig) | overlay | readouts + pose script |
 | `stats` (fps, fpsLow, median, p99, gpuMs, drawCalls, triangles), `systemMs`, `spikes`, `FrameGraph`, `resetSpikes` | core/perf | overlay, fpsMeter | perf owns the ring buffer; main.ts feeds it |
@@ -386,7 +386,7 @@ Inventory of `public/audio/` (all present locally; sizes as on disk):
 | `speeder-crash-3.mp3` | 154,560 | `speederCrash3` (needs `speeder`) |
 | `delta-jet.mp3` | 133,440 | `speederJet` (needs `speeder`) |
 
-Every file on disk has a manifest entry and vice versa: 23 files, 23 entries. There is no `walkerStep` sample and no `walkerShot` sample, which is intentional (see §1.2). One key is played but has no entry: the collision pass asks for `speederHitWalker`, which is not in the manifest, so that one play no-ops. The sound button and touch controls ship no image assets (inline SVG / CSS only).
+Every file on disk has a manifest entry and vice versa: 23 files, 23 entries. There is no `modelStep` sample and no `modelShot` sample, which is intentional (see §1.2). One key is played but has no entry: the collision pass asks for `speederHitModel`, which is not in the manifest, so that one play no-ops. The sound button and touch controls ship no image assets (inline SVG / CSS only).
 
 ---
 
@@ -394,7 +394,7 @@ Every file on disk has a manifest entry and vice versa: 23 files, 23 entries. Th
 The risks are listed in ranked order:
 
 1. Gesture-unlock ordering (Safari). `audio.unlock()` must be called synchronously inside the click/keydown handler, and both `loading.gate(onEnter)` and the sound button do this deliberately, resolving the promise afterwards. If the Three port's boot flow awaits anything between the gesture and `ctx.resume()`, Safari refuses to resume and the demo is permanently silent. Preserve the callback-into-the-handler shape exactly (gate: `onEnter` runs before the promise resolves; button: `unlock()` before `set("audioMuted", false)`, `.then` only for `onEnable`/`sync`).
-2. Frame-order dependency of the soundscape. Settled by its removal: the module that used to be a pure poller (`soundscape.update(dt)` after the controller/spells/walkers/speeder updates, edge-detecting `castCount`, `splashCount`, `stepCount`, `shotCount` and herd growth) is gone from this tree, and with it the counters it read. If a soundscape is ever brought back, it must stay a pure poller and the counter contracts have to come back with it, or casts get double-fired or dropped and the "adopt on first sight / after gate" logic (in `start()` and `_walkerSteps`) silently breaks, e.g. a burst of backdated walker steps when the herd slider grows.
+2. Frame-order dependency of the soundscape. Settled by its removal: the module that used to be a pure poller (`soundscape.update(dt)` after the controller/spells/models/speeder updates, edge-detecting `castCount`, `splashCount`, `stepCount`, `shotCount` and herd growth) is gone from this tree, and with it the counters it read. If a soundscape is ever brought back, it must stay a pure poller and the counter contracts have to come back with it, or casts get double-fired or dropped and the "adopt on first sight / after gate" logic (in `start()` and `_modelSteps`) silently breaks, e.g. a burst of backdated model steps when the herd slider grows.
 3. GPU/draw stats plumbing disappears on WebGL2. `stats.gpuMs` comes from WebGPU timestamp queries and `stats.drawCalls` from wrapping Babylon's two draw entry points; neither exists in Three. The port uses `renderer.info` for draws/tris (`autoReset = false`, latched in `endFrameDraws()`) and accepts `—` for GPU ms (the overlay already handles 0 as "unavailable"); `EXT_disjoint_timer_query_webgl2` is not wired. Risk is quiet wrongness: leaving the old fields unset renders misleading zeros for draws/tris rather than dashes.
 4. Loop seam fidelity depends on the exact envelope math. The overlap scheduler's constants (LOOKAHEAD 0.6 s, 250 ms pump, first-segment 6 ms click-guard vs. full-crossfade entrance, `_nextAt = at + segment - crossfade`, `trim` offsets against MP3 encoder padding) and the native loops' `loopStart/loopEnd = trim … trim+segment` are all audible if changed: the wind bed ticks every ~17 s, the music join stops passing as a musical decay, and the slide/jet loops click. Also keep the rule that only *native* loops may `setRate`, because retuning an overlap schedule walks the joins out of alignment.
 5. Settings store is the nervous system. The overlay writes through `set()` and half the demo subscribes via `onChange`; the mixer subscribes to five audio keys; manifest `needs` reads `S.speeder` at load time; the coarse-pointer preset drop must happen before construction-time reads. If the Three port re-architects settings (e.g. a different store), every exact key in §2 must survive, including the semantics "`voice` bus is driven by `sfxVolume`" and "`audioMuted` is the single source of truth shared by two widgets".

@@ -37,7 +37,7 @@ the reflection pass keys off this mask.
 
 `SpellLights` holds 4 dynamic point lights that the spells declare per frame and push as
 uniforms into every consumer material: terrain snow, character body and cloth, wake, spray,
-walkers, plus the water and crystal materials themselves.
+models, plus the water and crystal materials themselves.
 
 The five spells are all pure CPU logic writing into shared pools; none owns GPU resources.
 
@@ -287,7 +287,7 @@ Cross-subsystem.
 - Spell-light uniforms into every consumer material (`spellLightPos: vec4[4]`,
   `spellLightCol: vec4[4]`, `spellLightCount: float`). Consumers registered in main.ts:
   `terrain.material`, `figure.bodyMat`, `figure.clothMat`, `wake.material`,
-  `spray.material`, every walker material (via `walkers.onMaterial` callback). Those
+  `spray.material`, every model material (via `models.onMaterial` callback). Those
   materials include `snowSpellLights` and call `spellLighting` / `spellLightingSurface` /
   `spellLightingParticle`.
 - `controller.cast`, `controller.castAimX/Y/Z` are a casting pose blend read by the figure.

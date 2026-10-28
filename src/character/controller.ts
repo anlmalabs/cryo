@@ -42,7 +42,7 @@ const _n = new THREE.Vector3();
 // closed-interval clamp, imported rather than re-implemented so this file, the
 // figure and the spell system cannot drift apart on what a bound means.
 
-/** Fraction of the surf blend at which the craft steps as craft/walker. */
+/** Fraction of the surf blend at which the craft steps as craft/model. */
 const SURF_SPLIT = 0.5;
 
 const WALK_SPEED = 2.5;
@@ -869,6 +869,13 @@ export class CharacterController {
   if (this.surf > SURF_SPLIT) this._surfStep(h, rig);
   else this._walkStep(h);
 
+  // On foot the character always faces where the camera is looking, so
+  // walking/strafing reads relative to the view and the rig never has to
+  // chase a separate bearing. (Surf keeps its own steer-based facing.)
+  if (this.surf <= SURF_SPLIT) {
+   this.facing = angleDamp(this.facing, rig.yaw, TURN_EASE, h);
+  }
+
   // Scramble countdown — after the step, so the frame a hit lands still
   // steers with the full scramble it was just given.
   if (this.controlScramble > 0) {
@@ -1045,9 +1052,14 @@ export class CharacterController {
    this.velocity.x += clamp(_wish.x - this.velocity.x, -a, a);
    this.velocity.z += clamp(_wish.z - this.velocity.z, -a, a);
 
-   // Face the direction of travel, eased.
-   const want = Math.atan2(_wish.x, _wish.z);
-   this.facing = angleDamp(this.facing, want, TURN_EASE, h);
+   // Face the direction of travel only when moving forward-dominantly.
+   // Backing up or strafing sideways keeps the current facing, so the
+   // character backpedals/strafes instead of spinning ~180° and dragging
+   // the camera around in a circle ("walking in circles").
+   // Facing is driven by the camera (see update()), not by the wish
+   // vector, so the character always turns to where the camera is looking
+   // and WASD reads as strafe/backpedal relative to that facing. Nothing
+   // to do with the wish vector here.
   } else {
    const d = WALK_DECEL * h;
    const s = Math.hypot(this.velocity.x, this.velocity.z);

@@ -139,14 +139,14 @@ export const AUDIO_MANIFEST = {
  spell4: { url: "audio/effect4.mp3", bus: "sfx", gain: 0.55, minGap: 0.1, exclusive: true },
  spell5: { url: "audio/effect5.mp3", bus: "sfx", gain: 0.55, minGap: 0.1, exclusive: true },
 
- // A walker's chin cannon.
+ // A model's chin cannon.
  //
  // No `exclusive`: two machines firing a second apart are two events, and a
  // near shot cutting a far one short is exactly what would give the distance
  // away as fake.
  //
  // The floor is very short, and it has to be, because `minGap` is keyed on the
- // floor is also a rule about how close together two different walkers may
+ // floor is also a rule about how close together two different models may
  // the top of the count slider — and dropped blind to distance, so a far
  // machine's crack could eat the near one that followed it 40 ms later, which
  // is the loudest sound in the demo going missing. The paired barrels are
@@ -161,7 +161,7 @@ export const AUDIO_MANIFEST = {
  // the trim here is doing real work rather than expressing a preference.
  //
  // There is no footfall entry. The gait *is* detected (see `deriveFootfalls`
- // in `walkers/walker.js`) and the soundscape already asks for `walkerStep` on
+ // in `player/modelAsset.ts`) and the soundscape already asks for `modelStep` on
  // every one, so dropping a sample in here and naming it is the whole of
  // turning footsteps on. It is deliberately not a synthesised stand-in: a
  // twenty-two metre machine's footfall is a recording or it is a thud.
@@ -192,19 +192,19 @@ export const AUDIO_MANIFEST = {
   needs: "speeder",
  },
 
- // A speeder striking a walker's hull — a metal-on-metal impact, a second
+ // A speeder striking a model's hull — a metal-on-metal impact, a second
  // long, distinct from the explosion above because hitting an AT-AT's leg at
  // speed is not the same event as a craft detonating in the snow.
  //
  // Short floor: a glancing pass can clip the same machine two or three times
  // over as it goes by, and those genuinely are separate hits — a quarter of a
  // second only stops one contact resolving over consecutive frames into a
- // burst. Gated on the speeder rather than the walkers because the player is
+ // burst. Gated on the speeder rather than the models because the player is
  // the one who causes it.
 
 
  // Passing under an AT-AT: the hull noise you only hear from beneath one.
- // The trigger latches per machine (see `walkerFlyby`) so it cannot stutter
+ // The trigger latches per machine (see model flyby logic) so it cannot stutter
  // while the craft sits alongside one — and this floor is the other half of
  // "once": a run down the line crosses two or three machines inside a couple
  // of seconds, and each of them arming separately would stack the same

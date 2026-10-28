@@ -26,7 +26,7 @@ verbatim and use Three only as a thin WebGL2 device layer:
   byte-for-byte (see §4). Three's scene graph is used only as a draw-list container.
 
 Non-goals: no visual improvements, no fixing of documented oddities (the un-decoded albedo, the
-absent walkerStep sample, the absolute-metres DoF far band), no new features.
+absent modelStep sample, the absolute-metres DoF far band), no new features.
 
 ## 2. Renderer decision: WebGL2 + GLSL ES 3.0 raw shaders
 
@@ -70,7 +70,7 @@ battle-of-the-hoth-simulator/
     post/      postChain.ts
     terrain/   terrain.ts heightfield.ts deformation.ts clipmapMesh.ts
     character/ controller.ts figure.ts character.ts cloth.ts build.ts snowContact.ts
-    walkers/   modelAsset.ts
+    player/  modelAsset.ts
     player/    speeder.ts jet.ts
     spells/    spellSystem.ts spellLights.ts waterBody.ts crystals.ts bending.ts
                sweep.ts ribbon.ts bloom.ts crystallize.ts vortex.ts
@@ -81,8 +81,8 @@ battle-of-the-hoth-simulator/
 
 The layout has drifted from the original source since the plan was written: the port
 is TypeScript rather than JavaScript, `src/physics/` is new, and the planned
-`walkers/walker.js` and `walkers/walkerAsset.js` became the asset loader and model
-types in `src/walkers/modelAsset.ts`, with the pooled bolts in `src/player/speeder.ts`.
+`player/modelAsset.ts` became the asset loader and model
+types in `src/player/modelAsset.ts`, with the pooled bolts in `src/player/speeder.ts`.
 
 One new module with no source counterpart: **`src/core/gfx.ts`**, the engine replacement.
 It owns the renderer, the capability checks, the layer constants, the pass runner (material
@@ -95,7 +95,7 @@ Summary; full rules in CONTRACTS §1.
 
 **Keep the source's left-handed, +Z-forward world verbatim; hand-build all view/projection
 matrices; use Three only as a rasterizer.** Chosen over "convert to RH" because every subsystem
-(camera basis, `mat4.js`, controller facing `(sin yaw, 0, cos yaw)`, walker bearings, speeder
+(camera basis, `mat4.js`, controller facing `(sin yaw, 0, cos yaw)`, model bearings, speeder
 3×4 composition, all shader view-space math, SSR/TAA reconstruction) assumes LH +Z-forward,
 often in hand-rolled world-space math with no scene-graph indirection. A systematic RH rewrite
 would touch ~15 subsystems and each missed sign produces a plausible-looking wrong image, the
@@ -153,8 +153,8 @@ CONTRACTS.md, never against another task's code.
 | render-post | `src/render/`, `src/post/`, their shaders | `shading/shadowLookup/atmosphere/postCommon` |
 | terrain | `src/terrain/`, terrain shaders | `noise/terrain/clipmap/deform/ridge` |
 | character | `src/character/`, char/cloth/fur shaders | `charSkin` |
-| walkers | `src/walkers/`, walker/bolt shaders | `walkerSkin` |
-| player | `src/player/`, jet shaders (reuses walker shaders + loader by import) | none |
+| models | `src/player/`, model/bolt shaders | `modelSkin` |
+| player | `src/player/`, jet shaders (reuses model shaders + loader by import) | none |
 | spells | `src/spells/`, water/crystal shaders | `water/crystal/spellLights` |
 | vfx | `src/vfx/`, spray/wake shaders | `wake` |
 | audio-ui | `src/audio/`, `src/ui/` (near-verbatim copy; renderer touchpoints per CONTRACTS) | none |
@@ -167,5 +167,5 @@ verify TAA stillness (no shimmer when static); A/B the tuned look.
 
 Validation invariants worth restating (details in the specs): bit-identical clipmap vertex
 placement across beauty/shadow/prepass; deform relaxation time-banking (dt=0 most frames);
-one multiplier for walker speed+gait; `wakeEroded` byte-identical across passes; jitter frozen
+one multiplier for model speed+gait; `wakeEroded` byte-identical across passes; jitter frozen
 mid-frame; sRGB exactly once (in the composite shader).

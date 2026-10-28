@@ -42,7 +42,7 @@ interface Nozzle {
  backZ: number;
 }
 
-/** The plume lattice, carrying the same `metadata` the walkers' meshes do. */
+/** The plume lattice, carrying the same `metadata` the models' meshes do. */
 type JetMesh = THREE.Mesh<THREE.BufferGeometry, THREE.RawShaderMaterial> & {
  metadata: { triangles: number; vertices: number };
 };

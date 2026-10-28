@@ -17,7 +17,7 @@
  * uploading it anywhere.
  *
  * One base, resolved once. Both loaders — `audio/engine.ts` for the manifest and
- * `walkers/modelAsset.ts` for the model — call `asset()` with the same paths
+ * `player/modelAsset.ts` for the model — call `asset()` with the same paths
  * they would have used relative to `public/`, so the layout on any store
  * mirrors the layout in the repository exactly and either can serve the other.
  *

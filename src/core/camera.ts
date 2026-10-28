@@ -234,7 +234,7 @@ export class CameraRig {
  canvas: HTMLElement | null;
  /**
   * The camera state — a plain object, not a THREE camera. `fov` is
-  * vertical and in RADIANS (the source convention; walkers and the
+  * vertical and in RADIANS (the source convention; models and the
   * overlay read it as such). `projection` carries the TAA jitter once
   * the post chain has run; `view` is LH with +Z forward.
   */
@@ -306,7 +306,7 @@ export class CameraRig {
 
   /**
    * The camera state — a plain object, not a THREE camera. `fov` is
-   * vertical and in RADIANS (the source convention; walkers and the
+   * vertical and in RADIANS (the source convention; models and the
    * overlay read it as such). `projection` carries the TAA jitter once
    * the post chain has run; `view` is LH with +Z forward.
    */
@@ -435,9 +435,8 @@ export class CameraRig {
    // bearing very lazily, only while the player is moving, and only when
    // they are not actively looking — dragging against an in-progress look
    // makes the camera feel like it is fighting the mouse.
-   if (targetFacing != null && input.lookX === 0 && targetVel && (targetVel.x * targetVel.x + targetVel.z * targetVel.z) > 1) {
-    this.yaw = angleDamp(this.yaw, targetFacing, 2.2, dt);
-   }
+   // Body now follows the camera on foot, so re-centering the rig to the
+   // body bearing here would fight the mouse. Disabled.
   }
   this.pitch = clamp(this.pitch + input.lookY, PITCH_MIN, PITCH_MAX);
 

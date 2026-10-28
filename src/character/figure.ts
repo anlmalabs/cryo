@@ -558,8 +558,10 @@ export class Figure {
   // order of magnitude larger than anything walking produces: letting go at
   // top speed decelerates at 30 m/s^2, which unclamped throws the torso
   // twenty degrees backwards and reads as a fall rather than as a scrub.
+  const fwdVel = ch.velocity.x * Math.sin(ch.facing) + ch.velocity.z * Math.cos(ch.facing);
+  const runLeanSign = fwdVel >= 0 ? 1 : -1;
   const pitchWant =
-   RUN_LEAN * run
+   RUN_LEAN * run * runLeanSign
    + LEAN_PER_ACCEL * clamp(fwdAcc, LEAN_ACCEL_MIN, LEAN_ACCEL_MAX)
    + surf * (SURF_LEAN + SURF_LEAN_SPEED01 * ch.speed01);
   this.pitch = damp(this.pitch, pitchWant, RATE_PITCH, h);
@@ -695,8 +697,20 @@ export class Figure {
   // from walk to run read as a gait change and not a speed change.
   const duty = DUTY_WALK - DUTY_RUN * run;
 
-  const fwdX = Math.sin(ch.facing), fwdZ = Math.cos(ch.facing);
-  const rgtX = Math.cos(ch.facing), rgtZ = -Math.sin(ch.facing);
+  // Feet plant along the direction of travel, not the facing: when backing
+  // up or strafing the steps must land behind/side of the body instead of
+  // ahead of it, otherwise the legs cross over and the gait reads as broken.
+  const travelSpeed = Math.hypot(ch.velocity.x, ch.velocity.z);
+  let tvx: number, tvz: number;
+  if (travelSpeed > 1e-3) {
+   tvx = ch.velocity.x / travelSpeed;
+   tvz = ch.velocity.z / travelSpeed;
+  } else {
+   tvx = Math.sin(ch.facing);
+   tvz = Math.cos(ch.facing);
+  }
+  const fwdX = tvx, fwdZ = tvz;
+  const rgtX = tvz, rgtZ = -tvx;
 
   // Half a stride ahead, scaled by speed — this is the step length, and it
   // has to match the controller's stride or the feet skate.

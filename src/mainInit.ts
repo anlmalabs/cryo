@@ -17,7 +17,7 @@ import { createGfx } from "./core/gfx.js";
 import { whenReady } from "./core/gpuUtil.js";
 import * as loading from "./core/loading.js";
 import { audio } from "./audio/engine.js";
-import { loadModelAsset } from "./walkers/modelAsset.js";
+import { loadModelAsset } from "./player/modelAsset.js";
 
 import { buildBootAssets } from "./mainBootAssets.js";
 import { buildUi } from "./mainUi.js";
@@ -75,7 +75,7 @@ export async function boot() {
  // The hosted cut is the ONE source, deliberately: a local copy in
  // `public/video/` used to be tried first and win, which meant a freshly
  // uploaded clip silently lost to a stale file nobody remembered shipping.
- // Only the speeder (player) needs a baked asset now — the walker
+ // Only the speeder (player) needs a baked asset now — the model
  // Only when it is actually going to fly. Off — which is the default — the
  // speeder costs nothing at all: no fetch, no decode, no pipeline.
  // Build-time gate: whether this build includes the ship asset. NOT runtime mode.

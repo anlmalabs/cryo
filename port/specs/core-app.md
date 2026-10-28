@@ -31,11 +31,11 @@ Files covered:
 ### 1.1 Boot sequence
 Entry point: `boot()` in `src/main.ts`.
 
-Exact order for the following steps: later subsystems depend on earlier ones existing, and the loading bar weights are tied to these steps. This is the Babylon original's order; this tree's boot differs in three places: the device gate is WebGL2 plus `EXT_color_buffer_float` (`src/core/gfx.ts`), no walker herd is loaded or constructed, and there is no `Soundscape`.
+Exact order for the following steps: later subsystems depend on earlier ones existing, and the loading bar weights are tied to these steps. This is the Babylon original's order; this tree's boot differs in three places: the device gate is WebGL2 plus `EXT_color_buffer_float` (`src/core/gfx.ts`), no model herd is loaded or constructed, and there is no `Soundscape`.
 
 1. Grab `<canvas id="view">`. If `!navigator.gpu` → `loading.fail("WebGPU is not available in this browser.")` and stop. *Ported: the gate is in `src/core/gfx.ts` and tests for WebGL2 and `EXT_color_buffer_float`, failing the boot screen with the precise reason rather than dropping the gate.*
 2. Mobile detection: `window.matchMedia("(pointer: coarse)").matches` → `applyPreset("balanced")` and `S.resolutionScale = 0.7`. Must happen before any subsystem is built, because `deformResolution` is read once at terrain construction.
-3. Kick off async downloads without awaiting: `audio.load()`, and, only if `S.speeder === true` (captured once into const `FLYING`), `loadModelAsset("models/speeder")`. When speeder is off, nothing speeder-related is fetched, decoded, compiled or constructed. (The original also loaded `loadWalkerAsset("models/walker")`; the herd was purged, so this tree does not.)
+3. Kick off async downloads without awaiting: `audio.load()`, and, only if `S.speeder === true` (captured once into const `FLYING`), `loadModelAsset("models/speeder")`. When speeder is off, nothing speeder-related is fetched, decoded, compiled or constructed. (The original also loaded `loadModelAsset("models/model")`; the herd was purged, so this tree does not.)
 4. `loading.phase("creating device", 0.05)`.
 5. Create engine: `new WebGPUEngine(canvas, { antialias: false, stencil: false, powerPreference: "high-performance", enableAllFeatures: true, setMaximumLimits: true })`, `await engine.initAsync()`. Failure → `loading.fail("WebGPU device initialisation failed.")`.
    - `antialias:false` is deliberate: TAA in the post chain handles edges. Port: `new THREE.WebGLRenderer({ canvas, antialias: false, stencil: false, powerPreference: "high-performance" })`.
@@ -53,18 +53,18 @@ Exact order for the following steps: later subsystems depend on earlier ones exi
 14. `loading.phase("baking heightfield", 0.34)`; `new Terrain(scene, sky, shadows)`; `terrain.mesh.renderingGroupId = 1`; `await terrain.build()`; `onChange("showTerrain", v => terrain.mesh.isVisible = v)`; `depthPass.registerCaster(terrain.mesh, terrain.makePrepassMaterial())`.
 15. `loading.phase("placing character", 0.62)`; `new CharacterController(terrain)`; position `(0, terrain.heightAt(0,0), 0)`. If `S.speeder === true`: `rig.yaw = character.facing` (chase camera must start behind the nose).
 16. `new Character(scene, terrain, sky, shadows, character)` (the figure); `figure.registerPrepass(depthPass)`; visibility rule: `figure.setVisible(S.showCharacter !== false && !FLYING)`. The figure is still *simulated* while flying (speeder reads the same controller) but never drawn. `onChange("showCharacter", showFigure)`.
-17. `loading.phase("landing the walkers", 0.70)`; `new WalkerHerd(scene, terrain, sky, shadows, await walkerReady, rig)`; `onChange("showWalker", v => walkers.setVisible(v))`; `walkers.registerPrepass(depthPass)`. Not ported: the herd was purged, and this tree has no walker phase in the boot.
+17. `loading.phase("landing the models", 0.70)`; `new modelHerd(scene, terrain, sky, shadows, await modelReady, rig)`; `onChange("showModel", v => models.setVisible(v))`; `models.registerPrepass(depthPass)`. Not ported: the herd was purged, and this tree has no model phase in the boot.
 18. `new SprayField(scene, terrain, sky, shadows)` (shared airborne-snow particle pool).
-19. Speeder (only when `FLYING`): `new Speeder(scene, terrain, sky, shadows, await speederReady, character, spray)`; `speeder.registerPrepass(depthPass)`; `speeder.setVisible(true)`. Then `walkers.setSpray(spray)`.
+19. Speeder (only when `FLYING`): `new Speeder(scene, terrain, sky, shadows, await speederReady, character, spray)`; `speeder.registerPrepass(depthPass)`; `speeder.setVisible(true)`. Then `models.setSpray(spray)`.
 20. `new SnowContact(character, terrain.deform, figure.figure, spray)`, which writes feet/board output into the terrain deformation state buffer.
 21. `new SurfWake(scene, sky, shadows, character, spray, terrain)`; `onChange("showWake", v => wake.setEnabled(v))`; `wake.registerPrepass(depthPass)`.
 22. If `FLYING`: `S.showSpells = false; S.showWake = false` (plain writes, not `set()`, so no listeners fire).
-23. `new SpellSystem(scene, sky, shadows, terrain, character, figure.figure, rig, spray)`; then consumer wiring, meaning every material a spell can light: `spells.addConsumers(terrain.material, figure.bodyMat, figure.clothMat, wake.material, spray.material)`; `walkers.onMaterial = m => spells.addConsumers(m)` (herd can grow after boot) plus one pass over existing `walkers.walkers[i].material`; `spells.registerPrepass(depthPass)`.
+23. `new SpellSystem(scene, sky, shadows, terrain, character, figure.figure, rig, spray)`; then consumer wiring, meaning every material a spell can light: `spells.addConsumers(terrain.material, figure.bodyMat, figure.clothMat, wake.material, spray.material)`; `models.onMaterial = m => spells.addConsumers(m)` (herd can grow after boot) plus one pass over existing `models.models[i].material`; `spells.registerPrepass(depthPass)`.
 24. `rig.groundAt = (x, z) => terrain.heightAt(x, z)`, which injects the height sampler into the camera.
-25. `applyOpening(OPENING, rig, character, walkers, terrain)`, a no-op unless a shot is pinned (see §2.10).
+25. `applyOpening(OPENING, rig, character, models, terrain)`, a no-op unless a shot is pinned (see §2.10).
 26. `new PostChain(scene, rig.camera, depthPass, sky)`.
-27. UI: `new Overlay({ rig, character, actions: { captureShot } })`, `createFpsMeter()`, `createPerfHud()`, `initInput(canvas, { onToggleOverlay, onToggleFps })`, `createTouchControls({ onToggleOverlay })`, `installShotCapture(rig, character)` (F2). There is no `walkers` argument any more.
-28. `new Soundscape(audio, { controller: character, spells, walkers, speeder })`; `createSoundButton(audio, { onEnable: () => soundscape.start() })`. Not ported: `Soundscape` is gone from this tree, and the sound button is built as `createSoundButton(audio)` with no hook.
+27. UI: `new Overlay({ rig, character, actions: { captureShot } })`, `createFpsMeter()`, `createPerfHud()`, `initInput(canvas, { onToggleOverlay, onToggleFps })`, `createTouchControls({ onToggleOverlay })`, `installShotCapture(rig, character)` (F2). There is no `models` argument any more.
+28. `new Soundscape(audio, { controller: character, spells, models, speeder })`; `createSoundButton(audio, { onEnable: () => soundscape.start() })`. Not ported: `Soundscape` is gone from this tree, and the sound button is built as `createSoundButton(audio)` with no hook.
 
 ### 1.2 Warm-up
 Behind the loading screen.
@@ -77,7 +77,7 @@ sky.render(rig, 0);
 await terrain.warmUp();
 terrain.update(rig.camera.position, character.position, 0);
 figure.update(0); figure.sync(rig.camera.position); await figure.warmUp();
-walkers.sync(rig.camera.position); await walkers.warmUp();   // not ported: the herd is gone
+models.sync(rig.camera.position); await models.warmUp();   // not ported: the herd is gone
 if (speeder) { speeder.update(0); speeder.sync(rig.camera.position); await speeder.warmUp(); }
 spray.update(0, rig.camera.position); await spray.warmUp();
 await wake.warmUp();
@@ -95,7 +95,7 @@ Port note: in WebGL2 the equivalent is `renderer.compile(scene, camera)` (or `co
 ### 1.3 Run loop
 Entry point: `engine.runRenderLoop`.
 
-Per frame, **exact order matters** (comments in source give the dependency reasons). This is the Babylon original's loop: in this tree there is no herd (no `walkers.update` / `walkers.sync`), no soundscape (no `soundscape.update(dt)`), and `scene.render()` is the explicit pass list in `renderFrame()` (cascades → prepass → beauty → post):
+Per frame, **exact order matters** (comments in source give the dependency reasons). This is the Babylon original's loop: in this tree there is no herd (no `models.update` / `models.sync`), no soundscape (no `soundscape.update(dt)`), and `scene.render()` is the explicit pass list in `renderFrame()` (cascades → prepass → beauty → post):
 
 ```
 now = performance.now(); dtMs = min(now - prev, 100);      // clamp hitches at 100 ms
@@ -106,7 +106,7 @@ character.update(dt, rig);
 terrain.heightfield.clampToPlayArea(character.position);
 figure.update(dt);                    // pose BEFORE contact: footprints stamp at solved boot position
 contact.update(dt);
-walkers.update(dt, character.position);
+models.update(dt, character.position);
 speeder?.tick(dt); speeder?.update(dt);
 tChar = now();
 _vel.copyFrom(character.velocity);
@@ -119,7 +119,7 @@ tSpells = now();
 terrain.update(rig.camera.position, character.position, dt);
 tTerrain = now();
 figure.sync(rig.camera.position);                           // AFTER shadow refit
-walkers.sync(rig.camera.position);                          // also picks LOD — needs this frame's camera+fov
+models.sync(rig.camera.position);                          // also picks LOD — needs this frame's camera+fov
 speeder?.sync(rig.camera.position);
 wake.update(dt, rig.camera.position);                       // BEFORE spray: shed grains must be in the pool before upload
 spray.update(dt, rig.camera.position);
@@ -138,7 +138,7 @@ endFrameDraws();
 stats.triangles = terrain.mesh.metadata?.triangles
     + (S.showCharacter && !FLYING ? figure.triangles : 0)
     + (speeder ? speeder.triangles : 0)
-    + walkers.triangles
+    + models.triangles
     + (wake.mesh.isVisible ? wake.mesh.metadata.triangles : 0)
     + spells.triangles
     + spray.liveCount * 2;
@@ -153,14 +153,14 @@ After the loop starts: `loading.phase("loading audio", 0.96)`; `await audioReady
 
 ### 1.5 Debug global
 
-`globalThis.SNOWFLOW = { engine, scene, rig, character, figure, walkers, speeder, contact, spray, wake, spells, overlay, touchControls, terrain, sky, shadows, post, depthPass, audio, soundscape, S, input, perfStats: stats, captureShot, speederTuning() }`.
+`globalThis.SNOWFLOW = { engine, scene, rig, character, figure, models, speeder, contact, spray, wake, spells, overlay, touchControls, terrain, sky, shadows, post, depthPass, audio, soundscape, S, input, perfStats: stats, captureShot, speederTuning() }`.
 
-In this tree the handle is `{ gfx, scene, rig, character, figure, wrecks, speeder, collision, contact, spray, wake, spells, overlay, touchControls, terrain, sky, shadows, post, depthPass, audio, S, input, perfStats: stats, captureShot, squadImpact, speederTuning() }`: `engine` is `gfx`, and there is no `walkers` and no `soundscape`.
+In this tree the handle is `{ gfx, scene, rig, character, figure, wrecks, speeder, collision, contact, spray, wake, spells, overlay, touchControls, terrain, sky, shadows, post, depthPass, audio, S, input, perfStats: stats, captureShot, squadImpact, speederTuning() }`: `engine` is `gfx`, and there is no `models` and no `soundscape`.
 `speederTuning()` logs `speederFill, speederTint, speederRough, speederAmbient, speederDesat, jetSpan, jetDropY, jetBackZ, boltR, boltG, boltB, boltWidth, boltLength` as paste-able source and returns them as an object.
 
 ### 1.6 `jet.js` / `jet.html`: the flight test page
 
-Not ported: this tree has no `src/jet.js` and no `jet.html` (the jet is `src/player/jet.ts` inside the player subsystem, and the flight mode is a runtime toggle in `src/main.ts`). The original's `src/jet.js` was 6 setting writes + a dynamic import: `S.speeder = true; S.showWalker = false; S.showSpells = false; S.showWake = false; S.showCharacter = false; S.audioMuted = false;` then `await import("./main.ts")` (main boots on import). Same boot, same systems; this is not a parallel path. `jet.html` is a minimal clone of the boot DOM with the same element ids (`view`, `boot`, `boot-bar`, `boot-phase`, `boot-gate`, `gate-enter`, `hint`, `nogpu`). Port: preserve the "settings singleton written before entry module import" trick, which requires that `main.ts` runs its boot on import and that settings is a plain shared module.
+Not ported: this tree has no `src/jet.js` and no `jet.html` (the jet is `src/player/jet.ts` inside the player subsystem, and the flight mode is a runtime toggle in `src/main.ts`). The original's `src/jet.js` was 6 setting writes + a dynamic import: `S.speeder = true; S.showModel = false; S.showSpells = false; S.showWake = false; S.showCharacter = false; S.audioMuted = false;` then `await import("./main.ts")` (main boots on import). Same boot, same systems; this is not a parallel path. `jet.html` is a minimal clone of the boot DOM with the same element ids (`view`, `boot`, `boot-bar`, `boot-phase`, `boot-gate`, `gate-enter`, `hint`, `nogpu`). Port: preserve the "settings singleton written before entry module import" trick, which requires that `main.ts` runs its boot on import and that settings is a plain shared module.
 
 ### 1.7 `index.html`
 
@@ -312,18 +312,18 @@ Flat `Float32Array` 4×4 rigid transforms, explicit array + offset, zero allocat
 
 | Export | Notes |
 |---|---|
-| `export const OPENING: OpeningShot\|null` | paste target, and in this tree a populated shot (not null). Shape: `{ camera: {yaw, pitch, distance}, player: {x, z, facing?, rise?, climb?}, walkers: [{x, z, yaw, phase?}] }`. |
-| `export function applyOpening(shot, rig, character, terrain)` | no-op on null; else sets rig yaw/pitch/distance(+target), player x/z with `y = terrain.heightAt(x,z)`, and the player's facing and E-ladder rung. There is no `herd` argument: the herd was purged, and the `walkers` field of the shot is not read. |
-| `export function captureOpening(rig, character): string` | emits the paste-able `export const OPENING = {...}` source block (3-decimal rounding), with an empty `walkers: []`. |
+| `export const OPENING: OpeningShot\|null` | paste target, and in this tree a populated shot (not null). Shape: `{ camera: {yaw, pitch, distance}, player: {x, z, facing?, rise?, climb?}, models: [{x, z, yaw, phase?}] }`. |
+| `export function applyOpening(shot, rig, character, terrain)` | no-op on null; else sets rig yaw/pitch/distance(+target), player x/z with `y = terrain.heightAt(x,z)`, and the player's facing and E-ladder rung. There is no `herd` argument: the herd was purged, and the `models` field of the shot is not read. |
+| `export function captureOpening(rig, character): string` | emits the paste-able `export const OPENING = {...}` source block (3-decimal rounding), with an empty `models: []`. |
 | `export function installShotCapture(rig, character)` | binds F2 (preventDefault) to a console log plus a best-effort `navigator.clipboard.writeText`; returns the capture function (exposed as `SNOWFLOW.captureShot`). |
 
 ### 2.11 `src/shaders/registry.ts`
 
-`export function registerShaders()` is idempotent. It copies 15 include libs into an `INCLUDES` map under names `snowNoise, snowTerrain, snowShading, snowShadowLookup, snowAtmosphere, snowClipmap, snowDeform, snowCharSkin, snowWalkerSkin, snowWake, snowSpellLights, snowWater, snowCrystal, snowPostCommon, snowRidge` (files: `src/shaders/lib/{noise,terrain,shading,shadowLookup,atmosphere,clipmap,deform,charSkin,walkerSkin,wake,spellLights,water,crystal,postCommon,ridge}.glsl`), and 64 full shaders into a `SHADERS` map under Babylon's `<name>VertexShader` / `<name>PixelShader` naming (`<base>.vertex.glsl` → `<base>VertexShader`, `<base>.fragment.glsl` → `<base>PixelShader`). All loaded as raw strings via Vite `?raw` imports. Must run before any material is constructed. `getShader(name)` fetches one, `composeShader(src)` resolves `#include<name>` textually before compile.
+`export function registerShaders()` is idempotent. It copies 15 include libs into an `INCLUDES` map under names `snowNoise, snowTerrain, snowShading, snowShadowLookup, snowAtmosphere, snowClipmap, snowDeform, snowCharSkin, snowmodelSkin, snowWake, snowSpellLights, snowWater, snowCrystal, snowPostCommon, snowRidge` (files: `src/shaders/lib/{noise,terrain,shading,shadowLookup,atmosphere,clipmap,deform,charSkin,modelSkin,wake,spellLights,water,crystal,postCommon,ridge}.glsl`), and 64 full shaders into a `SHADERS` map under Babylon's `<name>VertexShader` / `<name>PixelShader` naming (`<base>.vertex.glsl` → `<base>VertexShader`, `<base>.fragment.glsl` → `<base>PixelShader`). All loaded as raw strings via Vite `?raw` imports. Must run before any material is constructed. `getShader(name)` fetches one, `composeShader(src)` resolves `#include<name>` textually before compile.
 
 ### 2.12 `package.json`
 
-`"type": "module"`; dep `three ^0.182.0`; dev `@types/three ^0.182.0`, `fbx2gltf ^0.9.7-p1`, `sharp ^0.35.3`, `typescript ^7.0.2`, `vite ^8.1.5`; scripts `dev`, `build`, `preview` (vite) and `typecheck` (`tsc --noEmit`). The port swaps the Babylon deps for `three` and keeps Vite, because both the `?raw` import pattern and `import.meta.env` are Vite features the registry and the assets module rely on. There is no `bake:walker` script: the baker (`tools/bakeWalker.mjs`) is not wired into the build.
+`"type": "module"`; dep `three ^0.182.0`; dev `@types/three ^0.182.0`, `fbx2gltf ^0.9.7-p1`, `sharp ^0.35.3`, `typescript ^7.0.2`, `vite ^8.1.5`; scripts `dev`, `build`, `preview` (vite) and `typecheck` (`tsc --noEmit`). The port swaps the Babylon deps for `three` and keeps Vite, because both the `?raw` import pattern and `import.meta.env` are Vite features the registry and the assets module rely on. There is no `bake:model` script: the baker (`tools/bakeModel.mjs`) is not wired into the build.
 
 ---
 
@@ -340,14 +340,14 @@ Cross-subsystem objects core-app produces/consumes.
 | `rig.groundAt` | injected by main from `terrain.heightAt` | camera ground avoidance | plain `(x,z)=>y` callback |
 | `scene` / `engine` | main | everyone | render groups 0/1/2, no auto depth clear between 1↔2, clearColor (0.02,0.03,0.05,1) |
 | `depthPass` registrations | main calls `registerCaster`/`registerPrepass` on terrain, figure, speeder, wake, spells | DepthPass → PostChain (SSR/DoF read camera depth) | order of RTT creation = render order in Babylon; must become an explicit pass list in Three |
-| `spells.addConsumers(materials…)` | main | spell dynamic-light uniforms pushed into terrain/figure/cloth/wake/spray materials | the walker's `onMaterial` callback that used to hand the herd's materials over is gone with the herd |
+| `spells.addConsumers(materials…)` | main | spell dynamic-light uniforms pushed into terrain/figure/cloth/wake/spray materials | the model's `onMaterial` callback that used to hand the herd's materials over is gone with the herd |
 | `spray` (shared particle pool) | main constructs, passes to speeder, contact, wake, spells | one pool, many writers | |
 | `contact` (SnowContact) | main wires `character`, `terrain.deform`, `figure.figure`, `spray` | writes into terrain deformation state buffer | |
 | `stats` / `systemMs` / `spikes` | perf.ts, fed by main's `mark()` calls + `sample()` | ui/overlay.ts, ui/fpsMeter.ts | `stats.gpuMs` stays 0 in the port (no WebGL2 timer), so the overlay shows its dash; `stats.drawCalls` is latched from `renderer.info.render.calls`; `stats.triangles` is summed by main from each subsystem's counters |
 | `whenReady`/`bakeOnce`/`compileAll` | gpuUtil.ts | terrain, sky, figure, wake, spells, post (warm-up + cascade upload) | |
 | `expDamp` | camera.ts export | other subsystems import it | keep it exported |
-| `mat4` helpers | mat4.ts | character skeleton, walkers (bone matrices → GPU-uploaded Float32Arrays) | layout must match GLSL mat4 (it does) |
-| `fetchAsset`/`asset` | assets.ts | audio engine, walker/speeder asset loader | CDN-first with local fallback |
+| `mat4` helpers | mat4.ts | character skeleton, models (bone matrices → GPU-uploaded Float32Arrays) | layout must match GLSL mat4 (it does) |
+| `fetchAsset`/`asset` | assets.ts | audio engine, model/speeder asset loader | CDN-first with local fallback |
 | GLSL shader registry | registry.ts | every material construction | the port's own registry: `INCLUDES` for the shared chunks and `SHADERS` for the whole shaders (§4) |
 | `SNOWFLOW` global | main | devtools user | keep for parity debugging |
 
@@ -404,7 +404,7 @@ What the port needs to replicate:
 |---|---|
 | Asset base | `https://zpumgyyt6ujxyrej.public.blob.vercel-storage.com` (public Vercel Blob, CORS `*`, ~30-day cache), overridable with `VITE_ASSET_BASE` (empty string ⇒ serve from `public/`). Every load tries CDN first, then same-origin `public/` fallback (`assetCandidates`). |
 | Audio (`audio.load()`, audio subsystem) | manifest + mp3s under `audio/` (~MBs; e.g. `audio/ambiance.mp3`). |
-| Walker model (`loadModelAsset("models/walker")`, walker subsystem) | baked multi-file asset: `.bin` geometry + transform texture + webp albedos under `public/models/` (format reverse-engineered in the walker spec, produced by `tools/bakeWalker.mjs`). Not ported: `public/models/walker.bin` is not in this tree, and the walker herd was purged, so nothing loads it. |
+| model model (`loadModelAsset("models/model")`, model subsystem) | baked multi-file asset: `.bin` geometry + transform texture + webp albedos under `public/models/` (format reverse-engineered in the model spec, produced by `tools/bakeModel.mjs`). Not ported: `public/models/model.bin` is not in this tree, and the model herd was purged, so nothing loads it. |
 | Speeder model (`loadModelAsset("models/speeder")`) | same baked format (`speeder.bin`, `speeder_albedo_0..4.webp`), fetched only when `S.speeder === true` at boot. |
 | Everything else | GPU-generated at load (terrain heightfield, sky, detail textures); no image assets. |
 
@@ -425,7 +425,7 @@ The risks are listed in ranked order:
 
 **R4, boot-order side effects.** Three traps: the mobile preset must be applied before any construction (`deformResolution` is read once); `S.speeder` is latched into `FLYING` once at boot (toggle = reload, and `jet.js` relies on writing `S` *before* importing `main.ts`, which boots on import); `S.showSpells/showWake` are written directly (bypassing `set()`) when flying, so no listeners fire. Preserve all three exactly.
 
-**R5, frame-order dependencies inside the run loop.** The comments encode hard invariants: figure before contact (footprint position), post.update (TAA jitter) after rig but before any consumer of the view-proj matrix, shadows before spells/figure/walkers sync (this-frame cascade matrices), spells before terrain (brush staging for the deform sim), wake before spray (pool upload), input `endFrame()` dead last. Reorder any of these and you get one-frame-late artifacts that are miserable to diagnose. Port the loop body verbatim, comments included.
+**R5, frame-order dependencies inside the run loop.** The comments encode hard invariants: figure before contact (footprint position), post.update (TAA jitter) after rig but before any consumer of the view-proj matrix, shadows before spells/figure/models sync (this-frame cascade matrices), spells before terrain (brush staging for the deform sim), wake before spray (pool upload), input `endFrame()` dead last. Reorder any of these and you get one-frame-late artifacts that are miserable to diagnose. Port the loop body verbatim, comments included.
 
 **R6, resolution scale & GPU timing plumbing.** `setHardwareScalingLevel` rescales the backbuffer *and* everything derived from it; in Three you must manually resize the renderer plus every screen-sized `WebGLRenderTarget` (post chain, prepass) on both `resolutionScale` changes and window resizes. GPU frame time (`stats.gpuMs`) has no reliable WebGL2 equivalent (`EXT_disjoint_timer_query_webgl2` is widely disabled), so implement it behind a feature check and let the overlay show its existing dash fallback. Draw-call counting must switch to `renderer.info` with `autoReset = false`.
 

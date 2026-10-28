@@ -2,7 +2,7 @@
  * Muzzle-tuning markers.
  *
  * Little camera-facing rings pinned to wherever cannon bolts are born — the
- * walker's chin guns, the speeder's wingtips — refreshed every frame from the
+ * model's chin guns, the speeder's wingtips — refreshed every frame from the
  * same offset math the fire paths use, so a ring is exactly where the next
  * bolt will start and moves live under the overlay's muzzle sliders.
  *

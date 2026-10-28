@@ -36,7 +36,7 @@ void main() {
     vec3 right = normalize(cross(refUp, eye));
     vec3 up = cross(eye, right);
 
-    // A touch of growth with distance, so a walker's gun head across the field
+    // A touch of growth with distance, so a model's gun head across the field
     // still shows a findable ring without the near ones dominating the view.
     float r = a.w * (1.0 + sqrt(d2) * 0.02);
 

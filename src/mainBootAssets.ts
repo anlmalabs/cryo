@@ -11,7 +11,7 @@ import { Terrain } from "./terrain/terrain.js";
 import { DepthPass } from "./render/depthPass.js";
 import { Speeder } from "./player/speeder.js";
 import type { Gfx } from "./core/gfx.js";
-import type { ModelAsset } from "./walkers/modelAsset.js";
+import type { ModelAsset } from "./player/modelAsset.js";
 import type { FlightState } from "./mainContracts.js";
 import * as loading from "./core/loading.js";
 

@@ -1,7 +1,7 @@
 /**
- * Loading the baked walker.
+ * Loading the baked model.
  *
- * The file is what `tools/bakeWalker.mjs` produced: a magic word, a JSON header,
+ * The file is what `tools/bakeModel.mjs` produced: a magic word, a JSON header,
  * then one contiguous payload of quantised attributes and one cycle of baked
  * skinning matrices. There is no parsing to speak of — every section is a typed
  * view onto the ArrayBuffer the fetch already produced, and the only work done
@@ -36,7 +36,7 @@ export interface LayoutEntry {
 }
 
 /** One decoded level of detail, widened into the vertex buffers. */
-export interface WalkerLOD {
+export interface ModelLOD {
  positions: Float32Array;
  normals: Float32Array;
  uvs: Float32Array;
@@ -50,7 +50,7 @@ export interface WalkerLOD {
 }
 
 /** One material slot in the baked file's header — an image index, or -1. */
-export interface WalkerMaterial {
+export interface ModelMaterial {
  name: string;
  slot: number;
  roughness: number;
@@ -60,20 +60,20 @@ export interface WalkerMaterial {
 }
 
 /** One baked animation clip beyond the locomotion cycle. */
-export interface WalkerClip {
+export interface ModelClip {
  anim: Int16Array;
  frameCount: number;
  duration: number;
 }
 
 /**
- * The baked file's JSON header — the fixed schema `tools/bakeWalker.mjs`
+ * The baked file's JSON header — the fixed schema `tools/bakeModel.mjs`
  * writes, whose `version` gates every field below.
  *
  * `layout` is typed precisely because it is what the section views are built
  * from; `posOffset`/`posScale` and the remaining counts are read by exact key.
  */
-export interface WalkerHeader {
+export interface ModelHeader {
  version: number;
  /** One descriptor per attribute section. */
  layout: LayoutEntry[];
@@ -92,7 +92,7 @@ export interface WalkerHeader {
  }[];
  /** Edge length of the model's albedo/ORM textures, texels. */
  textureSize: number;
- materials: WalkerMaterial[];
+ materials: ModelMaterial[];
  boneCount: number;
  /** Frames in the runtime's locomotion cycle. */
  frameCount: number;
@@ -100,7 +100,7 @@ export interface WalkerHeader {
  duration: number;
  /**
   * PRE-EXISTING DEFECT — declared optional, and that is the honest truth:
-  * `tools/bakeWalker.mjs` does not write these three, so every model in the
+  * `tools/bakeModel.mjs` does not write these three, so every model in the
   * repo loads with them `undefined`. Unread they are merely `undefined`; read,
   * `bounds.max[2]` throws and `a[k] * basisScale` is NaN — which is what the
   * flight model's ground probes and transform texture were feeding on until
@@ -116,18 +116,18 @@ export interface WalkerHeader {
  transScale?: number;
 }
 
-/** The fully decoded model, ready to hand to the walkers. */
+/** The fully decoded model, ready to hand to the model. */
 export interface ModelAsset {
- header: WalkerHeader;
+ header: ModelHeader;
  /** Finest first. */
- lods: WalkerLOD[];
+ lods: ModelLOD[];
  /** Frame-major, 12 quantised floats per bone. */
  anim: Int16Array;
  /** Layer-major RGBA. */
  albedo: Uint8Array | null;
  /** Layer-major RGBA. */
  orm: Uint8Array | null;
- clips: Record<string, WalkerClip> | null;
+ clips: Record<string, ModelClip> | null;
  layers: number;
  albedoSize: number;
  ormSize: number;
@@ -135,7 +135,7 @@ export interface ModelAsset {
 
 /**
  * Layers in the texture arrays. Material slots index straight into them, so the
- * count follows the model — the walker has four materials and the speeder five,
+ * count follows the model — the model has four materials and the speeder five,
  * and a fixed four silently dropped the fifth.
  */
 const MIN_LAYERS = 4;
@@ -174,7 +174,7 @@ const SRGB_TO_LINEAR = (() => {
  * @param {string} base path prefix, without extension
  * @param {{ srgbAlbedo?: boolean }} [opts]
  *   `srgbAlbedo` decodes the colour maps on the way into the array. Off by
- *   default, deliberately: the walker's maps have been looked at and tuned as
+ *   default, deliberately: the model's maps have been looked at and tuned as
  *   they are, and silently re-gamma-ing them would change a model nobody asked
  *   to change.
  * @returns {Promise<ModelAsset>}
@@ -186,19 +186,19 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
  const buffer = await res.arrayBuffer();
 
  const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
- if (magic !== MAGIC) throw new Error(`walker: bad magic "${magic}"`);
+ if (magic !== MAGIC) throw new Error(`model: bad magic "${magic}"`);
  const headerBytes = new DataView(buffer).getUint32(4, true);
  // Parsed from a file on disk or a blob store, so it is untrusted input:
- // narrowed to `WalkerHeader` by the shape guard below, so every read past
+ // narrowed to `ModelHeader` by the shape guard below, so every read past
  // it is a typed read rather than an `any` read.
  const parsed: unknown = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 8, headerBytes)));
  if (
   !parsed || typeof parsed !== "object"
-  || !Array.isArray((parsed as WalkerHeader).layout)
-  || !Array.isArray((parsed as WalkerHeader).materials)
- ) throw new Error(`walker: header is not a v2 header: ${JSON.stringify(parsed)}`);
- const header = parsed as WalkerHeader;
- if (header.version !== 2) throw new Error(`walker: unsupported version ${header.version}`);
+  || !Array.isArray((parsed as ModelHeader).layout)
+  || !Array.isArray((parsed as ModelHeader).materials)
+ ) throw new Error(`model: header is not a v2 header: ${JSON.stringify(parsed)}`);
+ const header = parsed as ModelHeader;
+ if (header.version !== 2) throw new Error(`model: unsupported version ${header.version}`);
 
  const payload = 8 + headerBytes;
  /** @type {Record<string, LayoutEntry>} */
@@ -215,7 +215,7 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
   name: string
  ): T {
   const s = sections[name];
-  if (!s) throw new Error(`walker: section "${name}" missing`);
+  if (!s) throw new Error(`model: section "${name}" missing`);
   return new TYPES[s.type as keyof typeof TYPES](buffer, payload + s.offset, s.count) as T;
  }
 
@@ -333,7 +333,7 @@ export async function loadModelAsset(base: string, opts?: { srgbAlbedo?: boolean
  * slot is textured.
  */
 async function loadLayers(
- base: string, kind: "albedo" | "orm", materials: WalkerMaterial[], size: number, layers: number, srgb: boolean
+ base: string, kind: "albedo" | "orm", materials: ModelMaterial[], size: number, layers: number, srgb: boolean
 ) {
  const stride = size * size * 4;
  const out = new Uint8Array(stride * layers);
@@ -343,7 +343,7 @@ async function loadLayers(
  const ctx = canvas.getContext("2d", { willReadFrequently: true });
  if (!ctx) throw new Error(`no 2D context on the OffscreenCanvas (${size}×${size}) — cannot decode model textures; this environment does not support OffscreenCanvas 2D, so use a browser that does (or serve the asset as pre-decoded image bitmaps).`);
 
- await Promise.all(materials.map(async (m: WalkerMaterial) => {
+ await Promise.all(materials.map(async (m: ModelMaterial) => {
   const key = kind === "albedo" ? "albedoImage" : "ormImage";
   if (m[key] < 0 || m.slot >= layers) return;
   const res = await fetchAsset(`${base}_${kind}_${m.slot}.webp`);
@@ -368,4 +368,4 @@ async function loadLayers(
  return out;
 }
 
-export { layersFor as walkerTextureLayers };
+export { layersFor as modelTextureLayers };

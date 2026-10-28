@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// The walker's armour.
+// The model's armour.
 //
 // A metal-workflow GGX surface — which for once is the honest model, because
 // unlike the snow and the cloth this genuinely is a painted metal shell. What
@@ -61,7 +61,7 @@ uniform float shadowSoftness;
 uniform float shadowBias;
 
 /// Per material slot: (roughness factor, metallic factor, occlusion strength, tint).
-/// Eight, which is more slots than either model uses — the walker has four
+/// Eight, which is more slots than either model uses — the model has four
 /// materials and the speeder five, and one array that covers both is cheaper
 /// than a second shader.
 uniform vec4 matFactors[8];
@@ -193,7 +193,7 @@ void main() {
     // So the cast is pulled toward the beam's own luminance, which changes the
     // colour without touching how much light there is. Carried in
     // `matFactors[7].y`, and defined so that 0 is *unchanged* rather than
-    // neutral — the walker never writes that slot, so it keeps the warm sun it
+    // neutral — the model never writes that slot, so it keeps the warm sun it
     // is supposed to have and this stays the speeder's alone.
     //
     // Only the beam is balanced. The sky ambient keeps its own colour, because
@@ -237,8 +237,8 @@ void main() {
     // Carried in `matFactors[7].x` rather than in a uniform of its own.
     //
     // The array is eight slots because one of them has to cover both models, and
-    // neither model fills it: the walker declares four materials and the speeder
-    // five, so slot 7 is spare in both. The walker's factors are a zeroed
+    // neither model fills it: the model declares four materials and the speeder
+    // five, so slot 7 is spare in both. The model's factors are a zeroed
     // Float32Array it only writes its own slots into, so it reads exactly 0.0
     // here and this term vanishes for it — no branch, no define, and nothing for
     // me to get wrong on a model that is already right.
@@ -248,7 +248,7 @@ void main() {
     // hull's facets have a cosine near zero, so every term that respects the
     // cosine has nothing to lift, and the craft is the one opaque thing in the
     // scene close enough to the camera to receive none of the aerial haze that is
-    // doing most of the work on the walkers.
+    // doing most of the work on the models.
     color += diffuseAlbedo * INV_PI * sunLit * matFactors[7].x;
 
     // --- spell light --------------------------------------------------------

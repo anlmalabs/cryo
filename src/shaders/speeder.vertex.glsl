@@ -1,10 +1,10 @@
-// The walker: four-influence linear blend skinning out of the transform texture.
+// The model: four-influence linear blend skinning out of the transform texture.
 
 precision highp float;
 precision highp int;
 precision highp sampler2D;
 
-#include<snowWalkerSkin>
+#include<snowModelSkin>
 
 in vec3 position;   // bind-pose position, metres
 in vec3 normal;     // bind-pose normal
@@ -16,10 +16,10 @@ in vec4 boneWt;
 uniform mat4 viewProjection;
 uniform vec3 cameraPos;
 
-/// First of this walker's four rows in the shared transform texture.
+/// First of this model's four rows in the shared transform texture.
 uniform float boneRow;
 
-uniform sampler2D walkerTex;
+uniform sampler2D hullTex;
 
 out vec3 vWorld;
 out vec3 vNormal;
@@ -28,11 +28,11 @@ out float vSlot;
 out float vViewDist;
 
 void main() {
-    WalkerXform m = walkerXform(walkerTex, int(boneRow), boneIdx, boneWt);
-    vec3 world = walkerPoint(m, position);
+    HullXform m = hullXform(hullTex, int(boneRow), boneIdx, boneWt);
+    vec3 world = hullPoint(m, position);
 
     vWorld = world;
-    vNormal = walkerDir(m, normal);
+    vNormal = hullDir(m, normal);
     vUV = uv;
     // Every triangle is wholly inside one material, so all three corners carry
     // the same slot and the interpolation is a no-op. Rounded on the way out

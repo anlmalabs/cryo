@@ -3,7 +3,7 @@
  *
  * The whole collision system reduces to one question asked many times a frame:
  * a sphere (a craft) moved from here to there this frame — did it touch this
- * capsule (a walker leg, a body, a wreck), and if so, where, when, and which
+ * capsule (a model leg, a body, a wreck), and if so, where, when, and which
  * way is out? This module answers that question and nothing else. No THREE, no
  * settings, no game state: plain numbers in, plain numbers out, so the tests
  * are the algebra and the algebra is checkable by reading.
@@ -57,7 +57,7 @@ const EPS2 = 1e-8;
 /** What a capsule can be an instance of. The struck surface a contact report
  *  needs, and nothing else — see `MACHINE_KINDS` in the pass for the subset
  *  that decides armour-and-servo vs fuel-and-fire. */
-export type CapsuleKind = "leg" | "body" | "head" | "atst" | "wreck" | "";
+export type CapsuleKind = "leg" | "body" | "head" | "machine" | "wreck" | "";
 
 /** A capsule: a segment ax→by→bz with a radius. Metres, world space. */
 export interface Capsule {
@@ -65,12 +65,12 @@ export interface Capsule {
  bx: number; by: number; bz: number;   // segment top / nose, metres
  r: number;                           // radius, metres
  kind: CapsuleKind;
- walker: CapsuleOwner | null;         // back-ref for reactions (stumble, wreck)
+ owner: CapsuleOwner | null;         // back-ref for reactions (stumble, wreck)
  live: boolean;                       // dead entries are skipped by every query
 }
 
-/** The least a capsule's `walker` back-reference has to offer: the pass calls
- *  `stumble` on whatever it finds there, and a walker and a wreck slot both
+/** The least a capsule's `model` back-reference has to offer: the pass calls
+ *  `stumble` on whatever it finds there, and a model and a wreck slot both
  *  answer differently to being hit. Structurally declared rather than imported
  *  so the algebra stays decoupled from the herds. */
 export interface CapsuleOwner {
@@ -88,7 +88,7 @@ export interface SweepHit {
 
 /**
  * Build the capsule pool: n preallocated, reusable collider slots. The pass
- * rewrites these in place every frame (walkers move, sliders resize them) and
+ * rewrites these in place every frame (models move, sliders resize them) and
  * flags the tail of the pool dead with `live = false` — nothing is ever
  * created or freed after this call.
  *
@@ -102,7 +102,7 @@ export function makeCapsulePool(n: number): Capsule[] {
    bx: 0, by: 0, bz: 0,   // segment top / nose
    r: 1,                  // radius, metres
    kind: "",              // "" = unoccupied slot; the pass writes the real kind
-   walker: null,
+   owner: null,
    live: false,           // dead entries are skipped by every query
   };
  }

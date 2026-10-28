@@ -6,18 +6,18 @@ Play it now: [battleofhoth.app](https://www.battleofhoth.app/) ▶
 
 A real-time, flyable recreation of the Battle of Hoth, the opening battle of
 *The Empire Strikes Back*. You are in the cockpit of a T-47 airspeeder,
-skimming metres over procedural snow while AT-AT walkers advance across the
+skimming metres over procedural snow while AT-AT models advance across the
 field, Imperial Star Destroyers hang on station high overhead, and an AI
 wingman runs passes beside you.
 
 ## The battle
 
 Hoth is the Empire's answer to the destruction of the Death Star: the Rebel
-Alliance found hiding on a frozen backwater, and General Veers' walkers landed
+Alliance found hiding on a frozen backwater, and General Veers' models landed
 beyond the energy shield to take Echo Base the slow, unstoppable way, on foot.
 The Rebels' snowspeeders were never going to kill an AT-AT with blasters; the
 point of every pass was time: time for the transports to get out. That is the
-scene this simulator lives in: the white field, the low sun, the walkers coming
+scene this simulator lives in: the white field, the low sun, the models coming
 on regardless, and a speeder that is faster than everything and stronger than
 nothing.
 
@@ -68,7 +68,7 @@ AT-ATs march in formation on a latched bearing, never crossing each other and
 never turning to chase you. AT-STs keep their distance behind them, each with a
 squad of snowtroopers holding station at its heels: troopers who flinch, dive,
 and die when the fire gets close. Everything shoots back. Get close enough and
-the walkers' viewport slits glow red with crew silhouettes crossing the glass.
+the models' viewport slits glow red with crew silhouettes crossing the glass.
 
 ### Leave a mark
 
@@ -80,7 +80,7 @@ Star Destroyers hang on station in the sky.
 
 The overlay (backtick) exposes several hundred settings: lighting, snow, the
 speeder's look and feel, jet plume placement with a debug view that paints its
-footprint, collision thresholds and bounce, walker count and scale, the fleet's
+footprint, collision thresholds and bounce, model count and scale, the fleet's
 station. F2 copies the current camera, player and herd placement as a pinnable
 opening shot.
 
@@ -120,9 +120,9 @@ deliberate notes explaining what each piece replaced.)
 | asset | credit and terms |
 |---|---|
 | Rendering core | [SNOWFLOW](https://github.com/Noniv/snowflow_demo) by [Noniv (Maksymilian Dendura)](https://github.com/Noniv), MIT. A Babylon.js/WebGPU real-time snow tech demo: the procedural terrain, sky, snow deformation, shading and post chain all originate in that work, translated wholesale to raw WebGL2/GLSL here. |
-| The battle | The Star Wars theme and the Battle of Hoth simulation on top of it (the flyable speeder, walkers in combat, the fleet, the wingman and the rest) by [Christian Sanz](https://github.com/csanz). |
-| AT-AT walker | Baked conversion of [*"Imperial AT-AT Walker - Star Wars"* by Quiznos323](https://sketchfab.com/3d-models/imperial-at-at-walker-star-wars-7eab3f41da9143d8975b9034e91f8920) (Sketchfab), used under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0). That licence is non-commercial and share-alike, and covers the baked derivative in `public/models/` exactly as it covers the source `.glb`; it does not extend to the rest of this repository, but it does mean the demo cannot be used commercially while the model is in it. |
-| AT-ST walker | Baked conversion of [*"Imperial AT-ST Walker - Star Wars"* by Quiznos323](https://sketchfab.com/3d-models/imperial-at-st-walker-star-wars-d867c101e5314c33b528cffbe40c0db3) (Sketchfab), used under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), the same licence and the same terms as the AT-AT above, covering the baked derivative in `public/models/atst.bin`. |
+| The battle | The Star Wars theme and the Battle of Hoth simulation on top of it (the flyable speeder, models in combat, the fleet, the wingman and the rest) by [Christian Sanz](https://github.com/csanz). |
+| AT-AT model | Baked conversion of [*"Imperial AT-AT model - Star Wars"* by Quiznos323](https://sketchfab.com/3d-models/imperial-at-at-model-star-wars-7eab3f41da9143d8975b9034e91f8920) (Sketchfab), used under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0). That licence is non-commercial and share-alike, and covers the baked derivative in `public/models/` exactly as it covers the source `.glb`; it does not extend to the rest of this repository, but it does mean the demo cannot be used commercially while the model is in it. |
+| AT-ST model | Baked conversion of [*"Imperial AT-ST model - Star Wars"* by Quiznos323](https://sketchfab.com/3d-models/imperial-at-st-model-star-wars-d867c101e5314c33b528cffbe40c0db3) (Sketchfab), used under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), the same licence and the same terms as the AT-AT above, covering the baked derivative in `public/models/atst.bin`. |
 | T-47 snowspeeder | Fan-made community model, baked to `public/models/speeder.bin`. Its original author is not recorded in this repository's history; if that's you, open an issue and the credit lands here with a link. |
 | Imperial-class Star Destroyer | Sketchfab fan model (`star_wars_imperial-class_star_destroyer.glb`), decimated ~28× by grid-clustering (`tools/bakeDestroyer.mjs`) into `public/models/destroyer.bin`. Author link welcome. |
 

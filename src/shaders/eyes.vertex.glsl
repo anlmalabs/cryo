@@ -1,4 +1,4 @@
-// The walkers' viewport bands: one thin red bar per machine, pinned across
+// The models' viewport bands: one thin red bar per machine, pinned across
 // the head's face and riding its look. Same lattice trick as the markers —
 // the mesh carries only (bandIndex, u, v); where a band is, which way it
 // runs, and how big it stands live in two texels rewritten per frame.

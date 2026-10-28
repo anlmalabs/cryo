@@ -10,10 +10,10 @@ Source files (Babylon.js / WebGPU / WGSL original; do not modify):
 | `/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo/src/shaders/jet.vertex.wgsl` | subsystem-owned shader |
 | `/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo/src/shaders/jet.fragment.wgsl` | subsystem-owned shader |
 
-Shared shaders this subsystem *reuses* (owned by the walker subsystem but bound by this one):
-`walker.vertex.wgsl`, `walker.fragment.wgsl`, `walkerDepth.vertex.wgsl`,
-`walkerPrepass.vertex.wgsl`, `terrainDepth.fragment.wgsl`, `prepass.fragment.wgsl`,
-`lib/walkerSkin.wgsl` (`#include<snowWalkerSkin>`), plus fragment-side includes
+Shared shaders this subsystem *reuses* (owned by the model subsystem but bound by this one):
+`model.vertex.wgsl`, `model.fragment.wgsl`, `modelDepth.vertex.wgsl`,
+`modelPrepass.vertex.wgsl`, `terrainDepth.fragment.wgsl`, `prepass.fragment.wgsl`,
+`lib/modelSkin.wgsl` (`#include<snowmodelSkin>`), plus fragment-side includes
 `snowNoise`, `snowShading`, `snowSpellLights`, `snowAtmosphere`, `snowShadowLookup`.
 
 Assets: `/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo/public/models/speeder.bin`
@@ -91,7 +91,7 @@ Runtime behavior, per frame:
    and camera position.
 
 3. Rendering (driven by the scene, not by this code): the speeder body renders in the
-   opaque pass (Babylon `renderingGroupId = 1`) with the walker surface shader; it also
+   opaque pass (Babylon `renderingGroupId = 1`) with the model surface shader; it also
    renders into the depth prepass and into shadow cascades 0 and 1 (registered for 2 of the
    3 cascades, since a 5 m craft a few metres off the snow doesn't need the 330 m cascade). The
    jet plume and bolts render in the alpha group (`renderingGroupId = 2`) with additive
@@ -104,15 +104,15 @@ Runtime behavior, per frame:
    boost it stretches to `LENGTH = 7.5` m. HDR-bright on purpose (throat ≈ 30× emitter) so
    it outruns sunlit snow (≈12 linear) through the AgX tonemap and feeds the bloom pass.
 
-Shading intent, applied via walker.fragment.wgsl as the speeder configures it, is most of the
+Shading intent, applied via model.fragment.wgsl as the speeder configures it, is most of the
 "look": metal-workflow GGX with cascade PCSS shadows, SH sky ambient, sky-LUT ambient
-specular via `envBRDFApprox`, and aerial perspective, all identical to the walker. On top of
+specular via `envBRDFApprox`, and aerial perspective, all identical to the model. On top of
 those, speeder-only terms ride through `matFactors` slot 7: a flat sun-coloured fill
 (`matFactors[7].x = S.speederFill`) that ignores normal and shadow (needed because at a
 13° sun most facets have cosine ≈ 0), and a sun de-warm
 (`matFactors[7].y = S.speederDesat`) that mixes the sun beam toward its own luminance
-(0 = unchanged; the walker leaves slot 7 zeroed so both terms vanish for it). `snowCover`
-is forced to 0 (a warm moving craft carries no rime). `shadowBias` is 0.11 (vs the walker's
+(0 = unchanged; the model leaves slot 7 zeroed so both terms vanish for it). `snowCover`
+is forced to 0 (a warm moving craft carries no rime). `shadowBias` is 0.11 (vs the model's
 much tighter bias) because the craft shadow-tests against the near cascade it just rendered
 into; a broad flat plate at grazing 13° sun angle needs a loose bias or the hull goes
 black at random with camera movement. `ambientIntensity` = `S.ambientIntensity * S.speederAmbient`.
@@ -160,7 +160,7 @@ Other methods:
 
 | Method | Behavior |
 |---|---|
-| `registerPrepass(depth)` | builds the prepass material (vertex `walkerPrepass`, fragment `prepass`) and calls `depth.registerCaster(this.mesh, mat)` |
+| `registerPrepass(depth)` | builds the prepass material (vertex `modelPrepass`, fragment `prepass`) and calls `depth.registerCaster(this.mesh, mat)` |
 | `setVisible(v)` | toggles mesh, jet, and (off only) the bolts mesh |
 | `warmUp()` | async; compiles surface, both depth cascade materials, prepass, bolts, jet behind the loading screen (Babylon compiles async; in Three use `renderer.compile`/`compileAsync` or render one warm-up frame) |
 | `dispose()` | tears down all of the above |
@@ -253,14 +253,14 @@ Produces / owns:
 
 | Thing | Format | Consumers |
 |---|---|---|
-| `this.tex` ("walkerTex" sampler) | RawTexture RGBA float32, size `boneCount × 4` = **1×4** for the speeder, nearest filtering, clamp | its own 4 pipelines (surface, 2 depth, prepass). Not shared with the walker herd — the speeder has its *own* transform texture, `boneRow = 0` |
+| `this.tex` ("modelTex" sampler) | RawTexture RGBA float32, size `boneCount × 4` = **1×4** for the speeder, nearest filtering, clamp | its own 4 pipelines (surface, 2 depth, prepass). Not shared with the model herd — the speeder has its *own* transform texture, `boneRow = 0` |
 | `albedoTex` | RawTexture2DArray RGBA8, 1024×1024×**5** layers, trilinear, wrap, aniso 16, **no mips** (deliberate — see comment in speeder.ts; a live suspect for the dark-hull bug) | own surface material |
 | `ormTex` | RawTexture2DArray RGBA8 1024×1024×5, **with** mips, trilinear, wrap, aniso 16; all-white (no ORM images exist) | own surface material |
 | `factors` (`matFactors`) | Float32Array 32 = 8 vec4 | own surface material (slot 7 carries fill/desat) |
 | its opaque draw into cascade maps 0,1 and the depth prepass | n/a | shadows / post subsystems |
 | jet + bolt draws in alpha group | additive, no depth write | post (bloom feeds off jet HDR values) |
 | `shotCount` | number | (no consumer left) |
-| Bolts side effects | terrain craters + glazing (`ice` channel), spray grains | terrain deform, vfx (via the Bolts subsystem — see the walkers spec) |
+| Bolts side effects | terrain craters + glazing (`ice` channel), spray grains | terrain deform, vfx (via the Bolts subsystem — see the models spec) |
 
 ---
 
@@ -312,8 +312,8 @@ behind), `side: THREE.DoubleSide`, drawn after opaques (`renderingGroupId 2` →
 and the world matrix frozen at identity, since vertices are placed in world space by the
 shader. In Three, set `mesh.frustumCulled = false` and leave the mesh matrix identity.
 
-### walker.vertex.wgsl + lib/walkerSkin.wgsl
-Shared with walkers; bound by speeder.
+### model.vertex.wgsl + lib/modelSkin.wgsl
+Shared with models; bound by speeder.
 Technique: 4-influence linear-blend skinning from a float RGBA transform texture. Layout:
 texel `(bone, row0 + c)` = column c of that bone's affine (xyz used, w ignored); row0 =
 `uniforms.boneRow` (speeder: 0). One blended matrix per vertex (16 `textureLoad`s), then one
@@ -327,7 +327,7 @@ and needs a float texture (`THREE.DataTexture` with `type: FloatType`, `format: 
 `NearestFilter`, `needsUpdate` per frame; WebGL2 samples unfiltered float fine with nearest,
 no EXT needed for fetch). The `continue`-in-loop with dynamic weights is fine in GLSL ES 3.0.
 
-### walker.fragment.wgsl
+### model.fragment.wgsl
 Shared; speeder-specific behavior via uniforms.
 Technique: GGX metal-workflow PBR + cascaded PCSS + SH ambient + sky-LUT reflection +
 aerial perspective + optional snow rime + debug views. Key structure (see §1 for the
@@ -355,7 +355,7 @@ speeder-relevant terms):
 - Debug substitution happens at the single exit (WGSL has no early return with
   FragmentOutputs); in GLSL you may keep the same structure.
 
-### walkerDepth.vertex.wgsl + terrainDepth.fragment.wgsl
+### modelDepth.vertex.wgsl + terrainDepth.fragment.wgsl
 Role: shadow cascade pass.
 Vertex: same skinning include; single uniform `lightViewProjection: mat4x4f`; per-cascade
 material instantiated with define `SPEEDER_CASCADE n` (the define exists only to make the
@@ -368,7 +368,7 @@ Babylon/WebGPU clip-space z is [0,1] while Three's projection matrices produce [
 equivalent. Note that the *shadow lookup* include compares against depths produced with the
 shadow camera's projection convention, so port both sides together.**
 
-### walkerPrepass.vertex.wgsl + prepass.fragment.wgsl
+### modelPrepass.vertex.wgsl + prepass.fragment.wgsl
 Role: depth prepass.
 Vertex: skinning include; outputs `vViewZ = clip.w` (for perspective, clip w = view-space z,
 which is exact and needs no reconstruction) and `vMask = 0.0`. Fragment writes `vec4(vViewZ, vMask, 0, 1)`
@@ -414,7 +414,7 @@ This subsystem uses no storage textures, no textureGather and no compute.
 ## 6. Assets
 
 ### `public/models/speeder.bin`: "SNWK" v2 baked container
-Written by tools/bakeWalker.mjs, read by src/walkers/modelAsset.ts `loadModelAsset`.
+Written by tools/bakeModel.mjs, read by src/player/modelAsset.ts `loadModelAsset`.
 
 Byte layout:
 - bytes 0–3: ASCII magic `"SNWK"`.
@@ -483,7 +483,7 @@ The risks are listed in ranked order:
 
 3. Coordinate-convention coupling. All placement math is hand-rolled world-space with
    +Z forward at yaw 0 and column-major 3×4 layout `[right|up|fwd|origin]`; the bone texture,
-   jet origins, muzzle transform and `walkerSkin` include all assume it, and the skinned
+   jet origins, muzzle transform and `modelSkin` include all assume it, and the skinned
    output is world space (no model matrix; meshes sit at identity with culling off). If the
    Three port flips handedness (Three is right-handed; Babylon default left-handed) or lets
    `modelViewMatrix` sneak in, the craft mirrors, the plume blows forward, or bolts leave
@@ -492,8 +492,8 @@ The risks are listed in ranked order:
    uniform, exactly as the original does.
 
 4. `matFactors` slot-7 side channel. The flat fill and sun-desaturation ride in
-   `matFactors[7].xy` of a shared 8×vec4 array (walker leaves it zeroed). The shader is
-   shared with the walker herd, so port it once and make sure both subsystems agree on the
+   `matFactors[7].xy` of a shared 8×vec4 array (model leaves it zeroed). The shader is
+   shared with the model herd, so port it once and make sure both subsystems agree on the
    8-slot layout and that the speeder's five material slots index texture layers directly.
    Uniform-array upload in Three must be a single flat Float32Array (32 floats) per frame.
 

@@ -1,13 +1,13 @@
 /**
- * Bake a skinned, animated GLB into the SNWK v2 asset `walkerAsset.js` loads.
+ * Bake a skinned, animated GLB into the SNWK v2 asset `modelAsset.js` loads.
  *
- *   node tools/bakeWalker.mjs <in.glb> <outBase> [--height=8.6] [--fps=24]
+ *   node tools/bakeModel.mjs <in.glb> <outBase> [--height=8.6] [--fps=24]
  *
- * e.g. node tools/bakeWalker.mjs at-st.glb public/models/atst --height=8.6
+ * e.g. node tools/bakeModel.mjs at-st.glb public/models/atst --height=8.6
  *
- * A recreation of the tool that baked `walker.bin` and `speeder.bin` (the
+ * A recreation of the tool that baked `model.bin` and `speeder.bin` (the
  * original was never committed); the format is reverse-engineered from
- * `src/walkers/walkerAsset.js` and the headers of the shipped bins, and
+ * `src/player/modelAsset.ts` and the headers of the shipped bins, and
  * produces byte-compatible output:
  *
  *   magic "SNWK" · u32 header length · JSON header · payload
@@ -35,7 +35,7 @@
  * Textures: one albedo webp per material that has a base colour map, one ORM
  * webp per material with a metallic-roughness map (occlusion forced white),
  * both at `header.textureSize`, named `<outBase>_albedo_<slot>.webp` /
- * `<outBase>_orm_<slot>.webp` — the layer files `loadWalkerAsset` fetches.
+ * `<outBase>_orm_<slot>.webp` — the layer files `loadModelAsset` fetches.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -51,7 +51,7 @@ const flags = Object.fromEntries(
 const src = args[0];
 const outBase = args[1];
 if (!src || !outBase) {
-    console.error("usage: node tools/bakeWalker.mjs <in.glb> <outBase> [--height=8.6] [--fps=24]");
+    console.error("usage: node tools/bakeModel.mjs <in.glb> <outBase> [--height=8.6] [--fps=24]");
     process.exit(1);
 }
 const TARGET_HEIGHT = Number(flags.height) || 0; // 0 = keep authored size

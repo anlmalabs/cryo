@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Battle of Hoth Simulator</title>
-<meta name="description" content="Fly a T-47 snowspeeder against the Imperial walker line — a real-time Battle of Hoth simulation, in your browser." />
+<meta name="description" content="Fly a T-47 snowspeeder against the Imperial model line — a real-time Battle of Hoth simulation, in your browser." />
 <link rel="canonical" href="https://www.battleofhoth.app/" />
 
 <!-- The share card: what a pasted link unfurls into.
@@ -18,17 +18,17 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Battle of Hoth Simulator" />
 <meta property="og:title" content="Battle of Hoth Simulator" />
-<meta property="og:description" content="Fly a T-47 snowspeeder against the Imperial walker line — a real-time Battle of Hoth simulation, in your browser." />
+<meta property="og:description" content="Fly a T-47 snowspeeder against the Imperial model line — a real-time Battle of Hoth simulation, in your browser." />
 <meta property="og:url" content="https://www.battleofhoth.app/" />
 <meta property="og:image" content="https://www.battleofhoth.app/og.jpg" />
 <meta property="og:image:secure_url" content="https://www.battleofhoth.app/og.jpg" />
 <meta property="og:image:type" content="image/jpeg" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="A T-47 snowspeeder banking over the dunes toward a line of AT-AT walkers." />
+<meta property="og:image:alt" content="A T-47 snowspeeder banking over the dunes toward a line of AT-AT models." />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Battle of Hoth Simulator" />
-<meta name="twitter:description" content="Fly a T-47 snowspeeder against the Imperial walker line — a real-time Battle of Hoth simulation, in your browser." />
+<meta name="twitter:description" content="Fly a T-47 snowspeeder against the Imperial model line — a real-time Battle of Hoth simulation, in your browser." />
 <meta name="twitter:image" content="https://www.battleofhoth.app/og.jpg" />
 <!-- The boot screen's backdrop, requested before the CSS asks for it, so the
      first paint is the battle rather than a gradient the photo pops in over. -->
@@ -179,7 +179,7 @@
         z-index: var(--z-boot);
         display: grid;
         place-items: center;
-        /* The simulation's own shot — speeder, walkers, the fleet's weather —
+        /* The simulation's own shot — speeder, models, the fleet's weather —
            under a gradient that keeps the type readable over bright snow. */
         background:
             linear-gradient(115deg,
@@ -296,7 +296,7 @@
            reason anyone is looking at this screen. Two columns of key caps
            and labels reach far enough to sit on the hull however tightly
            they are packed. A single column is barely a fifth of the frame
-           wide, stacks down the right-hand edge under the walkers, and
+           wide, stacks down the right-hand edge under the models, and
            leaves the whole craft in the clear. */
         grid-template-columns: auto;
         gap: var(--space-2);
@@ -305,7 +305,7 @@
         border-radius: 3px;
         background: var(--scrim-55);
         /* A panel floating over the boot photograph: the blur is what lets the
-           key caps read against the walkers behind them without a heavier
+           key caps read against the models behind them without a heavier
            scrim over the shot. */
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
@@ -488,7 +488,7 @@
         border-radius: 3px;
         background: var(--scrim-35);
         /* Over the boot photograph, same as the key-cap panel: the blur is what
-           keeps the label off the walkers and the sky behind it. */
+           keeps the label off the models and the sky behind it. */
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
         color: var(--frost-mute-80);

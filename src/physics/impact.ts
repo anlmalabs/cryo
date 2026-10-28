@@ -14,12 +14,12 @@
  * XZ-planar by contract (vertical is climb-eased elsewhere and never written
  * here). The contact gives a unit normal n pointing away from the obstacle.
  * Decompose the *relative* velocity — craft minus obstacle, because hitting a
- * walker striding toward you is worse than hitting one walking away — onto n:
+ * model striding toward you is worse than hitting one walking away — onto n:
  *
  *   normal part      This is the component that actually closes the gap, and
  *                    it is the only part a rigid contact can push back on.
  *                    It reflects with restitution e and a mass weight
- *                    w = M/(M + m): against something immovable (walker leg,
+ *                    w = M/(M + m): against something immovable (model leg,
  *                    terrain, wreck — massRatio ∞) w = 1 and the craft takes
  *                    the full (1+e) reversal; against an equal craft
  *                    (massRatio 1) w = ½ and the two exchange, each side
@@ -89,10 +89,10 @@ export interface ImpactParams {
  /** Horizontalised unit contact normal, away from the obstacle. */
  nx: number;
  nz: number;
- /** Obstacle velocity (walker ground speed, other craft), m/s; 0 if static. */
+ /** Obstacle velocity (model ground speed, other craft), m/s; 0 if static. */
  ovx: number;
  ovz: number;
- /** Other/self mass ratio — Infinity for walkers/terrain/wrecks, 1 for craft. */
+ /** Other/self mass ratio — Infinity for models/terrain/wrecks, 1 for craft. */
  massRatio: number;
  /** −1..1: contact's lateral offset in the craft frame, signed port/starboard. */
  hitSide: number;
@@ -119,8 +119,8 @@ export function severityFor(closing: number, hitAt: number, crashAt: number): Se
  *
  *   vx, vz, speed   craft world velocity and its magnitude
  *   nx, nz          horizontalised unit contact normal, away from the obstacle
- *   ovx, ovz        obstacle velocity (walker ground speed, other craft), 0 if static
- *   massRatio       other/self — Infinity for walkers/terrain/wrecks, 1 for craft
+ *   ovx, ovz        obstacle velocity (model ground speed, other craft), 0 if static
+ *   massRatio       other/self — Infinity for models/terrain/wrecks, 1 for craft
  *   hitSide         −1..1, contact's lateral offset in the craft frame / half-width
  *   restitution     bounce fraction of the normal closure (S.impactBounce)
  *   hitAt, crashAt  severity thresholds, m/s of normal closing (S.impactHit/Crash)

@@ -10,14 +10,14 @@ that no browser ever asks for. The runtime only ever fetches the baked
 
 | file | baked into | by |
 |---|---|---|
-| `snowtrooper.glb`, `snowtrooper_gun.glb`, `snowtrooper_v3.glb` | `public/models/trooper.bin` | `tools/bakeWalker.mjs` |
-| `rebel-pilot.glb` | `public/models/pilot.bin` | `tools/bakeWalker.mjs` |
+| `snowtrooper.glb`, `snowtrooper_gun.glb`, `snowtrooper_v3.glb` | `public/models/trooper.bin` | `tools/bakeModel.mjs` |
+| `rebel-pilot.glb` | `public/models/pilot.bin` | `tools/bakeModel.mjs` |
 
 Re-bake with e.g.:
 
 ```
-node tools/bakeWalker.mjs assets-src/models/rebel-pilot.glb public/models/pilot.bin
+node tools/bakeModel.mjs assets-src/models/rebel-pilot.glb public/models/pilot.bin
 ```
 
-(check `bakeWalker.mjs`'s own usage line for the current flags — `--static`,
+(check `bakeModel.mjs`'s own usage line for the current flags — `--static`,
 `--height`, clip selection and so on.)

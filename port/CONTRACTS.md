@@ -93,7 +93,7 @@ Three.js is used as a rasterizer only.** No Three transform math feeds any shade
   ```
   rig.camera = {
     position: THREE.Vector3,
-    fov: number,          // vertical, RADIANS (source convention; walkers/overlay read this)
+    fov: number,          // vertical, RADIANS (source convention; models/overlay read this)
     aspect: number, minZ: 0.12, maxZ: 4200,
     view: Matrix4, projection: Matrix4,           // LH, GL-z; projection carries TAA jitter
     viewProjection: Matrix4, invView: Matrix4, invViewProjection: Matrix4,
@@ -153,8 +153,8 @@ available in this browser.")` (jet.html/index.html `#nogpu` copy updated accordi
 1. Grab `#view` canvas; WebGL2/EXT gate (§3).
 2. Coarse-pointer check → `applyPreset("balanced")`, `S.resolutionScale = 0.7`, **before any
    construction** (`deformResolution` is read once by DeformationField's constructor).
-3. Kick `audio.load()`, `loadWalkerAsset("models/walker")`; latch `const FLYING = S.speeder
-   === true`; if FLYING also `loadWalkerAsset("models/speeder")`. None awaited here.
+3. Kick `audio.load()`, `loadModelAsset("models/model")`; latch `const FLYING = S.speeder
+   === true`; if FLYING also `loadModelAsset("models/speeder")`. None awaited here.
 4. `loading.phase("creating device", 0.05)`; create `gfx` (renderer, caps, scene, layers,
    token camera); `gfx.setRenderScale(S.resolutionScale)`; `onChange("resolutionScale",
    ...)`; window resize handler → `gfx.resize()`.
@@ -169,11 +169,11 @@ available in this browser.")` (jet.html/index.html `#nogpu` copy updated accordi
     `(0, terrain.heightAt(0,0), 0)`; if FLYING `rig.yaw = character.facing`;
     `new Character(gfx, terrain, sky, shadows, character)`; `figure.registerPrepass(depthPass)`;
     visibility `figure.setVisible(S.showCharacter !== false && !FLYING)` + onChange.
-11. `loading.phase("landing the walkers", 0.70)`; `new WalkerHerd(gfx, terrain, sky, shadows,
-    await walkerReady, rig)`; onChange showWalker; `walkers.registerPrepass(depthPass)`.
+11. `loading.phase("landing the models", 0.70)`; `new modelHerd(gfx, terrain, sky, shadows,
+    await modelReady, rig)`; onChange showModel; `models.registerPrepass(depthPass)`.
 12. `new SprayField(gfx, terrain, sky, shadows)`; if FLYING: `new Speeder(gfx, terrain, sky,
     shadows, await speederReady, character, spray)` + registerPrepass + setVisible(true);
-    `walkers.setSpray(spray)`.
+    `models.setSpray(spray)`.
 13. `new SnowContact(character, terrain.deform, figure.figure, spray)`.
 14. `new SurfWake(gfx, sky, shadows, character, spray, terrain)`; onChange showWake;
     `wake.registerPrepass(depthPass)`.
@@ -181,19 +181,19 @@ available in this browser.")` (jet.html/index.html `#nogpu` copy updated accordi
     listeners fire).
 16. `new SpellSystem(gfx, sky, shadows, terrain, character, figure.figure, rig, spray)`;
     `spells.addConsumers(terrain.material, figure.bodyMat, figure.clothMat, wake.material,
-    spray.material)`; `walkers.onMaterial = m => spells.addConsumers(m)` + pass over existing;
+    spray.material)`; `models.onMaterial = m => spells.addConsumers(m)` + pass over existing;
     `spells.registerPrepass(depthPass)`.
 17. `rig.groundAt = (x,z) => terrain.heightAt(x,z)`; `applyOpening(OPENING, rig, character,
-    walkers, terrain)`; `new PostChain(gfx, rig, depthPass, sky)`.
+    models, terrain)`; `new PostChain(gfx, rig, depthPass, sky)`.
 18. UI: `new Overlay({rig, character})`, `createFpsMeter()`, `initInput(canvas, hooks)`,
-    `createTouchControls({onToggleOverlay})`, `installShotCapture(rig, character, walkers)`;
-    `new Soundscape(audio, {controller: character, spells, walkers, speeder})`;
+    `createTouchControls({onToggleOverlay})`, `installShotCapture(rig, character, models)`;
+    `new Soundscape(audio, {controller: character, spells, models, speeder})`;
     `createSoundButton(audio, {onEnable: () => soundscape.start()})`.
 19. Warm-up (`loading.phase("compiling pipelines", 0.78)`) in the **exact source order**:
     `shadows.update(rig.camera, sky.sunDir)` → `sky.render(rig, 0)` → `await terrain.warmUp()`
     → `terrain.update(camPos, character.position, 0)` → `figure.update(0)` →
-    `figure.sync(camPos)` → `await figure.warmUp()` → `walkers.sync(camPos)` →
-    `await walkers.warmUp()` → speeder update/sync/warmUp if present → `spray.update(0,
+    `figure.sync(camPos)` → `await figure.warmUp()` → `models.sync(camPos)` →
+    `await models.warmUp()` → speeder update/sync/warmUp if present → `spray.update(0,
     camPos)` → `await spray.warmUp()` → `await wake.warmUp()` → `await spells.warmUp(px+3,
     py, pz+3)` → `await depthPass.warmUp()` → `post.update(0, 0, rig.distance)` → post pass
     compiles. Then `loading.phase("warming render targets", 0.92)` and **3 real frames**
@@ -213,7 +213,7 @@ character.update(dt, rig);
 terrain.heightfield.clampToPlayArea(character.position);
 figure.update(dt);                    // pose BEFORE contact (footprints at solved boot pos)
 contact.update(dt);
-walkers.update(dt, character.position);
+models.update(dt, character.position);
 speeder?.tick(dt); speeder?.update(dt);
 rig.update(dt, character.position, vel, character.lean, character.speed01);
 post.update(dt, character.streak01, rig.distance);   // TAA jitter: AFTER rig, BEFORE any view-proj reader
@@ -222,7 +222,7 @@ shadows.update(rig.camera, sky.sunDir);              // cascade refit
 spells.update(dt, rig.camera.position);              // AFTER shadow refit, BEFORE terrain (brush staging)
 terrain.update(rig.camera.position, character.position, dt);  // runs deform sim pass inside
 figure.sync(rig.camera.position);                    // AFTER shadow refit
-walkers.sync(rig.camera.position);                   // LOD needs this frame's camera+fov
+models.sync(rig.camera.position);                   // LOD needs this frame's camera+fov
 speeder?.sync(rig.camera.position);
 wake.update(dt, rig.camera.position);                // BEFORE spray (grains into pool)
 spray.update(dt, rig.camera.position);
@@ -259,7 +259,7 @@ opaque within the same render call):
 | object | layer | renderOrder | notes |
 |---|---|---|---|
 | sky cube | SKY | 0 | depthWrite:false |
-| terrain, body, cloth, fur, walkers, speeder hull, wake | OPAQUE | 10 | fur last within 10s if needed (10.5) |
+| terrain, body, cloth, fur, models, speeder hull, wake | OPAQUE | 10 | fur last within 10s if needed (10.5) |
 | crystals | OPAQUE | 20 | transparent+depthWrite:true → draws after opaques in the OPAQUE render |
 | water | BLEND | 30 | |
 | jet plume | BLEND | 40 | additive |
@@ -303,11 +303,11 @@ resolutionScale/resize handles them; resize also calls `post.resetHistory()`.
 | `skyLUT` | sky | RGBA16F | 512×256 | trilinear | wrapS repeat / clampT | **yes** | rebaked on sun change only |
 | `skySH` | sky | RGBA32F | 64×32 | Nearest | clamp | no | CPU readback for SH |
 
-Data textures (all per §2.3): `charTex` 48×64; `walkerTex` boneCount×32 (= 4·MAX_WALKERS
+Data textures (all per §2.3): `charTex` 48×64; `modelTex` boneCount×32 (= 4·MAX_MODELS
 rows); speeder `tex` boneCount×4 (1×4); `boltTex` 16×2 (one per Bolts instance); `sprayTex`
 5120×2; `wakeTex` 96×3; `waterTex` 64×24; `crystalTex` 96×3; `brushTex` 96×3.
 
-Array textures: walker `albedoTex`/`ormTex` `DataArrayTexture` 512²×max(4,materials) RGBA8,
+Array textures: model `albedoTex`/`ormTex` `DataArrayTexture` 512²×max(4,materials) RGBA8,
 repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mips**
 (min `LinearFilter`), `ormTex` 1024²×5 with mips. All `NoColorSpace`.
 
@@ -325,7 +325,7 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
 - **6.2 Files.** One `.glsl` file exists per source `.wgsl`, with the same basename, under
   `src/shaders/` (for example `snow.vertex.glsl`, `deformSim.fragment.glsl`), and
   `src/shaders/lib/*.glsl` holds the 15 include chunks: `noise, terrain, shading,
-  shadowLookup, atmosphere, clipmap, deform, charSkin, walkerSkin, wake, spellLights, water,
+  shadowLookup, atmosphere, clipmap, deform, charSkin, modelSkin, wake, spellLights, water,
   crystal, postCommon, ridge`.
 - **6.3 Registry.** `src/shaders/registry.js` provides:
   ```js
@@ -340,7 +340,7 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
   `snowNoise→lib/noise.glsl`, `snowTerrain→lib/terrain.glsl`, `snowShading→
   lib/shading.glsl`, `snowShadowLookup→lib/shadowLookup.glsl`, `snowAtmosphere→
   lib/atmosphere.glsl`, `snowClipmap→lib/clipmap.glsl`, `snowDeform→lib/deform.glsl`,
-  `snowCharSkin→lib/charSkin.glsl`, `snowWalkerSkin→lib/walkerSkin.glsl`, `snowWake→
+  `snowCharSkin→lib/charSkin.glsl`, `snowmodelSkin→lib/modelSkin.glsl`, `snowWake→
   lib/wake.glsl`, `snowSpellLights→lib/spellLights.glsl`, `snowWater→lib/water.glsl`,
   `snowCrystal→lib/crystal.glsl`, `snowPostCommon→lib/postCommon.glsl`, `snowRidge→
   lib/ridge.glsl`.
@@ -351,7 +351,7 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
 - **6.5 Chunk ownership.** Each lib file has exactly one owner, and the sets are disjoint:
   `noise, terrain, clipmap, deform, ridge` belong to the terrain task; `shading,
   shadowLookup, atmosphere, postCommon` to render-post; `charSkin` to character;
-  `walkerSkin` to walkers; `wake` to vfx; and `water, crystal, spellLights` to spells.
+  `modelSkin` to models; `wake` to vfx; and `water, crystal, spellLights` to spells.
   A chunk's function signatures are contracts, matching the WGSL originals translated per G5
   (for example `float noise2(vec2 p)`, `vec3 noised(vec2 p)`, `float ign(vec2 px)`).
   Where the WGSL took `vec4 shR[9]` as a parameter, the GLSL version declares
@@ -392,7 +392,7 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
   for vec-array uniforms; `cascadeSplits.value = shadows.splitsVec4` (a shared Vector4);
   `shadowTexel = 1/2048`. Splits are `[26, 95, 330, 330]`. Cascades use **three separate
   sampler2D uniforms, never an array**. Per-material tuning (verbatim): terrain
-  softness/bias per source; character 1.4/0.012; walker 1.4/0.06; speeder 1.4/0.11; wake
+  softness/bias per source; character 1.4/0.012; model 1.4/0.06; speeder 1.4/0.11; wake
   1.5/0.018; spray 1.6/0.05; water 1.4/0.03; crystal 1.3/0.012.
 - **7.3 Sky/lighting block:** `uniform vec3 sunDir; uniform vec3 sunRadiance;
   uniform vec4 shR[9]; uniform sampler2D skyLUT; uniform float ambientIntensity;`.
@@ -406,11 +406,11 @@ repeat, aniso 16, trilinear **with** mips; speeder `albedoTex` 1024²×5 **no mi
   `material.uniforms.spellLightPos.value = this.pos` (flat 16-float arrays, zero copy) and
   `spellLightCount.value = this.count`. Every consumer material **must declare all three**
   even if lights never hit it. MAX_SPELL_LIGHTS = 4.
-- **7.6 matFactors:** `uniform vec4 matFactors[8]` in the walker fragment shader. Slot layout
+- **7.6 matFactors:** `uniform vec4 matFactors[8]` in the model fragment shader. Slot layout
   is `(roughnessFactor, metallicFactor, occlusionStrength, albedoTint)`, and slot 7 is the
-  speeder side channel `([7].x = flat fill, [7].y = sun desaturation)`; the walker zero-fills
+  speeder side channel `([7].x = flat fill, [7].y = sun desaturation)`; the model zero-fills
   slot 7. Upload is a flat Float32Array(32).
-- **7.7 Skinning:** `uniform sampler2D walkerTex; uniform float boneRow;` (walker/speeder,
+- **7.7 Skinning:** `uniform sampler2D modelTex; uniform float boneRow;` (model/speeder,
   cast `int(boneRow)` in the shader) and `uniform sampler2D charTex;` (character). Layout
   contracts are per §5 plus the subsystem specs.
 - **7.8 Shadow caster materials** declare `uniform mat4 lightViewProjection;`, set by
@@ -445,8 +445,8 @@ byte-identical). Keys for reference:
   multiply the jet plume's base WIDTH/LENGTH/FLARE constants, and `S.overlayOpen` is set
   true by `jet.js` and read once in `main.js` after `loading.done()` to auto-open the
   tuning overlay; jetSpan slider max is 8)
-- walker: `showWalker` true, `walkerCount` 2, `walkerScale` 1.0, `walkerSpeed` 1.0,
-  `walkerSnow` 0.45, `walkerFire` true
+- model: `showModel` true, `modelCount` 2, `modelScale` 1.0, `modelSpeed` 1.0,
+  `modelSnow` 0.45, `modelFire` true
 - spells: `showSpells` true, `spellLight` 1.0, `spellSpray` 1.0, `waterDepthTint` 1.0
 - post: `taa` true, `ssr` true, `dof` true, `bloom` true, `grain` true, `sharpen` true,
   `tonemap` "agx", `exposure` 0.105, `contrast` 1.14, `bloomStrength` 0.22,
@@ -689,24 +689,24 @@ is not in the prepass**. One depth-material instance per (mesh, cascade). charTe
 §5 (rows 0–3 bone skin matrices, rows 4+ cloth panels: robe 4–15, mantle 16–22, sleeve0
 23–30, sleeve1 31–38).
 
-### `src/walkers/*`
+### `src/player/*`
 ```
-walker.js:      export const MAX_WALKERS = 8;
-  export class WalkerHerd { constructor(gfx, terrain, sky, shadows, asset, rig);
-    walkers[]; bolts; count; footfalls; boneCount; frameCount; duration; baseSpeed; height;
-    bounds; walkerTex; albedoTex; ormTex; factors; triangles;
-    onMaterial; onShot; setCount(n); place(walker, target); setSpray(spray);
+model.js:      export const MAX_MODELS = 8;
+  export class modelHerd { constructor(gfx, terrain, sky, shadows, asset, rig);
+    models[]; bolts; count; footfalls; boneCount; frameCount; duration; baseSpeed; height;
+    bounds; modelTex; albedoTex; ormTex; factors; triangles;
+    onMaterial; onShot; setCount(n); place(model, target); setSpray(spray);
     registerPrepass(depthPass); setVisible(v); update(dt, target); sync(cameraPos);
     async warmUp(); }
 bolts.js:       export class Bolts { constructor(gfx, ctx? /* {terrain, spray, look?} */);
     spawn(origin, dir); update(dt, cameraPos); async warmUp(); live; mesh; material; texture; }
   export { REACH as BOLT_REACH };   // 620
-walkerAsset.js: export async function loadWalkerAsset(base, opts?) → WalkerAsset;
-  export { layersFor as walkerTextureLayers };
+modelAsset.js: export async function loadModelAsset(base, opts?) → modelAsset;
+  export { layersFor as modelTextureLayers };
 ```
-Walkers cast into all 3 cascades, shadowBias 0.06. Walker meshes LAYER.OPAQUE order 10;
+models cast into all 3 cascades, shadowBias 0.06. model meshes LAYER.OPAQUE order 10;
 bolts LAYER.BLEND order 41. Speed/gait single-multiplier and REACH/LIFE couplings verbatim.
-SNWK v2 `.bin` parsing per walkers spec §6 (magic "SNWK", uint32 header len, JSON header,
+SNWK v2 `.bin` parsing per models spec §6 (magic "SNWK", uint32 header len, JSON header,
 aligned sections, dequantisation formulas verbatim).
 
 ### `src/player/*`
@@ -720,7 +720,7 @@ jet.js:     export class Jet { constructor(gfx);
   update(dt, world /* Float32Array(12) 3×4 */, nozzle, throttle, cameraPos);
   setVisible(v); async warmUp(); }
 ```
-Speeder reuses walker shaders + loader by import (no file duplication). Casts into cascades
+Speeder reuses model shaders + loader by import (no file duplication). Casts into cascades
 0–1 only, shadowBias 0.11, matFactors slot 7 = (S.speederFill, S.speederDesat). Jet on
 LAYER.BLEND order 40, additive, HDR constants (×16 body, ×30 core) verbatim.
 
@@ -772,7 +772,7 @@ Spray billboard basis from the LH view matrix: `camRight = (v[0], v[4], v[8])`,
 ### `src/audio/*` and `src/ui/*` (near-verbatim; renderer-free)
 APIs exactly as audio-ui spec §2: `AudioEngine`/`LoopVoice`/`audio` singleton,
 `AUDIO_MANIFEST` (table verbatim incl. `needs:"speeder"` entries and the intentionally
-absent `walkerStep`), `Soundscape`, `Overlay`, `createFpsMeter`, `createSoundButton`,
+absent `modelStep`), `Soundscape`, `Overlay`, `createFpsMeter`, `createSoundButton`,
 `createTouchControls`. Two renderer touch-points exist:
 - `Overlay.update(dtMs, gfx)`, which supplies the "res" readout from
   `gfx.renderWidth/renderHeight`.
@@ -784,8 +784,8 @@ sim; unlock is synchronous-in-gesture (§4.1 step 20).
 
 - `public/` is copied **verbatim** from
   `/Users/csanz/SynologyDrive/Projects/Apps/csanz/snowflow_demo/public/` (audio mp3s,
-  `models/walker.bin` + webps, `models/speeder.bin` + webps). No re-encoding.
-- Loaders parse the same formats: SNWK v2 container (walkers spec §6), WebP decode via
+  `models/model.bin` + webps, `models/speeder.bin` + webps). No re-encoding.
+- Loaders parse the same formats: SNWK v2 container (models spec §6), WebP decode via
   `createImageBitmap` + OffscreenCanvas into raw layer-major RGBA8 bytes (keeps color
   handling out of the browser's hands), mp3 via `decodeAudioData`.
 - All fetches go through `core/assets.js` `fetchAsset`/`assetCandidates` (CDN-first, local
@@ -795,7 +795,7 @@ sim; unlock is synchronous-in-gesture (§4.1 step 20).
 
 ## 12. Debug global
 
-`globalThis.SNOWFLOW = { gfx, scene: gfx.scene, rig, character, figure, walkers, speeder,
+`globalThis.SNOWFLOW = { gfx, scene: gfx.scene, rig, character, figure, models, speeder,
 contact, spray, wake, spells, overlay, touchControls, terrain, sky, shadows, post, depthPass,
 audio, soundscape, S, input, perfStats: stats, captureShot, speederTuning() }`, with
 `speederTuning()` verbatim from source. Keep every debug view: `S.debugView` (11 modes,

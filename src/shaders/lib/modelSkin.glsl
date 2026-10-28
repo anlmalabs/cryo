@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// snowWalkerSkin — the walker's vertex-side transform library.
+// snowModelSkin — the model's vertex-side transform library.
 //
 // Same idea as `snowCharSkin` and deliberately the same texture layout: column =
 // bone, row = matrix column, so texel (b, 3) is the translation. The beauty
@@ -22,21 +22,21 @@
 // exactly the same result — linear blend skinning is linear, so blending the
 // matrices and transforming once is identical to transforming and blending.
 //
-// The matrices arrive already multiplied by the walker's world transform, so
+// The matrices arrive already multiplied by the model's world transform, so
 // what comes out of here is world space. There is no model matrix anywhere in
-// the walker's pipeline.
+// the model's pipeline.
 // -----------------------------------------------------------------------------
 
 /// A blended affine transform: three basis columns and a translation.
-struct WalkerXform {
+struct HullXform {
     vec3 c0;
     vec3 c1;
     vec3 c2;
     vec3 c3;
 };
 
-WalkerXform walkerXform(highp sampler2D tex, int row0, vec4 idx, vec4 wt) {
-    WalkerXform m;
+HullXform hullXform(highp sampler2D tex, int row0, vec4 idx, vec4 wt) {
+    HullXform m;
     m.c0 = vec3(0.0);
     m.c1 = vec3(0.0);
     m.c2 = vec3(0.0);
@@ -62,10 +62,10 @@ WalkerXform walkerXform(highp sampler2D tex, int row0, vec4 idx, vec4 wt) {
     return m;
 }
 
-vec3 walkerPoint(WalkerXform m, vec3 p) {
+vec3 hullPoint(HullXform m, vec3 p) {
     return m.c0 * p.x + m.c1 * p.y + m.c2 * p.z + m.c3;
 }
 
-vec3 walkerDir(WalkerXform m, vec3 d) {
+vec3 hullDir(HullXform m, vec3 d) {
     return normalize(m.c0 * d.x + m.c1 * d.y + m.c2 * d.z);
 }

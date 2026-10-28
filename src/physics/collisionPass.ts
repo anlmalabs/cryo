@@ -2,7 +2,7 @@
  * The collision pass — where the craft finally meet the machines.
  *
  * Everything upstream is a piece: colliders.js knows where things touch,
- * impact.js knows what a touch does to a velocity, the walkers know their own
+ * impact.js knows what a touch does to a velocity, the models know their own
  * capsules, the craft know how to take a shove. This module is the frame that
  * and the wrecks, sweeps every flying craft's sphere through it, resolves the
  * earliest contact per craft, and routes the consequences — deflection, spin,
@@ -17,7 +17,7 @@
  *                          so a second contact simply waits a frame.
  *   no stop on contact     Responses come from `speederImpactResponse`:
  *                          tangential velocity survives, scrapes slide.
- *   massive stays massive  A walker takes a tempo hiccup (`stumble`), never
+ *   massive stays massive  A model takes a tempo hiccup (`stumble`), never
  *                          a displacement. Wrecks take nothing at all.
  *
  * The player's damage ladder lives here rather than on the controller,
@@ -107,7 +107,7 @@ interface Wreck {
 
 /**
  * A capsule's back-reference, as the pass uses it: an optional `stumble`
- * (which `colliders.ts`'s `CapsuleOwner` declares, and both a walker and a
+ * (which `colliders.ts`'s `CapsuleOwner` declares, and both a model and a
  * wreck slot answer differently to) plus the world pose the stumble's side
  * carry `ctl` instead — so the pose is read defensively here.
  */
@@ -206,10 +206,10 @@ const SCRAPE_GAP = 0.22;
  * A Set rather than a chain of `===` so adding a kind is one edit, and it is
  * built once at module scope, never per contact.
  */
-const MACHINE_KINDS = new Set(["leg", "body", "head", "atst"]);
+const MACHINE_KINDS = new Set(["leg", "body", "head", "machine"]);
 
 /**
- * Gain for the hull strike by severity. `speeder-hit-walker.mp3` is a single
+ * Gain for the hull strike by severity. `speeder-hit-model.mp3` is a single
  * dry impact with no tail, so unlike the explosion it can be leaned on: a
  * glancing 'hit' is under half a full one, and a 'crash' into a leg is the
  * whole sample. Scrapes stay silent — the snow spray is the scrape.
@@ -757,7 +757,7 @@ export class CollisionPass {
     c.bx = p.x; c.by = p.y + PARKED_HI; c.bz = p.z;
     c.r = PARKED_R;
     c.kind = "wreck";
-    c.walker = null;
+    c.owner = null;
     c.live = true;
    }
   }
@@ -883,10 +883,10 @@ export class CollisionPass {
    s.cx = outX; s.cz = outZ;
   }
 
-  // The obstacle's own ground velocity — a walker striding into you
+  // The obstacle's own ground velocity — a model striding into you
   // closes faster than the speedometer says.
   let ovx = 0, ovz = 0;
-  const wk = best.cap ? best.cap.walker : null;
+  const wk = best.cap ? best.cap.owner : null;
 
   const res = this._respond(
    ctl, vel, nx, nz, ovx, ovz, Infinity,
@@ -897,7 +897,7 @@ export class CollisionPass {
   li.normalSpeed = res.normalSpeed; li.spin = res.spin;
   li.player = s.wing === null;
 
-  // The walker feels it too — as a beat, never as a shove. Nudged away
+  // The model feels it too — as a beat, never as a shove. Nudged away
   // which is gone, so a wreck reads nothing and takes no stumble.
   const pose = wk as CapsuleRef | null;
   if (pose && pose.position && pose.yaw !== undefined
@@ -1053,7 +1053,7 @@ export class CollisionPass {
   * `kind` is what was struck — the capsule's kind for a world contact,
   * `"craft"` for hull-on-hull, `"terrain"` for a slam. It picks the voice
   * and nothing else: hitting an Imperial machine is a metal strike
-  * (`speederHitWalker`), while another speeder, a wreck or a rising face
+  * (`speederHitModel`), while another speeder, a wreck or a rising face
   * of ice is the old fuel-and-fire report (`speederCrash`). The look of
   * the contact — snow, smoke, fire — does not care what was hit.
   *
@@ -1101,7 +1101,7 @@ export class CollisionPass {
   // Armour or airframe? One question, asked once, answered for both rungs.
   const hull = MACHINE_KINDS.has(kind ?? "");
   if (sev === "hit") {
-   if (hull) this._bang(px, pz, HULL_SFX_GAIN.hit, 1.0, "speederHitWalker");
+   if (hull) this._bang(px, pz, HULL_SFX_GAIN.hit, 1.0, "speederHitModel");
    else this._bang(px, pz, SPEEDER_HIT_GAIN, SPEEDER_HIT_RATE);
    if (this.smoke) {
     for (let i = 0; i < HIT_PUFFS; i++) {
@@ -1123,7 +1123,7 @@ export class CollisionPass {
    // recording twice in one frame. The metal strike stays: armour
    // rings first, then the fuel goes.
    const trips = isPlayer && this._pBurnT <= 0;
-   if (hull) this._bang(px, pz, HULL_SFX_GAIN.crash, 1.0, "speederHitWalker");
+   if (hull) this._bang(px, pz, HULL_SFX_GAIN.crash, 1.0, "speederHitModel");
    else if (!trips) this._bang(px, pz, 1.0, 1.0);
   }
  }
@@ -1133,7 +1133,7 @@ export class CollisionPass {
   * one place in this file that speaks, so the distance model is written
   * once and every voice obeys it.
   *
-  * The model is the walker cannons', to the letter, because the ear has
+  * The model is the model cannons', to the letter, because the ear has
   * to be able to place a crash against the artillery it is standing in:
   * `near` falls linearly to nothing at 420 m and is then **cubed**, which
   * is the whole point — a squared falloff still reads as loud from half
