@@ -105,7 +105,18 @@ void main() {
     float mu = dot(dir, sunDir);
     float core = pow(max(mu, 0.0), 1600.0) * 12.0;
     col += vec3(0.55, 0.72, 1.0) * core;
-
+    // Pulsar lighthouse beams: magnetic axis tilted ~30° from spin axis
+    // (sunDir), rotating at spin frequency. Two antipodal beams along ±mag,
+    // narrow cones so they read as sweeping streaks, not a ring/sphere.
+    vec3 upv = (abs(sunDir.y) < 0.9) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 e1 = normalize(cross(sunDir, upv));
+    vec3 e2 = cross(sunDir, e1);
+    float spin = time * 2.0;
+    float tilt = 0.52; // ~30 degrees
+    vec3 mag = cos(tilt) * sunDir + sin(tilt) * (cos(spin) * e1 + sin(spin) * e2);
+    float b1 = pow(max(dot(dir,  mag), 0.0), 384.0);
+    float b2 = pow(max(dot(dir, -mag), 0.0), 384.0);
+    col += vec3(0.373, 0.831, 1.0) * (b1 + b2) * 1.5;
     // Nebula filaments (bounded 4-octave fbmd).
     vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
     float n = fbmd(q + vec2(time * 0.005, 0.0), 4, 2.0, 0.5).x;
