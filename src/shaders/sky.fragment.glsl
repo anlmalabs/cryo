@@ -112,8 +112,8 @@ void main() {
     float pulse = 0.5 + 0.5 * sin(time * 3.0);
     float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.05, 4.0);
     float expand = 0.6 + 0.4 * pulse;
-    float exponent = 1600.0 / sqrt(sunNorm);
-    float brightness = 12.0 * expand * sunNorm;
+    float exponent = 5000.0 / sqrt(sunNorm);
+    float brightness = 20.0 * expand * sunNorm;
     float core = pow(max(mu, 0.0), exponent) * brightness;
     col += vec3(0.55, 0.72, 1.0) * core;
     // Nebula filaments (bounded 4-octave fbmd).

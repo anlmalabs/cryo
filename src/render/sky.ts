@@ -384,15 +384,18 @@ export class Sky {
   u.skyScale.value = cam.maxZ * SKYBOX_HALF_FAR;
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
-  // Stable sunlight: ambient/direct lighting does not strobe. Only the
-  // pulsar core and the snow/water glints shimmer (see terrain/water update).
-  u.sunIntensity.value = this.sunScale;
+  // Sunlight strobes in step with the pulsar core.
+  const pulse = 0.5 + 0.5 * Math.sin(time * 3.0);
+  const sunPulse = 0.6 + 0.4 * pulse;
+  u.sunIntensity.value = this.sunScale * sunPulse;
   u.time.value = time;
 
   const a = /** @type {number} */ (S.windDirection) * DEG2RAD;
   u.windDir.value.set(Math.sin(a), Math.cos(a));
   u.cloudAmount.value = CLOUD_AMOUNT;
 
+  this.sunRadiance.setRGB(0.25 * this.sunScale, 0.28 * this.sunScale, 0.32 * this.sunScale);
+  this.sunRadiance.multiplyScalar(sunPulse);
   u.sunRadiance.value = this.sunRadiance;
   u.shR.value = this.sh;
   u.ambientIntensity.value = S.ambientIntensity;
