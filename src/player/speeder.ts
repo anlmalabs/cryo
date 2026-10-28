@@ -341,6 +341,7 @@ export class Speeder {
  shotCount!: number;
  jet!: Jet;
  bottomJets!: Jet[];
+ _bottomThrottle?: number;
  _liftSpeed?: number;
  _throttle?: number;
  _visible!: boolean;
@@ -902,6 +903,15 @@ export class Speeder {
   this._throttle = expDamp(
    this._throttle || 0, want, boosting ? THROTTLE_ON : THROTTLE_OFF, dt
   );
+
+  // Bottom repulsors light up on E: in the throttle scheme E is the reheat
+  // (input.boost); in the classic scheme E climbs the altitude ladder, so
+  // they light while above the deck (riseLevel > 1). Otherwise idle.
+  const eActive = !!input.boost || (input.riseLevel | 0) > 1;
+  this._bottomThrottle = expDamp(
+   this._bottomThrottle || 0, eActive ? 1 : 0,
+   eActive ? THROTTLE_ON : THROTTLE_OFF, dt
+  );
  }
 
  /** Build the world transform from yaw, then bank and pitch inside it. */
@@ -1092,11 +1102,10 @@ export class Speeder {
    n.spanX = 0.15 * S.jetSpan;
    n.dropY = -0.5 + S.jetDropY;
    n.backZ = bottomBackZ[i] + S.jetBackZ;
-   // Bottom thrusters are idle repulsors: always emit the idle stub,
-   // independent of the main throttle.
+   // Bottom repulsors: idle stub normally, light up on E.
    this.bottomJets[i].update(
     this._lastDt || FALLBACK_DT, this._world, n,
-    0, cameraPos
+    this._bottomThrottle || 0, cameraPos
    );
   }
  }
