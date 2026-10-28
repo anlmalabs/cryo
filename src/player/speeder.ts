@@ -341,7 +341,6 @@ export class Speeder {
  shotCount!: number;
  jet!: Jet;
  bottomJets!: Jet[];
- noseBottomJet!: Jet;
  _liftSpeed?: number;
  _throttle?: number;
  _visible!: boolean;
@@ -555,8 +554,7 @@ export class Speeder {
    new Jet(gfx, new THREE.Vector3(0, -1, 0)),
    new Jet(gfx, new THREE.Vector3(0, -1, 0)),
   ];
-  // Single nose thruster on the underside, pointed down.
-  this.noseBottomJet = new Jet(gfx, new THREE.Vector3(0, -1, 0), 1);
+
   this._visible = true;
  }
 
@@ -1094,19 +1092,13 @@ export class Speeder {
    n.spanX = 0.15 * S.jetSpan;
    n.dropY = -0.5 + S.jetDropY;
    n.backZ = bottomBackZ[i] + S.jetBackZ;
+   // Bottom thrusters are idle repulsors: always emit the idle stub,
+   // independent of the main throttle.
    this.bottomJets[i].update(
     this._lastDt || FALLBACK_DT, this._world, n,
-    this._throttle || 0, cameraPos
+    0, cameraPos
    );
   }
-  // Nose bottom thruster: single plume, forward on the underside.
-  _nozzle.spanX = 0;
-  _nozzle.dropY = -0.5 + S.jetDropY;
-  _nozzle.backZ = 1.6 + S.jetBackZ;
-  this.noseBottomJet.update(
-   this._lastDt || FALLBACK_DT, this._world, _nozzle,
-   this._throttle || 0, cameraPos
-  );
  }
 
  /** @param {number} dt kept for the bolts, which tick in `sync`. */
@@ -1123,7 +1115,6 @@ export class Speeder {
   if (this.bolts) await this.bolts.warmUp();
   await this.jet.warmUp();
   for (const j of this.bottomJets) await j.warmUp();
-  await this.noseBottomJet.warmUp();
  }
 
  dispose() {
@@ -1136,7 +1127,6 @@ export class Speeder {
   if (this.bolts) this.bolts.dispose();
   this.jet.dispose();
   for (const j of this.bottomJets) j.dispose();
-  this.noseBottomJet.dispose();
   for (const m of this._depthMats) m.dispose();
   this._prepassMat?.dispose();
  }
