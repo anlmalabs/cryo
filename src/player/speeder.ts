@@ -342,6 +342,9 @@ export class Speeder {
  jet!: Jet;
  bottomJets!: Jet[];
  _bottomThrottle?: number;
+ _bottomLightTimer?: number;
+ _prevRiseLevel?: number;
+ _prevBoost?: boolean;
  _liftSpeed?: number;
  _throttle?: number;
  _visible!: boolean;
@@ -904,10 +907,19 @@ export class Speeder {
    this._throttle || 0, want, boosting ? THROTTLE_ON : THROTTLE_OFF, dt
   );
 
-  // Bottom repulsors light up on E: in the throttle scheme E is the reheat
-  // (input.boost); in the classic scheme E climbs the altitude ladder, so
-  // they light while above the deck (riseLevel > 1). Otherwise idle.
-  const eActive = !!input.boost || (input.riseLevel | 0) > 1;
+  // Bottom repulsors pulse for 1s on an E press, then return to idle.
+  if (this._prevRiseLevel === undefined) this._prevRiseLevel = input.riseLevel;
+  if (this._prevBoost === undefined) this._prevBoost = !!input.boost;
+  const boostEdge = !!input.boost && !this._prevBoost;
+  this._prevBoost = !!input.boost;
+  const riseEdge = input.riseLevel !== this._prevRiseLevel;
+  this._prevRiseLevel = input.riseLevel;
+  const ePressed = boostEdge || riseEdge;
+  if (ePressed) this._bottomLightTimer = 1.0;
+  if (this._bottomLightTimer && this._bottomLightTimer > 0) {
+   this._bottomLightTimer = Math.max(0, this._bottomLightTimer - dt);
+  }
+  const eActive = (this._bottomLightTimer || 0) > 0;
   this._bottomThrottle = expDamp(
    this._bottomThrottle || 0, eActive ? 1 : 0,
    eActive ? THROTTLE_ON : THROTTLE_OFF, dt
