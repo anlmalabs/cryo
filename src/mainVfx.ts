@@ -4,7 +4,7 @@ import { SnowContact } from "./character/snowContact.js";
 import { SurfWake } from "./vfx/surfWake.js";
 import { SpellSystem } from "./spells/spellSystem.js";
 import { PostChain } from "./post/postChain.js";
-import { OPENING, applyOpening } from "./core/openingShot.js";
+// opening shot purged
 import type { FlightState, Wingman } from "./mainContracts.js";
 import type { Gfx } from "./core/gfx.js";
 import type { CameraRig } from "./core/camera.js";
@@ -119,7 +119,6 @@ export function buildVfx(ctx: VfxContext): VfxState {
  // The opening shot, if one has been pinned. Before the warm-up, so the
  // frames rendered behind the loading screen are already the shot rather than
  // wherever the default rule put things.
- applyOpening(OPENING, rig, character, terrain);
 
  const post = new PostChain(gfx, rig, depthPass, sky);
 
