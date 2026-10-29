@@ -73,7 +73,8 @@ void main() {
     float exponent = 10000.0 / sqrt(sunNorm);
     float brightness = 20.0 * expand * sunNorm;
     float core = pow(max(mu, 0.0), exponent) * brightness;
-    col += vec3(1.0, 0.95, 1.0) * core;
+    // Synchrotron radiation: bluish-white/UV at core.
+    col += vec3(0.7, 0.85, 1.0) * core;
     // Blue nitrogen bloom ring (N2+ emission ~427.8 nm).
     float ringExp = (400.0 / sqrt(sunNorm)) / mix(1.0, 1.6, pulse);
     float ringBright = 6.0 * expand * sunNorm;
@@ -95,7 +96,15 @@ void main() {
     float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
     float coneMask2 = smoothstep(0.85, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
     float conePulse = 0.5 + 0.5 * pulse;
-    col += vec3(0.6, 0.7, 1.0) * (coneMask1 + coneMask2) * conePulse * 2.0;
+    // Synchrotron jet: bluish-white/UV core fading to hazy
+    // blue-violet spectrum at the fringes.
+    float jetIntensity = (coneMask1 + coneMask2) * conePulse * 2.0;
+    vec3 jetCore = vec3(0.75, 0.88, 1.0);   // bluish-white/UV
+    vec3 jetFringe = vec3(0.35, 0.45, 0.85); // hazy blue-violet
+    float fringeFactor = smoothstep(0.85, 0.98, cone1) + smoothstep(0.85, 0.98, cone2);
+    fringeFactor = clamp(fringeFactor, 0.0, 1.0);
+    vec3 jetCol = mix(jetFringe, jetCore, fringeFactor);
+    col += jetCol * jetIntensity;
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
