@@ -37,11 +37,11 @@ layout(location = 0) out vec4 fragColor;
 // deviation from the beam centre; `mu`/`theta` describe the polar angle from
 // the pulsar (theta=0 = throat). Returns an additive HDR colour.
 vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float pulse, float conePulse) {
-    float coneMask = smoothstep(0.85, 1.0, cone) * smoothstep(0.0, 0.3, mu);
+    float coneMask = smoothstep(0.85, 1.0, cone) * smoothstep(-0.8, 0.15, mu);
     if (coneMask <= 0.0001) return vec3(0.0);
     float rho = abs(scone); // 0 at axis, ~0.5 at beam edge
     // Longitudinal profile: energetic throat near pulsar, dissipating outward.
-    float profile = smoothstep(0.05, 0.25, mu) * pow(max(mu, 0.0001), 0.45);
+    float profile = smoothstep(-0.9, 0.15, mu) * pow(clamp((mu + 1.0) * 0.5, 0.0001, 1.0), 0.45);
     // Corkscrew: twist the plasma domain with longitude.
     float L = theta * 3.0;
     float A = scone * 4.0;
