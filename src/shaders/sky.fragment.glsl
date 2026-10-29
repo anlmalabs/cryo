@@ -55,6 +55,8 @@ void main() {
         col += vec3(0.85, 0.9, 1.0) * star * bright;
     }
 
+    vec3 L = sunDir;
+
     // Expanding light wave from the pulsar: a bright ring that
     // propagates outward from the star with each pulse, like a
     // shockwave of light. Fades as it expands.
