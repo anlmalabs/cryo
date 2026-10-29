@@ -389,12 +389,15 @@ export class Sky {
   const coneSpin = time * 2.199;
   const cone1 = Math.cos(coneSpin);
   const cone2 = Math.cos(coneSpin + Math.PI);
-  const smoothstep = (e0: number, e1: number, x: number) => {
-    const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
-    return t * t * (3 - 2 * t);
+  // Dark phase untouched (cos < 0.85 → 0). Bright ramp uses a
+  // quartic ease-in so intensity rises slowly at first, then
+  // accelerates — the light "creeps" in rather than snapping.
+  const quarticMask = (x: number) => {
+    const t = Math.max(0, Math.min(1, (x - 0.85) / 0.15));
+    return t * t * t * t;
   };
-  const mask1 = smoothstep(0.85, 1.0, cone1);
-  const mask2 = smoothstep(0.85, 1.0, cone2);
+  const mask1 = quarticMask(cone1);
+  const mask2 = quarticMask(cone2);
   const sunFactor = Math.max(mask1, mask2);
   u.sunIntensity.value = this.sunScale * sunFactor;
   u.time.value = time;
