@@ -73,7 +73,11 @@ void main() {
     float brightness = 20.0 * expand * sunNorm;
     float core = pow(max(mu, 0.0), exponent) * brightness;
     col += vec3(1.0, 0.95, 1.0) * core;
-    // (deep-violet bloom ring removed)
+    // Blue nitrogen bloom ring (N2+ emission ~427.8 nm).
+    float ringExp = (400.0 / sqrt(sunNorm)) / mix(1.0, 1.6, pulse);
+    float ringBright = 6.0 * expand * sunNorm;
+    float ring = pow(max(mu, 0.0), ringExp) * ringBright;
+    col += vec3(0.15, 0.35, 0.95) * ring;
 
     // Spinning cones (jets) around the pulsar, rotating in sync with
     // the pulse. Two opposing beams sweep around the star.
@@ -116,20 +120,32 @@ void main() {
         float w1 = noise3(p0 * 0.8 + vec3(0.0, 0.0, time * 0.6)) * 0.5 + 0.5;
         float w2 = noise3(p0 * 0.8 + vec3(4.7, 3.1, time * 0.85)) * 0.5 + 0.5;
         vec3 pw = p0 + vec3((w1 - 0.5) * 2.5, (w2 - 0.5) * 0.9, 0.0);
+        
+        // High-frequency noise for X-ray/gamma ray particle streams (rays).
+        float rayNoise = noise3(pw * 8.0 + vec3(0.0, time * 2.0, 0.0)) * 0.5 + 0.5;
+        rayNoise = smoothstep(0.4, 0.8, rayNoise);
+        
         float n1 = noise3(pw * 1.1 + vec3(0.0, 0.0, time * 0.7));
         float n2 = noise3(pw * 0.6 + vec3(9.2, 1.7, time * 1.0));
         float n3 = noise3(pw * 1.5 + vec3(2.3, 7.4, time * 0.55));
         float flow = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * 0.5 + 0.5;
         flow = smoothstep(0.18, 0.82, flow);
         float vert = smoothstep(0.0, 0.15, dir.y) * (1.0 - smoothstep(0.70, 0.95, dir.y));
-        float intensity = auroraStrength * heightMask * flow * vert;
+        float intensity = auroraStrength * heightMask * flow * vert * 1.5; // Boosted for high-energy
         float phase = 0.5 + 0.5 * sin(time * 0.75 + dir.x * 0.5 + dir.z * 0.3);
-        vec3 c0 = vec3(0.35, 0.05, 0.55);   // deep violet
-        vec3 c1 = vec3(0.85, 0.18, 0.78);   // vibrant magenta
-        vec3 c2 = vec3(1.0, 0.35, 0.72);    // neon pink
+        
+        // Colors: deep blue -> violet -> bright white-blue (high energy N2+)
+        vec3 c0 = vec3(0.05, 0.10, 0.50);   // deep blue
+        vec3 c1 = vec3(0.20, 0.05, 0.70);   // violet
+        vec3 c2 = vec3(0.40, 0.20, 0.95);   // bright violet/blue-white
+        
         float t = clamp(dir.y * 1.4 + flow * 0.4 + phase * 0.3, 0.0, 1.0);
         vec3 auroraCol = mix(c0, c1, smoothstep(0.0, 0.5, t));
         auroraCol = mix(auroraCol, c2, smoothstep(0.5, 1.0, t));
+        
+        // Blend in the high-energy particle streams
+        auroraCol = mix(auroraCol, vec3(0.6, 0.7, 1.0), rayNoise * 0.4);
+        
         float breath = 0.7 + 0.3 * (0.5 + 0.5 * sin(time * 0.5));
         col += auroraCol * intensity * 1.6 * breath;
     }
