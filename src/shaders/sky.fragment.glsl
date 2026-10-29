@@ -57,17 +57,6 @@ void main() {
 
     vec3 L = sunDir;
 
-    // Expanding light wave from the pulsar: a bright ring that
-    // propagates outward from the star with each pulse, like a
-    // shockwave of light. Fades as it expands.
-    float angDist = acos(clamp(dot(dir, L), -1.0, 1.0));
-    float pulsePhase = fract(time * 4.4 / (2.0 * PI));
-    float waveRadius = pulsePhase * 2.2;
-    float waveWidth = 0.12;
-    float wave = smoothstep(waveWidth, 0.0, abs(angDist - waveRadius));
-    wave *= (1.0 - pulsePhase) * 0.7;
-    col += vec3(0.75, 0.80, 1.0) * wave * 0.5;
-
     // Pulsar core along key-light direction (HDR 8-16). Its expansion and
     // shrinking pulse in step with the actual sunlight intensity: the star
     // swells and brightens when the sun is bright, and contracts and dims
@@ -89,6 +78,19 @@ void main() {
     float ringBright = 6.0 * expand * sunNorm;
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.55, 0.20, 0.90) * ring;
+
+    // Spinning cones (jets) around the pulsar, rotating in sync with
+    // the pulse. Two opposing beams sweep around the star.
+    vec3 perp = normalize(cross(sunDir, vec3(0.0, 1.0, 0.001)));
+    vec3 perp2 = cross(sunDir, perp);
+    float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
+    float coneSpin = time * 4.4;
+    float cone1 = cos(coneAngle - coneSpin);
+    float cone2 = cos(coneAngle - coneSpin + PI);
+    float coneMask1 = smoothstep(0.92, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
+    float coneMask2 = smoothstep(0.92, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
+    float conePulse = 0.5 + 0.5 * pulse;
+    col += vec3(0.6, 0.7, 1.0) * (coneMask1 + coneMask2) * conePulse * 2.0;
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
