@@ -21,11 +21,11 @@
 const float EARTH_R = 6360000.0;
 const float ATMOS_R = 6420000.0;
 const float H_RAYLEIGH = 8000.0;
-const float H_MIE = 1200.0;
+const float H_MIE = 2400.0;
 
 // Sea-level scattering coefficients, per metre.
 const vec3 BETA_R = vec3(5.8e-6, 13.5e-6, 33.1e-6);
-const vec3 BETA_M = vec3(4e-6, 4e-6, 4e-6);
+const vec3 BETA_M = vec3(2e-6, 2e-6, 2e-6);
 const float MIE_G = 0.76;
 
 /// Strength of the isotropic multiple-scattering approximation, relative to
