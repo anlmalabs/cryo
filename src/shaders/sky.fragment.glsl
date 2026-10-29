@@ -84,7 +84,11 @@ void main() {
     vec3 perp = normalize(cross(sunDir, vec3(0.0, 1.0, 0.001)));
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
-    float coneSpin = time * 4.4;
+    // Spin relative to player POV: offset the cone rotation by the
+    // camera's azimuth so the jets sweep in a way that reads from
+    // the viewer's perspective, not just world-space.
+    float camAzimuth = atan(cameraPosition.z, cameraPosition.x);
+    float coneSpin = time * 4.4 + camAzimuth;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
     float coneMask1 = smoothstep(0.92, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
