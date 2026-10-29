@@ -335,7 +335,6 @@ vec3 applyAerial(
 ) {
     float t = aerialTransmittance(camPos, worldPos, density, heightFalloff, fogStart);
     float ext = clamp(1.0 - pow(t, strength), 0.0, 1.0);
-    // Fog base colour is pure black: distant objects sink into darkness.
-    vec3 inscatter = vec3(0.0);
+    vec3 inscatter = aerialInscatterSky(skyTex, viewDir, sunDir, sunColor, ext);
     return mix(color, inscatter, ext);
 }
