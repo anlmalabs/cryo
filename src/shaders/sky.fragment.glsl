@@ -57,6 +57,28 @@ void main() {
 
     vec3 L = sunDir;
 
+    // Gravitational lensing: bend view direction near the pulsar core.
+    // Light rays curve around the neutron star, creating an Einstein
+    // ring distortion. Strongest at the core boundary, fading outward.
+    float lensDist = 1.0 - mu; // 0 at center, 1 at edge of influence
+    float lensRadius = 0.20;
+    if (lensDist < lensRadius) {
+        float t = lensDist / lensRadius; // 0..1 (0=core, 1=edge)
+        // Exponential warp: infinitely aggressive near core, smooth at edge
+        float warp = pow(1.0 - t, 4.0) * 0.12;
+        // Bend dir around the core (tangential deflection)
+        vec3 tangent = normalize(cross(dir, sunDir));
+        if (length(tangent) < 0.001) tangent = vec3(0.0, 1.0, 0.0);
+        dir = normalize(dir + tangent * warp * (1.0 - lensDist * lensDist));
+    }
+    mu = dot(dir, sunDir);
+
+    // Einstein ring: bright ring at the photon sphere boundary.
+    float einsteinR = 0.08;
+    float einsteinDist = abs(lensDist - einsteinR);
+    float einsteinRing = smoothstep(0.015, 0.0, einsteinDist) * 0.6;
+    col += vec3(0.8, 0.9, 1.0) * einsteinRing * sunNorm;
+
     // Pulsar core along key-light direction (HDR 8-16). Its expansion and
     // shrinking pulse in step with the actual sunlight intensity: the star
     // swells and brightens when the sun is bright, and contracts and dims
