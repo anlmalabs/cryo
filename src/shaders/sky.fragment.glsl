@@ -68,6 +68,10 @@ vec3 shadeRidge(RidgeHit hit, vec3 dir) {
          * snowMask * 0.25 * distAtten * vec3(0.75, 0.60, 1.0) * crest;
 
     col += albedo * auroraStrength * 0.08 * crest * vec3(0.70, 0.30, 0.95) * distAtten;
+
+    // Mountain crests light up with the pulsar pulse.
+    float pulseGlow = 0.5 + 0.5 * sin(time * 4.4);
+    col += albedo * crest * pulseGlow * 0.15 * vec3(0.85, 0.9, 1.0) * distAtten;
     // Pulsar pulse glow on crests: mountain ridges light up with the star.
     float pulseGlow = 0.5 + 0.5 * sin(time * 4.4);
     col += albedo * pulseGlow * 0.12 * crest * sunRadiance * distAtten;
