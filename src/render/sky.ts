@@ -171,7 +171,6 @@ export class Sky {
     shR: { value: this.sh },
     ambientIntensity: { value: 1 },
     auroraStrength: { value: 1 },
-    ridgeAmp: { value: 0 },
     skyLUT: { value: this.lut },
    },
    side: THREE.DoubleSide, // backFaceCulling = false in the source
@@ -401,7 +400,6 @@ export class Sky {
   u.shR.value = this.sh;
   u.ambientIntensity.value = S.ambientIntensity;
   u.auroraStrength.value = S.auroraStrength;
-  u.ridgeAmp.value = S.showMountains ? S.mountainHeight : 0;
   // The field's own haze, so the range is hazed by the same atmosphere the
   // dunes are and the two meet at one colour rather than two.
  }

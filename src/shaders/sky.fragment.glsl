@@ -17,7 +17,6 @@ uniform vec3 sunRadiance;
 uniform vec4 shR[9];
 uniform float ambientIntensity;
 uniform float auroraStrength;
-uniform float ridgeAmp;
 
 
 layout(location = 0) out vec4 fragColor;
@@ -25,7 +24,6 @@ layout(location = 0) out vec4 fragColor;
 #include<snowNoise>
 #include<snowAtmosphere>
 #include<snowShading>
-#include<snowRidge>
 
 // ---------------------------------------------------------------------------
 // Pulsar skybox: dark deep space, sparse stars, bright compact core, twin
@@ -35,48 +33,6 @@ layout(location = 0) out vec4 fragColor;
 // beyond the existing ridge march, which only runs near the horizon.
 // ---------------------------------------------------------------------------
 
-vec3 shadeRidge(RidgeHit hit, vec3 dir) {
-    // (unchanged ridge shading - keep terrain aerial perspective working)
-    vec3 N = hit.normal;
-    vec3 L = sunDir;
-
-    float steep = 1.0 - N.y;
-    float snowMask = clamp(1.0 - smoothstep(0.46, 0.80, steep), 0.0, 1.0);
-    float crest = snowMask * smoothstep(0.55, 0.85, N.y);
-
-    vec3 rock = vec3(0.052, 0.055, 0.066);
-    vec3 snow = vec3(0.855, 0.885, 0.945);
-    vec3 albedo = mix(rock, snow, snowMask);
-
-    float shadow = ridgeShadow(hit.pos, hit.height, L, ridgeAmp);
-
-    const float INV_PI = 0.31830988618;
-    float diff = wrapDiffuse(dot(N, L), mix(0.15, 0.62, snowMask)) * snowMask;
-    vec3 col = albedo * INV_PI * sunRadiance * diff * shadow * 0.25;
-    vec3 V = -dir;
-    col += snowSubsurface(N, L, V, sunRadiance, 0.45, snowMask, 1.0)
-         * albedo * mix(0.5, 1.0, shadow) * 0.25 * snowMask;
-
-    float distFade = smoothstep(5500.0, 45000.0, hit.dist);
-    float ambScale = mix(1.0, 0.15, distFade);
-    col += albedo * INV_PI * shIrradiance(N, shR) * ambientIntensity * 0.25 * ambScale;
-
-    float dist = length(hit.pos - cameraPosition.xz);
-    float distAtten = 1.0 / (1.0 + dist * 0.00006);
-    col += albedo * INV_PI * shIrradiance(vec3(0.0, 1.0, 0.0), shR)
-         * ambientIntensity * 0.30 * clamp(-N.y * 0.5 + 0.5, 0.0, 1.0)
-         * snowMask * 0.25 * distAtten * vec3(0.75, 0.60, 1.0) * crest;
-
-    col += albedo * auroraStrength * 0.08 * crest * vec3(0.70, 0.30, 0.95) * distAtten;
-
-    // Mountain crests light up with the pulsar pulse.
-    float pulseGlow = 0.5 + 0.5 * sin(time * 4.4);
-    col += albedo * crest * pulseGlow * 0.15 * vec3(0.85, 0.9, 1.0) * distAtten;
-    col += albedo * pulseGlow * 0.12 * crest * sunRadiance * distAtten;
-
-    // Fog purged: no aerial perspective / inscatter.
-    return col;
-}
 
 void main() {
     vec3 dir = normalize(vDir);
@@ -98,6 +54,17 @@ void main() {
         float star = smoothstep(0.003, 0.0, ang);
         col += vec3(0.85, 0.9, 1.0) * star * bright;
     }
+
+    // Expanding light wave from the pulsar: a bright ring that
+    // propagates outward from the star with each pulse, like a
+    // shockwave of light. Fades as it expands.
+    float angDist = acos(clamp(dot(dir, L), -1.0, 1.0));
+    float pulsePhase = fract(time * 4.4 / (2.0 * PI));
+    float waveRadius = pulsePhase * 2.2;
+    float waveWidth = 0.12;
+    float wave = smoothstep(waveWidth, 0.0, abs(angDist - waveRadius));
+    wave *= (1.0 - pulsePhase) * 0.7;
+    col += vec3(0.75, 0.80, 1.0) * wave * 0.5;
 
     // Pulsar core along key-light direction (HDR 8-16). Its expansion and
     // shrinking pulse in step with the actual sunlight intensity: the star
@@ -135,14 +102,6 @@ void main() {
 
     // Deep indigo-purple all-sky haze, matching the night sky.
     col += vec3(0.012, 0.016, 0.045) * 0.35;
-
-    // Far-field range.
-    if (ridgeAmp > 1.0 && dir.y < 0.230 && dir.y > -0.050) {
-        RidgeHit hit = ridgeMarch(cameraPosition, dir, ridgeAmp);
-        if (hit.hit) {
-            col = shadeRidge(hit, dir);
-        }
-    }
 
     // ---- aurora curtains (sky-only additive emission) --------------------
     if (auroraStrength > 0.001) {
