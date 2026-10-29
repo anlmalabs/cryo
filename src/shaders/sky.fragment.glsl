@@ -33,7 +33,54 @@ layout(location = 0) out vec4 fragColor;
 // beyond the existing ridge march, which only runs near the horizon.
 // ---------------------------------------------------------------------------
 
+// Layered pulsar jet beam. `cone`/`scone` are cos/sin of the azimuthal
+// deviation from the beam centre; `mu`/`theta` describe the polar angle from
+// the pulsar (theta=0 = throat). Returns an additive HDR colour.
+vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float pulse, float conePulse) {
+    float coneMask = smoothstep(0.85, 1.0, cone) * smoothstep(0.0, 0.3, mu);
+    if (coneMask <= 0.0001) return vec3(0.0);
+    float rho = abs(scone); // 0 at axis, ~0.5 at beam edge
+    // Longitudinal profile: energetic throat near pulsar, dissipating outward.
+    float profile = smoothstep(0.05, 0.25, mu) * pow(max(mu, 0.0001), 0.45);
+    // Corkscrew: twist the plasma domain with longitude.
+    float L = theta * 3.0;
+    float A = scone * 4.0;
+    float Atw = A + 1.1 * L;
+    // Broad turbulent structure.
+    float nBroad = noise2(vec2(Atw * 0.55, L * 0.75 - time * 1.35)) * 0.5 + 0.5;
+    // Finer filaments.
+    float nFine = noise2(vec2(Atw * 2.4 + 17.3, L * 2.1 - time * 2.9)) * 0.5 + 0.5;
+    // Secondary counter-moving drift.
+    float nDrift = noise2(vec2(A * 1.1 - 5.7, L * 1.05 + time * 0.55)) * 0.5 + 0.5;
+    float turb = nBroad * 0.55 + nFine * 0.30 + nDrift * 0.15;
+    turb = smoothstep(0.32, 0.72, turb);
+    float filMask = smoothstep(0.62, 0.88, nFine);
 
+    // Radial sheath: soft inner falloff whose edge breathes with turbulence.
+    float sheathEdge = 0.44 + 0.16 * turb;
+    float sheathRadial = 1.0 - smoothstep(0.0, sheathEdge, rho);
+    // Soft atmospheric outer sheath.
+    float outerHalo = (1.0 - smoothstep(0.45, 0.92, rho)) * 0.22;
+    // Narrow axial spine.
+    float spine = exp(-rho * rho * 60.0);
+
+    float sheathDens = sheathRadial * (0.35 + 0.65 * turb) * profile;
+    float filamentDens = sheathRadial * filMask * 0.55 * profile;
+    float haloDens = outerHalo * (0.6 + 0.4 * nBroad) * profile;
+
+    vec3 colOuter = vec3(0.30, 0.36, 0.82); // blue-violet
+    vec3 colInner = vec3(0.22, 0.62, 1.00); // blue-cyan
+    vec3 colSpine = vec3(0.85, 0.95, 1.00); // icy white-cyan
+    vec3 colHalo = vec3(0.18, 0.28, 0.72); // atmospheric sheath
+
+    vec3 jetColor = mix(colOuter, colInner, smoothstep(0.45, 0.0, rho));
+    jetColor = mix(jetColor, colSpine, spine);
+    jetColor = mix(jetColor, colHalo, outerHalo * (1.0 - spine));
+
+    float dens = spine * 1.6 + sheathDens * 0.75 + filamentDens * 0.85 + haloDens * 0.35;
+    float intensity = coneMask * dens * conePulse * 2.0;
+    return jetColor * intensity;
+}
 void main() {
     vec3 dir = normalize(vDir);
 
@@ -108,30 +155,25 @@ void main() {
     float diskAlpha = diskMask * 0.12 * sunNorm * shimmer;
     col += diskCol * diskAlpha;
 
-    // Spinning cones (jets) around the pulsar, rotating along the
-    // planet's horizon axis (world up), so the beams sweep over the
-    // planet's horizon like a lighthouse on the surface.
+    // Spinning cones (jets) around the pulsar. Two opposing beams; geometry
+    // (cone angle + rotation) is unchanged. The interior is now built from
+    // layered plasma: narrow bright spine, broader turbulent sheath, fine
+    // filaments, and a subtle corkscrew, all advected along the beam.
     vec3 worldUp = vec3(0.0, 1.0, 0.0);
     vec3 rotAxis = normalize(cross(sunDir, worldUp));
     vec3 perp = normalize(cross(rotAxis, sunDir));
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
-    // Spin speed tied to pulsar pulse so the wave hits the player each cycle.
+    // Retain existing spin rate baseline.
     float coneSpin = time * 0.4398;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
-    float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
-    float coneMask2 = smoothstep(0.85, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
+    float sin1 = sin(coneAngle - coneSpin);
+    float sin2 = sin(coneAngle - coneSpin + PI);
     float conePulse = 0.5 + 0.5 * pulse;
-    // Synchrotron jet: bluish-white/UV core fading to hazy
-    // blue-violet spectrum at the fringes.
-    float jetIntensity = (coneMask1 + coneMask2) * conePulse * 2.0;
-    vec3 jetCore = vec3(0.75, 0.88, 1.0);   // bluish-white/UV
-    vec3 jetFringe = vec3(0.35, 0.45, 0.85); // hazy blue-violet
-    float fringeFactor = smoothstep(0.85, 0.98, cone1) + smoothstep(0.85, 0.98, cone2);
-    fringeFactor = clamp(fringeFactor, 0.0, 1.0);
-    vec3 jetCol = mix(jetFringe, jetCore, fringeFactor);
-    col += jetCol * jetIntensity;
+    float theta = acos(clamp(mu, -1.0, 1.0));
+    col += jetBeam(cone1, sin1, mu, theta, time, pulse, conePulse);
+    col += jetBeam(cone2, sin2, mu, theta, time, pulse, conePulse);
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
