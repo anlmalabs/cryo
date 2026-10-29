@@ -249,10 +249,6 @@ export class WaterBody {
    shadowSoftness: { value: 1.4 },
    shadowBias: { value: 0.03 },
 
-   fogDensity: { value: S.fogDensity },
-   fogHeightFalloff: { value: S.fogHeightFalloff },
-   fogStart: { value: S.fogStart },
-   aerialStrength: { value: S.aerialStrength },
    ambientIntensity: { value: S.ambientIntensity },
    sssStrength: { value: S.sssStrength },
    glintIntensity: { value: S.glintIntensity },
@@ -430,10 +426,6 @@ export class WaterBody {
   }
   u.skyLUT.value = lutTexture(sky, this.gfx);
 
-  u.fogDensity.value = S.fogDensity;
-  u.fogHeightFalloff.value = S.fogHeightFalloff;
-  u.fogStart.value = S.fogStart;
-  u.aerialStrength.value = S.aerialStrength;
   u.ambientIntensity.value = S.ambientIntensity;
   u.sssStrength.value = S.sssStrength;
   // Pulsar shimmer: water glints pulse in step with the star.

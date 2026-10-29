@@ -48,10 +48,6 @@ uniform float shadowTexel;
 uniform float shadowSoftness;
 uniform float shadowBias;
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 uniform float ambientIntensity;
 
 /// Strand cells per metre of surface. 260 is a 3.8 mm pitch.
@@ -123,12 +119,7 @@ void main() {
     vec3 irradiance = shIrradiance(N, shR) * ambientIntensity;
     color += furColor * INV_PI * irradiance * selfAO * vAux.y * 1.4;
 
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sun,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     fragColor = vec4(color, 1.0);
 }

@@ -59,10 +59,6 @@ uniform float glintGrazing;
 uniform float sssStrength;
 uniform float sssRadius;
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 
 uniform vec2 worldOrigin;
 uniform float worldSize;
@@ -527,12 +523,7 @@ void main() {
     color *= ao * caveTint;
 
     // ------------------------------------------------------- aerial perspective
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sunRadiance,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     // ------------------------------------------------------------------ debug
     if (debugMode > 0.5) {

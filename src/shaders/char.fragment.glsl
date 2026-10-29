@@ -64,10 +64,6 @@ uniform vec4 matAlbedo[8];
 /// Per material slot: (sheen, anisotropy, transmission, weave depth).
 uniform vec4 matParams[8];
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 uniform float ambientIntensity;
 uniform float sssStrength;
 /// Weave threads per metre. UVs arrive in metres of surface, so this is the
@@ -319,12 +315,7 @@ void main() {
     }
 
     // ------------------------------------------------------- aerial perspective
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sun,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     fragColor = vec4(color, 1.0);
 }

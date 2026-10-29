@@ -17,10 +17,6 @@ uniform vec3 sunDir;
 uniform vec3 sunColor;
 uniform vec3 ambientSky;
 uniform sampler2D skyLUT;
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -59,12 +55,7 @@ void main() {
     vec3 flat3 = HULL * (sunColor * SUN_MUTE * 0.45 + ambientSky * 0.75);
     color = mix(color, flat3, farFlat);
 
-    color = applyAerial(
-        color, cameraPos, vWorld, -V, sunDir,
-        skyLUT, sunColor,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     fragColor = vec4(color, 1.0);
 }

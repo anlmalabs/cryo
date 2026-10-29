@@ -49,10 +49,6 @@ uniform float shadowTexel;
 uniform float shadowSoftness;
 uniform float shadowBias;
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 uniform float ambientIntensity;
 uniform float sssStrength;
 uniform float glintIntensity;
@@ -269,12 +265,7 @@ void main() {
         color += sun * g * shadow * 0.5;
     }
 
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sun,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     // ------------------------------------------------------------------ debug
     //

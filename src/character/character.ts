@@ -451,10 +451,6 @@ export class Character {
    // between the boots and the snow — which is the shadow that tells
    // you the character is standing on the ground rather than in it.
    shadowBias: { value: 0.012 },
-   fogDensity: { value: S.fogDensity },
-   fogHeightFalloff: { value: S.fogHeightFalloff },
-   fogStart: { value: S.fogStart },
-   aerialStrength: { value: S.aerialStrength },
    ambientIntensity: { value: S.ambientIntensity },
    charTex: { value: this.charTex },
    skyLUT: { value: this._lut },
@@ -690,11 +686,7 @@ export class Character {
   // the owner mutates; only the plain-number settings need re-assigning.
   for (let i = 0; i < this._mats.length; i++) {
    const u = this._mats[i].uniforms;
-   u.fogDensity.value = S.fogDensity;
-   u.fogHeightFalloff.value = S.fogHeightFalloff;
-   u.fogStart.value = S.fogStart;
-   u.aerialStrength.value = S.aerialStrength;
-   u.ambientIntensity.value = S.ambientIntensity;
+       u.ambientIntensity.value = S.ambientIntensity;
   }
 
   _screen.set(this.gfx.renderWidth, this.gfx.renderHeight);

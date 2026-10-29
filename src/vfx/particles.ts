@@ -269,10 +269,6 @@ export class SprayField {
    shadowSoftness: { value: SHADOW_SOFTNESS },
    shadowBias: { value: SHADOW_BIAS },
 
-   fogDensity: { value: S.fogDensity },
-   fogHeightFalloff: { value: S.fogHeightFalloff },
-   fogStart: { value: S.fogStart },
-   aerialStrength: { value: S.aerialStrength },
    ambientIntensity: { value: S.ambientIntensity },
 
    sprayTex: { value: this.dataTex },
@@ -442,10 +438,6 @@ export class SprayField {
   u.shadowSoftness.value = SHADOW_SOFTNESS;
   u.shadowBias.value = SHADOW_BIAS;
 
-  u.fogDensity.value = S.fogDensity;
-  u.fogHeightFalloff.value = S.fogHeightFalloff;
-  u.fogStart.value = S.fogStart;
-  u.aerialStrength.value = S.aerialStrength;
   u.ambientIntensity.value = S.ambientIntensity;
  }
 

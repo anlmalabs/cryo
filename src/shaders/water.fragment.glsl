@@ -76,10 +76,6 @@ uniform float shadowTexel;
 uniform float shadowSoftness;
 uniform float shadowBias;
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 uniform float ambientIntensity;
 uniform float sssStrength;
 uniform float glintIntensity;
@@ -348,12 +344,7 @@ void main() {
     float alpha = mix(clearAlpha, taper, max(foam, vMilk * 0.9)) * vAlpha;
     if (alpha < 0.004) { discard; }
 
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sun,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     fragColor = vec4(color, alpha);
 }

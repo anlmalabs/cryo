@@ -630,10 +630,6 @@ export class Speeder {
 
    matFactors: { value: this.factors },
 
-   fogDensity: { value: S.fogDensity },
-   fogHeightFalloff: { value: S.fogHeightFalloff },
-   fogStart: { value: S.fogStart },
-   aerialStrength: { value: S.aerialStrength },
    ambientIntensity: { value: S.ambientIntensity * S.speederAmbient },
    snowCover: { value: 0 },
 
@@ -1076,10 +1072,6 @@ export class Speeder {
   // stops the whole machine reading as shadowed by itself.
   u.shadowBias.value = 0.11;
 
-  u.fogDensity.value = S.fogDensity;
-  u.fogHeightFalloff.value = S.fogHeightFalloff;
-  u.fogStart.value = S.fogStart;
-  u.aerialStrength.value = S.aerialStrength;
   // Ambient, hard, and for a physical reason rather than to cheat the
   // exposure — see `speederAmbient` in the settings for why the craft is
   // owed a great deal more of it than anything standing on the ground.

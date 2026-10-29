@@ -48,10 +48,6 @@ uniform float shadowTexel;
 uniform float shadowSoftness;
 uniform float shadowBias;
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 uniform float ambientIntensity;
 
 uniform vec4 spellLightPos[4];
@@ -135,12 +131,7 @@ void main() {
         );
     }
 
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sun,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     fragColor = vec4(color, alpha);
 }

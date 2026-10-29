@@ -66,10 +66,6 @@ uniform float shadowBias;
 /// than a second shader.
 uniform vec4 matFactors[8];
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 uniform float ambientIntensity;
 /// How much snow has settled on the hull, 0-1.
 uniform float snowCover;
@@ -260,12 +256,7 @@ void main() {
     }
 
     // ------------------------------------------------------- aerial perspective
-    color = applyAerial(
-        color, cameraPos, world, -V, L,
-        skyLUT, sun,
-        fogDensity, fogHeightFalloff, fogStart,
-        aerialStrength
-    );
+    /* fog purged */
 
     // ------------------------------------------------------------------- debug
     // Substituted at the end rather than returned early from the middle, exactly

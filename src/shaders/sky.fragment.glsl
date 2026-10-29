@@ -19,10 +19,6 @@ uniform float ambientIntensity;
 uniform float auroraStrength;
 uniform float ridgeAmp;
 
-uniform float fogDensity;
-uniform float fogHeightFalloff;
-uniform float fogStart;
-uniform float aerialStrength;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -73,18 +69,8 @@ vec3 shadeRidge(RidgeHit hit, vec3 dir) {
 
     col += albedo * auroraStrength * 0.08 * crest * vec3(0.70, 0.30, 0.95) * distAtten;
 
-    vec3 hitPos = vec3(hit.pos.x, hit.height, hit.pos.y);
-    float t = aerialTransmittance(
-        cameraPosition, hitPos,
-        fogDensity, fogHeightFalloff, fogStart
-    );
-    float ext = clamp(1.0 - pow(t, aerialStrength), 0.0, 1.0);
-
-    vec3 inscatter = aerialInscatterSky(
-        skyLUT, dir, L, sunRadiance, ext
-    );
-
-    return mix(col, inscatter, ext);
+    // Fog purged: no aerial perspective / inscatter.
+    return col;
 }
 
 void main() {

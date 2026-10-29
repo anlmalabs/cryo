@@ -531,10 +531,6 @@ export class SurfWake {
    shadowSoftness: { value: WAKE_SHADOW_SOFTNESS },
    shadowBias: { value: WAKE_SHADOW_BIAS },
 
-   fogDensity: { value: S.fogDensity },
-   fogHeightFalloff: { value: S.fogHeightFalloff },
-   fogStart: { value: S.fogStart },
-   aerialStrength: { value: S.aerialStrength },
    ambientIntensity: { value: S.ambientIntensity },
    sssStrength: { value: S.sssStrength },
    glintIntensity: { value: S.glintIntensity },
@@ -1008,10 +1004,6 @@ export class SurfWake {
   u.shadowSoftness.value = WAKE_SHADOW_SOFTNESS;
   u.shadowBias.value = WAKE_SHADOW_BIAS;
 
-  u.fogDensity.value = S.fogDensity;
-  u.fogHeightFalloff.value = S.fogHeightFalloff;
-  u.fogStart.value = S.fogStart;
-  u.aerialStrength.value = S.aerialStrength;
   u.ambientIntensity.value = S.ambientIntensity;
   u.sssStrength.value = S.sssStrength;
   u.glintIntensity.value = S.glintIntensity;

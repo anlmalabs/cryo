@@ -301,10 +301,6 @@ export class Terrain {
    sssRadius: { value: S.sssRadius },
 
    // ---- atmosphere -------------------------------------------------
-   fogDensity: { value: S.fogDensity },
-   fogHeightFalloff: { value: S.fogHeightFalloff },
-   fogStart: { value: S.fogStart },
-   aerialStrength: { value: S.aerialStrength },
 
    // ---- misc -------------------------------------------------------
    debugMode: { value: 0 },
@@ -349,10 +345,6 @@ export class Terrain {
     glintGrazing: u.glintGrazing,
     sssStrength: u.sssStrength,
     sssRadius: u.sssRadius,
-    fogDensity: u.fogDensity,
-    fogHeightFalloff: u.fogHeightFalloff,
-    fogStart: u.fogStart,
-    aerialStrength: u.aerialStrength,
     deformCenter: u.deformCenter,
     deformSize: u.deformSize,
     deformTexel: u.deformTexel,
@@ -584,10 +576,6 @@ export class Terrain {
   u.sssStrength.value = S.sssStrength;
   u.sssRadius.value = S.sssRadius;
 
-  u.fogDensity.value = S.fogDensity;
-  u.fogHeightFalloff.value = S.fogHeightFalloff;
-  u.fogStart.value = S.fogStart;
-  u.aerialStrength.value = S.aerialStrength;
   u.ambientIntensity.value = S.ambientIntensity;
 
   u.deformTexel.value = this.deform.texel;
