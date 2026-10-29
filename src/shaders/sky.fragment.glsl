@@ -115,9 +115,14 @@ void main() {
     float ringBright = 6.0 * expand * sunNorm;
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.55, 0.20, 0.90) * ring;
-    // Nebula filaments (bounded 4-octave fbmd).
-    vec2 q = vec2(atan(dir.z, dir.x), dir.y) * 1.6;
-    float n = fbmd(q + vec2(time * 0.06, 0.0), 4, 2.0, 0.5).x;
+    // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
+    // the phi wrap seam is invisible (same fix as the aurora layer).
+    vec3 qn = dir * 1.6;
+    // Project onto a seamless 2D domain: (azimuth via xz plane is not needed;
+    // use 3D noise directly for seamlessness).
+    float n = noise3(qn + vec3(time * 0.06, 0.0, 0.0)) * 0.5 + 0.5;
+    // Add a second octave for filament detail.
+    n = n * 0.6 + (noise3(qn * 2.3 + vec3(0.0, time * 0.09, 4.7)) * 0.5 + 0.5) * 0.4;
     float fil = smoothstep(0.15, 0.55, n);
     float fil2 = smoothstep(0.35, 0.75, n);
     vec3 filCol = mix(vec3(1.0, 0.416, 0.239), vec3(1.0, 0.541, 0.361), fil2);
