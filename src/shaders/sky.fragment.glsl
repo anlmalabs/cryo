@@ -88,7 +88,7 @@ void main() {
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
     // Spin speed tied to pulsar pulse so the wave hits the player each cycle.
-    float coneSpin = time * 0.88;
+    float coneSpin = time * 2.199;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
     float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
