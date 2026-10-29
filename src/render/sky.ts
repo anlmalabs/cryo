@@ -379,23 +379,25 @@ export class Sky {
   u.skyScale.value = cam.maxZ * SKYBOX_HALF_FAR;
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
-  // Sunlight strobes in step with the pulsar core.
-  const pulse = 0.5 + 0.5 * Math.sin(time * 4.4);
-  const sunPulse = 0.6 + 0.4 * pulse;
-  u.sunIntensity.value = this.sunScale * sunPulse;
+  // Sunlight syncs with the cone jets: when a jet reaches the
+  // bottom of the z-axis (relative to the pulsar-observer line) the
+  // planet receives 100% sunlight; at z=0 it receives none.
+  const coneSpin = time * 2.199;
+  const coneZ = Math.cos(coneSpin);
+  const sunFactor = Math.max(0, -coneZ);
+  u.sunIntensity.value = this.sunScale * sunFactor;
   u.time.value = time;
 
   const a = /** @type {number} */ (S.windDirection) * DEG2RAD;
   u.windDir.value.set(Math.sin(a), Math.cos(a));
   u.cloudAmount.value = CLOUD_AMOUNT;
 
-  // At the pulse peak the direct light shifts through ionized nitrogen into
-  // a soft lavender/lilac tint; off-peak it stays the white-blue star colour.
-  const lav = 0.5 + 0.5 * pulse; // 0..1
+  // Lavender tint tracks the sun factor.
+  const lav = sunFactor;
   const r = 0.25 + 0.18 * lav;
   const g = 0.28 + 0.10 * lav;
   const b = 0.32 + 0.22 * lav;
-  this.sunRadiance.setRGB(r * this.sunScale * sunPulse, g * this.sunScale * sunPulse, b * this.sunScale * sunPulse);
+  this.sunRadiance.setRGB(r * this.sunScale * sunFactor, g * this.sunScale * sunFactor, b * this.sunScale * sunFactor);
   u.sunRadiance.value = this.sunRadiance;
   u.shR.value = this.sh;
   u.ambientIntensity.value = S.ambientIntensity;
