@@ -381,7 +381,7 @@ export class Sky {
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
   // Sunlight strobes in step with the pulsar core.
-  const pulse = 0.5 + 0.5 * Math.sin(time * 3.0);
+  const pulse = 0.5 + 0.5 * Math.sin(time * 1.5);
   const sunPulse = 0.6 + 0.4 * pulse;
   u.sunIntensity.value = this.sunScale * sunPulse;
   u.time.value = time;

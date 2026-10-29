@@ -30,10 +30,6 @@ export const S = {
  ambientBlue: 1.0, // strength of the cool shadow shift
 
  // ------------------------------------------------------------- atmosphere
- fogDensity: 0.0,
- fogHeightFalloff: 0.08,
- fogStart: 24,
- aerialStrength: 0.0,
  // Degrees. Drives sastrugi shear and dune orientation. Held 70-80 degrees
  // away from `sunAzimuth`: sastrugi ridges run along the wind, so when the
  // two align the sun rakes down every ridge, lights both flanks identically
@@ -486,9 +482,6 @@ export const SCHEMA = [
  {
   group: "Atmosphere",
   items: [
-   { k: "fogDensity", l: "Fog density", t: "f", min: 0, max: 0.03, step: 0.0001 },
-   { k: "fogHeightFalloff", l: "Height falloff", t: "f", min: 0, max: 0.3, step: 0.001 },
-   { k: "aerialStrength", l: "Aerial persp.", t: "f", min: 0, max: 2, step: 0.01 },
    { k: "windDirection", l: "Wind dir", t: "f", min: 0, max: 360, step: 1 },
    { k: "windStrength", l: "Wind strength", t: "f", min: 0, max: 2, step: 0.01 },
    { k: "showMountains", l: "Far range", t: "b" },
