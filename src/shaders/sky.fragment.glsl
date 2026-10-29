@@ -79,11 +79,11 @@ void main() {
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.15, 0.35, 0.95) * ring;
 
-    // Spinning cones (jets) around the pulsar, rotating toward the player.
-    // The rotation plane is defined by sunDir and the camera position so
-    // the beams sweep through the player's view like a lighthouse.
-    vec3 toCam = normalize(cameraPosition);
-    vec3 rotAxis = normalize(cross(sunDir, toCam));
+    // Spinning cones (jets) around the pulsar, rotating along the
+    // planet's horizon axis (world up), so the beams sweep over the
+    // planet's horizon like a lighthouse on the surface.
+    vec3 worldUp = vec3(0.0, 1.0, 0.0);
+    vec3 rotAxis = normalize(cross(sunDir, worldUp));
     vec3 perp = normalize(cross(rotAxis, sunDir));
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
