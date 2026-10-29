@@ -46,6 +46,7 @@ vec3 shadeRidge(RidgeHit hit, vec3 dir) {
 
     float steep = 1.0 - N.y;
     float snowMask = clamp(1.0 - smoothstep(0.46, 0.80, steep), 0.0, 1.0);
+    float crest = snowMask * smoothstep(0.55, 0.85, N.y);
 
     vec3 rock = vec3(0.052, 0.055, 0.066);
     vec3 snow = vec3(0.855, 0.885, 0.945);
@@ -54,24 +55,23 @@ vec3 shadeRidge(RidgeHit hit, vec3 dir) {
     float shadow = ridgeShadow(hit.pos, hit.height, L, ridgeAmp);
 
     const float INV_PI = 0.31830988618;
-    // 4x dimmed baseline: mountain diffuse scales to the same dim level as
-    // the foreground snow, so the range never reads light-gray at night.
-    float diff = wrapDiffuse(dot(N, L), mix(0.15, 0.62, snowMask));
+    float diff = wrapDiffuse(dot(N, L), mix(0.15, 0.62, snowMask)) * snowMask;
     vec3 col = albedo * INV_PI * sunRadiance * diff * shadow * 0.25;
     vec3 V = -dir;
     col += snowSubsurface(N, L, V, sunRadiance, 0.45, snowMask, 1.0)
-         * albedo * mix(0.5, 1.0, shadow) * 0.25;
+         * albedo * mix(0.5, 1.0, shadow) * 0.25 * snowMask;
 
-    // Deep indigo-blue ambient base (no muddy brightening).
-    col += albedo * INV_PI * shIrradiance(N, shR) * ambientIntensity * 0.25;
+    float distFade = smoothstep(5500.0, 45000.0, hit.dist);
+    float ambScale = mix(1.0, 0.15, distFade);
+    col += albedo * INV_PI * shIrradiance(N, shR) * ambientIntensity * 0.25 * ambScale;
 
-    // Subdued lavender-purple ambilight, distance-attenuated: farther
-    // massifs receive a softer, darker purple reflection.
     float dist = length(hit.pos - cameraPosition.xz);
     float distAtten = 1.0 / (1.0 + dist * 0.00006);
     col += albedo * INV_PI * shIrradiance(vec3(0.0, 1.0, 0.0), shR)
          * ambientIntensity * 0.30 * clamp(-N.y * 0.5 + 0.5, 0.0, 1.0)
-         * snowMask * 0.25 * distAtten * vec3(0.75, 0.60, 1.0);
+         * snowMask * 0.25 * distAtten * vec3(0.75, 0.60, 1.0) * crest;
+
+    col += albedo * auroraStrength * 0.08 * crest * vec3(0.70, 0.30, 0.95) * distAtten;
 
     vec3 hitPos = vec3(hit.pos.x, hit.height, hit.pos.y);
     float t = aerialTransmittance(
