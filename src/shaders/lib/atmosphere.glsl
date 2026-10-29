@@ -206,8 +206,8 @@ vec3 nishitaSky(vec3 rayDir, vec3 sunDir, float sunIntensity, vec3 groundBounce)
     // warmth is untouched: the solar disc, the aureole and the forward-scatter
     // lobe are all added *after* this LUT.
     float grazing = 1.0 - smoothstep(0.0, 0.26, abs(rayDir.y));
-    float pale = dot(col, vec3(0.30, 0.42, 0.28));
-    col = mix(col, vec3(pale) * vec3(0.85, 0.90, 1.10), grazing * 0.35);
+    float pale = dot(col, vec3(0.20, 0.25, 0.40));
+    col = mix(col, vec3(pale) * vec3(0.70, 0.75, 1.15), grazing * 0.20);
 
     return col;
 }
