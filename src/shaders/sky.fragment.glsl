@@ -37,7 +37,7 @@ layout(location = 0) out vec4 fragColor;
 // deviation from the beam centre; `mu`/`theta` describe the polar angle from
 // the pulsar (theta=0 = throat). Returns an additive HDR colour.
 vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float pulse, float conePulse) {
-    float coneMask = smoothstep(0.85, 1.0, cone) * smoothstep(-0.95, 0.10, mu);
+    float coneMask = smoothstep(0.93, 1.0, cone) * smoothstep(-0.95, 0.10, mu);
     if (coneMask <= 0.0001) return vec3(0.0);
     float rho = abs(scone); // 0 at axis, ~0.5 at beam edge
     // Longitudinal profile: energetic throat near pulsar, dissipating outward
@@ -46,7 +46,7 @@ vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float p
     // Corkscrew: twist the plasma domain with longitude.
     float L = theta * 3.0;
     float A = scone * 4.0;
-    float Atw = A + 1.7 * L;
+    float Atw = A + 1.3 * L;
     // Broad turbulent structure.
     float nBroad = noise2(vec2(Atw * 0.55, L * 0.75 - time * 1.35)) * 0.5 + 0.5;
     // Finer filaments.
@@ -58,12 +58,12 @@ vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float p
     float filMask = smoothstep(0.62, 0.88, nFine);
 
     // Radial sheath: soft inner falloff whose edge breathes with turbulence.
-    float sheathEdge = 0.44 + 0.16 * turb;
+    float sheathEdge = 0.26 + 0.10 * turb;
     float sheathRadial = 1.0 - smoothstep(0.0, sheathEdge, rho);
     // Soft atmospheric outer sheath.
-    float outerHalo = (1.0 - smoothstep(0.45, 0.92, rho)) * 0.22;
+    float outerHalo = (1.0 - smoothstep(0.22, 0.62, rho)) * 0.12;
     // Narrow axial spine.
-    float spine = exp(-rho * rho * 60.0);
+    float spine = exp(-rho * rho * 140.0);
 
     float sheathDens = sheathRadial * (0.45 + 0.75 * turb) * profile;
     float filamentDens = sheathRadial * filMask * 0.85 * profile;
