@@ -44,6 +44,7 @@ void main() {
 
     // Sparse starfield: 3D hash (screen-stable, no crawling). Hyper-bright
     // intensity with color temperature variation for lensing contrast.
+    vec3 starLayer = vec3(0.0);
     float h = hash33(dir * 180.0 + vec3(17.0, 31.0, 53.0)).x;
     if (h > 0.985) {
         vec3 o = hash33(dir * 180.0 + vec3(97.0, 131.0, 173.0));
@@ -57,7 +58,7 @@ void main() {
         vec3 starColor = vec3(0.7, 0.85, 1.0); // icy white
         if (h < 0.987) starColor = vec3(1.0, 0.4, 0.3);   // red giant
         else if (h > 0.995) starColor = vec3(0.5, 0.7, 1.0); // hot blue
-        col += starColor * starIntensity;
+        starLayer = starColor * starIntensity;
     }
 
     vec3 L = sunDir;
@@ -193,6 +194,12 @@ void main() {
         float breath = 0.7 + 0.3 * (0.5 + 0.5 * sin(time * 0.10));
         col += auroraCol * intensity * 0.9 * breath;
     }
+
+    // Atmospheric occlusion mask: stars pierce through dark space but
+    // fade where the atmosphere/nebula/aurora is bright.
+    float atmBrightness = dot(col, vec3(0.299, 0.587, 0.114));
+    float starVis = clamp(1.0 - atmBrightness * 1.5, 0.0, 1.0);
+    col += starLayer * starVis;
 
     fragColor = vec4(col, 1.0);
 }
