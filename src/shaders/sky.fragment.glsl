@@ -73,11 +73,7 @@ void main() {
     float brightness = 20.0 * expand * sunNorm;
     float core = pow(max(mu, 0.0), exponent) * brightness;
     col += vec3(1.0, 0.95, 1.0) * core;
-    // Deep-violet bloom/glint ring that expands with the pulse.
-    float ringExp = (400.0 / sqrt(sunNorm)) / mix(1.0, 1.6, pulse);
-    float ringBright = 6.0 * expand * sunNorm;
-    float ring = pow(max(mu, 0.0), ringExp) * ringBright;
-    col += vec3(0.55, 0.20, 0.90) * ring;
+    // (deep-violet bloom ring removed)
 
     // Spinning cones (jets) around the pulsar, rotating in sync with
     // the pulse. Two opposing beams sweep around the star.
