@@ -39,8 +39,8 @@ void main() {
 
     // Deep-space base.
     float up = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 col = mix(vec3(0.05, 0.07, 0.12), vec3(0.015, 0.02, 0.04), up);
-    col += vec3(0.0, 0.01, 0.03) * (1.0 - up);
+    vec3 col = mix(vec3(0.02, 0.01, 0.06), vec3(0.005, 0.002, 0.02), up);
+    col += vec3(0.0, 0.005, 0.015) * (1.0 - up);
 
     // Sparse starfield: pure continuous 3D hash of dir — no floor/fract
     // grid, so placement is seamless across the sphere (no phi-wrap seam).
@@ -101,11 +101,11 @@ void main() {
     n = n * 0.6 + (noise3(qn * 2.3 + vec3(0.0, time * 0.09, 4.7)) * 0.5 + 0.5) * 0.4;
     float fil = smoothstep(0.15, 0.55, n);
     float fil2 = smoothstep(0.35, 0.75, n);
-    vec3 filCol = mix(vec3(1.0, 0.416, 0.239), vec3(1.0, 0.541, 0.361), fil2);
-    col += filCol * fil * 1.2;
+    vec3 filCol = mix(vec3(0.15, 0.10, 0.55), vec3(0.25, 0.15, 0.70), fil2);
+    col += filCol * fil * 0.6;
 
     // Deep indigo-purple all-sky haze, matching the night sky.
-    col += vec3(0.012, 0.016, 0.045) * 0.35;
+    col += vec3(0.008, 0.004, 0.025) * 0.25;
 
     // ---- aurora curtains (sky-only additive emission) --------------------
     if (auroraStrength > 0.001) {
@@ -147,7 +147,7 @@ void main() {
         auroraCol = mix(auroraCol, vec3(0.6, 0.7, 1.0), rayNoise * 0.4);
         
         float breath = 0.7 + 0.3 * (0.5 + 0.5 * sin(time * 0.5));
-        col += auroraCol * intensity * 1.6 * breath;
+        col += auroraCol * intensity * 0.9 * breath;
     }
 
     fragColor = vec4(col, 1.0);
