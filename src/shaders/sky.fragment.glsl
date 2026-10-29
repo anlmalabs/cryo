@@ -66,7 +66,8 @@ void main() {
     const float PULSAR_SUN_REF = 23.1;
     float mu = dot(dir, sunDir);
     float pulse = 0.5 + 0.5 * sin(time * 0.4398);
-    float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.05, 4.0);
+    // Keep a 10% baseline glow even when the beam is away (sunIntensity=0).
+    float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.1, 4.0);
     float expand = 0.6 + 0.4 * pulse;
     // Intense white center (pinprick star).
     float exponent = 10000.0 / sqrt(sunNorm);
