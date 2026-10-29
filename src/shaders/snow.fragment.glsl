@@ -414,7 +414,7 @@ void main() {
     float diff = wrapDiffuse(NdotL, wrapAmount);
     // Amplify chromaticity before intensity downscale so the violet-magenta
     // shift reads clearly even at realistic (dimmed) neutron-star levels.
-    vec3 boostedSun = sunRadiance * vec3(1.35, 0.85, 1.45);
+    vec3 boostedSun = sunRadiance * vec3(1.15, 0.75, 1.25);
     vec3 direct = albedo * INV_PI * boostedSun * diff * shadow;
 
     // --- subsurface --------------------------------------------------------
@@ -425,7 +425,7 @@ void main() {
     // Only partly shadowed: scattered light arrives through the snow, so a
     // shadowed drift lip still glows. Killing this with the shadow term is what
     // makes shadowed snow go flat and grey.
-    direct += sss * albedo * mix(0.42, 1.0, shadow) * vec3(1.2, 0.9, 1.3);
+    direct += sss * albedo * mix(0.42, 1.0, shadow) * vec3(1.0, 0.8, 1.1);
 
     // --- direct specular ---------------------------------------------------
     if (NdotL > 0.0) {
@@ -438,7 +438,7 @@ void main() {
         float Vis = visSmithGGXCorrelated(NdotV, NdotL, specRough);
         vec3 F = fresnelSchlick(VdotH, f0);
         // Boosted chromaticity toward magenta/purple before dimming.
-        vec3 specColor = sunRadiance * vec3(1.4, 0.85, 1.5);
+        vec3 specColor = sunRadiance * vec3(1.2, 0.75, 1.3);
         direct += specColor * D * Vis * F * NdotL * shadow;
     }
 
@@ -462,7 +462,7 @@ void main() {
     vec3 Fr = fresnelSchlickRough(NdotV, f0, roughness);
     // Exaggerate micro-normal influence on the reflection pass so purple
     // light catches snow-crust edges.
-    vec3 reflBoost = skyRefl * vec3(1.25, 0.9, 1.4);
+    vec3 reflBoost = skyRefl * vec3(1.1, 0.8, 1.2);
     ambient += reflBoost * Fr * ambientIntensity * mix(1.0, 2.6, iceAmount);
 
     vec3 color = direct + ambient;
