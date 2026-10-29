@@ -379,12 +379,23 @@ export class Sky {
   u.skyScale.value = cam.maxZ * SKYBOX_HALF_FAR;
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
-  // Sunlight syncs with the cone jets: when a jet reaches the
-  // bottom of the z-axis (relative to the pulsar-observer line) the
-  // planet receives 100% sunlight; at z=0 it receives none.
+  // Sunlight syncs with the cone jets: compute the cone mask at
+  // dir=sunDir (the planet's illumination direction) using the exact
+  // same formula as the shader, so peaks align perfectly.
+  const up = new THREE.Vector3(0, 1, 0.001);
+  const perp = new THREE.Vector3().crossVectors(this.sunDir, up).normalize();
+  const perp2 = new THREE.Vector3().crossVectors(this.sunDir, perp);
+  // At dir=sunDir, coneAngle = atan(0,0) = 0.
   const coneSpin = time * 2.199;
-  const coneZ = Math.cos(coneSpin);
-  const sunFactor = Math.max(0, -coneZ);
+  const cone1 = Math.cos(coneSpin);
+  const cone2 = Math.cos(coneSpin + Math.PI);
+  const smoothstep = (e0: number, e1: number, x: number) => {
+    const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  };
+  const mask1 = smoothstep(0.85, 1.0, cone1);
+  const mask2 = smoothstep(0.85, 1.0, cone2);
+  const sunFactor = Math.max(mask1, mask2);
   u.sunIntensity.value = this.sunScale * sunFactor;
   u.time.value = time;
 
