@@ -46,7 +46,7 @@ vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float p
     // Corkscrew: twist the plasma domain with longitude.
     float L = theta * 3.0;
     float A = scone * 4.0;
-    float Atw = A + 1.1 * L;
+    float Atw = A + 1.7 * L;
     // Broad turbulent structure.
     float nBroad = noise2(vec2(Atw * 0.55, L * 0.75 - time * 1.35)) * 0.5 + 0.5;
     // Finer filaments.
@@ -65,9 +65,9 @@ vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float p
     // Narrow axial spine.
     float spine = exp(-rho * rho * 60.0);
 
-    float sheathDens = sheathRadial * (0.35 + 0.65 * turb) * profile;
-    float filamentDens = sheathRadial * filMask * 0.55 * profile;
-    float haloDens = outerHalo * (0.6 + 0.4 * nBroad) * profile;
+    float sheathDens = sheathRadial * (0.45 + 0.75 * turb) * profile;
+    float filamentDens = sheathRadial * filMask * 0.85 * profile;
+    float haloDens = outerHalo * (0.75 + 0.35 * nBroad) * profile;
 
     vec3 colOuter = vec3(0.30, 0.36, 0.82); // blue-violet
     vec3 colInner = vec3(0.22, 0.62, 1.00); // blue-cyan
@@ -78,8 +78,8 @@ vec3 jetBeam(float cone, float scone, float mu, float theta, float time, float p
     jetColor = mix(jetColor, colSpine, spine);
     jetColor = mix(jetColor, colHalo, outerHalo * (1.0 - spine));
 
-    float dens = spine * 1.6 + sheathDens * 0.75 + filamentDens * 0.85 + haloDens * 0.35;
-    float intensity = coneMask * dens * conePulse * 2.0;
+    float dens = spine * 2.0 + sheathDens * 0.9 + filamentDens * 1.1 + haloDens * 0.5;
+    float intensity = coneMask * dens * conePulse * 2.4;
     return jetColor * intensity;
 }
 void main() {
