@@ -81,16 +81,16 @@ void main() {
     vec3 col = mix(vec3(0.05, 0.07, 0.12), vec3(0.015, 0.02, 0.04), up);
     col += vec3(0.0, 0.01, 0.03) * (1.0 - up);
 
-    // Sparse starfield.
-    vec3 sp = dir * 180.0;
-    vec3 cell = floor(sp);
-    vec3 f = fract(sp);
-    float h = hash33(cell).x;
+    // Sparse starfield: pure continuous 3D hash of dir — no floor/fract
+    // grid, so placement is seamless across the sphere (no phi-wrap seam).
+    float h = hash33(dir * 180.0 + vec3(17.0, 31.0, 53.0)).x;
     if (h > 0.988) {
-        vec3 o = hash33(cell + vec3(17.0, 31.0, 53.0));
-        float d = length(f - (o * 0.8 + 0.1));
-        float star = smoothstep(0.06, 0.0, d);
+        // Star point size shrinks with hash magnitude; brightness from hash.
         float bright = (h - 0.988) * 80.0;
+        // Smooth circular falloff around the direction itself (continuous).
+        vec3 o = hash33(dir * 180.0 + vec3(97.0, 131.0, 173.0));
+        float ang = acos(clamp(dot(dir, normalize(o * 2.0 - 1.0)), -1.0, 1.0));
+        float star = smoothstep(0.003, 0.0, ang);
         col += vec3(0.85, 0.9, 1.0) * star * bright;
     }
 
