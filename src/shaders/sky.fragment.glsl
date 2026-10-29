@@ -84,6 +84,15 @@ void main() {
     // Faint accretion disk around the pulsar: flattened ring of
     // interstellar matter, hot inner edge (UV/blue-white) fading to
     // cooler orange at the outer edge. Slight rotational shimmer.
+    // Gravitational lensing: bend view direction near the pulsar core
+    // to simulate light deflection by the neutron star's gravity.
+    float lensDist = 1.0 - mu;
+    float lensStrength = 0.008 * (1.0 - smoothstep(0.0, 0.15, lensDist));
+    vec3 lensDir = normalize(dir - sunDir * lensStrength * (1.0 - mu));
+    // Use lensDir for the disk sampling.
+    vec3 _dir = dir;
+    dir = lensDir;
+
     vec3 diskUp = abs(sunDir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
     vec3 diskX = normalize(cross(sunDir, diskUp));
     vec3 diskY = cross(sunDir, diskX);
@@ -103,7 +112,7 @@ void main() {
     vec3 diskCol = mix(diskHot, diskCool, tempT);
     // Rotational shimmer.
     float shimmer = 0.85 + 0.15 * sin(diskAz * 6.0 + time * 1.5);
-    float diskAlpha = diskMask * 0.35 * sunNorm * shimmer;
+    float diskAlpha = diskMask * 0.12 * sunNorm * shimmer;
     col += diskCol * diskAlpha;
 
     // Spinning cones (jets) around the pulsar, rotating along the
@@ -130,6 +139,8 @@ void main() {
     fringeFactor = clamp(fringeFactor, 0.0, 1.0);
     vec3 jetCol = mix(jetFringe, jetCore, fringeFactor);
     col += jetCol * jetIntensity;
+    dir = _dir;
+
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
