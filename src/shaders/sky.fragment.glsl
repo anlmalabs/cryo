@@ -81,6 +81,31 @@ void main() {
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.15, 0.35, 0.95) * ring;
 
+    // Faint accretion disk around the pulsar: flattened ring of
+    // interstellar matter, hot inner edge (UV/blue-white) fading to
+    // cooler orange at the outer edge. Slight rotational shimmer.
+    vec3 diskUp = abs(sunDir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 diskX = normalize(cross(sunDir, diskUp));
+    vec3 diskY = cross(sunDir, diskX);
+    float diskU = dot(dir, diskX);
+    float diskV = dot(dir, diskY);
+    float diskR = sqrt(diskU * diskU + diskV * diskV);
+    float diskAz = atan(diskV, diskU);
+    // Disk spans 0.08..0.35 rad from the pulsar core.
+    float diskMask = smoothstep(0.06, 0.09, diskR) * (1.0 - smoothstep(0.30, 0.38, diskR));
+    // Thin vertical extent: only near the equatorial plane.
+    float diskVert = 1.0 - smoothstep(0.0, 0.12, abs(dot(dir, sunDir)));
+    diskMask *= diskVert;
+    // Temperature gradient: hot inner (UV/blue-white) -> cool outer (orange).
+    float tempT = clamp((diskR - 0.08) / 0.27, 0.0, 1.0);
+    vec3 diskHot = vec3(0.7, 0.85, 1.0);
+    vec3 diskCool = vec3(1.0, 0.55, 0.25);
+    vec3 diskCol = mix(diskHot, diskCool, tempT);
+    // Rotational shimmer.
+    float shimmer = 0.85 + 0.15 * sin(diskAz * 6.0 + time * 1.5);
+    float diskAlpha = diskMask * 0.35 * sunNorm * shimmer;
+    col += diskCol * diskAlpha;
+
     // Spinning cones (jets) around the pulsar, rotating along the
     // planet's horizon axis (world up), so the beams sweep over the
     // planet's horizon like a lighthouse on the surface.
