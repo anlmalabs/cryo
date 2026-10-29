@@ -32,6 +32,15 @@ const SH_H = 32;
  */
 const SUN_SCALE_BASE = 5.5;
 
+/**
+ * EXPERIMENTAL: direct-solar-radiance boost applied only to the direct light
+ * delivered to surfaces and shafts (sunRadiance). Intentionally kept separate
+ * from S.sunIntensity (sky bake / atmospheric scattering) and from the pulsar
+ * core normalization (PULSAR_SUN_REF), so sunlight can be tuned independently.
+ * Set to 1.0 to disable. Does not affect ambient intensity or ground bounce.
+ */
+const EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER = 2.0;
+
 /** SH coefficients in the projection loop — nine for bands 0..2. */
 const SH_COEFFS = 9;
 
@@ -204,7 +213,11 @@ export class Sky {
 
   // Neutron-star key light: blackbody at millions of K is blinding blue-white.
   // sunScale carries the radiance; these RGB ratios are the NS spectrum.
-  this.sunRadiance.setRGB(0.25 * this.sunScale, 0.28 * this.sunScale, 0.32 * this.sunScale);
+  this.sunRadiance.setRGB(
+   0.25 * this.sunScale * EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER,
+   0.28 * this.sunScale * EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER,
+   0.32 * this.sunScale * EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER
+  );
   this.sunColor.setRGB(0.62, 0.72, 1.0);
  }
 
@@ -261,9 +274,11 @@ export class Sky {
   // plus the whole sky hemisphere, which the SH already integrates.
   const up = this._irradianceUp();
   const c = Math.max(0, this.sunDir.y);
-  const er = this.sunRadiance.r * c + up[0];
-  const eg = this.sunRadiance.g * c + up[1];
-  const eb = this.sunRadiance.b * c + up[2];
+  // Ground bounce uses the *unboosted* direct sun so ambient/contrast stay
+  // preserved (see EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER).
+  const er = (this.sunRadiance.r / EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER) * c + up[0];
+  const eg = (this.sunRadiance.g / EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER) * c + up[1];
+  const eb = (this.sunRadiance.b / EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER) * c + up[2];
 
   // Lambertian re-emission: L = albedo * E / PI.
   const k = 1 / LAMBERT_PI;
@@ -411,7 +426,11 @@ export class Sky {
   const r = 0.25 + 0.18 * lav;
   const g = 0.28 + 0.10 * lav;
   const b = 0.32 + 0.22 * lav;
-  this.sunRadiance.setRGB(r * this.sunScale * sunFactor, g * this.sunScale * sunFactor, b * this.sunScale * sunFactor);
+  this.sunRadiance.setRGB(
+   r * this.sunScale * sunFactor * EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER,
+   g * this.sunScale * sunFactor * EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER,
+   b * this.sunScale * sunFactor * EXPERIMENTAL_DIRECT_SUN_RADIANCE_MULTIPLIER
+  );
   u.sunRadiance.value = this.sunRadiance;
   u.shR.value = this.sh;
   u.ambientIntensity.value = S.ambientIntensity;
