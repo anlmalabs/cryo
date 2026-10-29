@@ -79,28 +79,20 @@ void main() {
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.15, 0.35, 0.95) * ring;
 
-    // Spinning cones (jets) around the pulsar, rotating in 3D.
-    // The rotation axis is tilted 45 degrees relative to the player's
-    // view so the beams sweep through 3D space, not just a flat plane.
+    // Spinning cones (jets) around the pulsar, rotating toward the player.
+    // The rotation plane is defined by sunDir and the camera position so
+    // the beams sweep through the player's view like a lighthouse.
     vec3 toCam = normalize(cameraPosition);
     vec3 rotAxis = normalize(cross(sunDir, toCam));
-    // Tilt the rotation axis 45 degrees around toCam (Rodrigues).
-    float tilt = 0.7854; // 45 degrees
-    vec3 k = toCam;
-    vec3 tiltedAxis = rotAxis * cos(tilt) + cross(k, rotAxis) * sin(tilt) + k * dot(k, rotAxis) * (1.0 - cos(tilt));
-    tiltedAxis = normalize(tiltedAxis);
-    
-    // The cone center is the projection of sunDir onto the plane perpendicular to tiltedAxis.
-    vec3 coneCenter = normalize(sunDir - tiltedAxis * dot(sunDir, tiltedAxis));
-    vec3 perp = normalize(cross(tiltedAxis, coneCenter));
-    vec3 perp2 = cross(coneCenter, perp);
+    vec3 perp = normalize(cross(rotAxis, sunDir));
+    vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
     // Spin speed tied to pulsar pulse so the wave hits the player each cycle.
     float coneSpin = time * 4.4;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
-    float coneMask1 = smoothstep(0.85, 1.0, cone1);
-    float coneMask2 = smoothstep(0.85, 1.0, cone2);
+    float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
+    float coneMask2 = smoothstep(0.85, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
     float conePulse = 0.5 + 0.5 * pulse;
     col += vec3(0.6, 0.7, 1.0) * (coneMask1 + coneMask2) * conePulse * 2.0;
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
