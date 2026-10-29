@@ -42,17 +42,22 @@ void main() {
     vec3 col = mix(vec3(0.02, 0.01, 0.06), vec3(0.005, 0.002, 0.02), up);
     col += vec3(0.0, 0.005, 0.015) * (1.0 - up);
 
-    // Sparse starfield: pure continuous 3D hash of dir — no floor/fract
-    // grid, so placement is seamless across the sphere (no phi-wrap seam).
+    // Sparse starfield: 3D hash (screen-stable, no crawling). Hyper-bright
+    // intensity with color temperature variation for lensing contrast.
     float h = hash33(dir * 180.0 + vec3(17.0, 31.0, 53.0)).x;
-    if (h > 0.988) {
-        // Star point size shrinks with hash magnitude; brightness from hash.
-        float bright = (h - 0.988) * 80.0;
-        // Smooth circular falloff around the direction itself (continuous).
+    if (h > 0.985) {
         vec3 o = hash33(dir * 180.0 + vec3(97.0, 131.0, 173.0));
-        float ang = acos(clamp(dot(dir, normalize(o * 2.0 - 1.0)), -1.0, 1.0));
-        float star = smoothstep(0.003, 0.0, ang);
-        col += vec3(0.85, 0.9, 1.0) * star * bright;
+        vec3 starDir = normalize(o * 2.0 - 1.0);
+        float ang = acos(clamp(dot(dir, starDir), -1.0, 1.0));
+        // Hyper-sharp falloff: single-pixel needle point.
+        float distToStar = ang;
+        float starIntensity = 0.0008 / (distToStar + 0.00005);
+        starIntensity = pow(starIntensity, 2.5) * 20.0;
+        // Color temperature by hash.
+        vec3 starColor = vec3(0.7, 0.85, 1.0); // icy white
+        if (h < 0.987) starColor = vec3(1.0, 0.4, 0.3);   // red giant
+        else if (h > 0.995) starColor = vec3(0.5, 0.7, 1.0); // hot blue
+        col += starColor * starIntensity;
     }
 
     vec3 L = sunDir;
@@ -84,15 +89,6 @@ void main() {
     // Faint accretion disk around the pulsar: flattened ring of
     // interstellar matter, hot inner edge (UV/blue-white) fading to
     // cooler orange at the outer edge. Slight rotational shimmer.
-    // Gravitational lensing: bend view direction near the pulsar core
-    // to simulate light deflection by the neutron star's gravity.
-    float lensDist = 1.0 - mu;
-    float lensStrength = 0.008 * (1.0 - smoothstep(0.0, 0.15, lensDist));
-    vec3 lensDir = normalize(dir - sunDir * lensStrength * (1.0 - mu));
-    // Use lensDir for the disk sampling.
-    vec3 _dir = dir;
-    dir = lensDir;
-
     vec3 diskUp = abs(sunDir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
     vec3 diskX = normalize(cross(sunDir, diskUp));
     vec3 diskY = cross(sunDir, diskX);
@@ -139,8 +135,6 @@ void main() {
     fringeFactor = clamp(fringeFactor, 0.0, 1.0);
     vec3 jetCol = mix(jetFringe, jetCore, fringeFactor);
     col += jetCol * jetIntensity;
-    dir = _dir;
-
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
