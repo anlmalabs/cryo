@@ -65,7 +65,7 @@ void main() {
     // 4.2 * 5.5 = 23.1 to get a unitless factor.
     const float PULSAR_SUN_REF = 23.1;
     float mu = dot(dir, sunDir);
-    float pulse = 0.5 + 0.5 * sin(time * 4.4);
+    float pulse = 0.5 + 0.5 * sin(time * 0.4398);
     float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.05, 4.0);
     float expand = 0.6 + 0.4 * pulse;
     // Intense white center (pinprick star).
@@ -88,7 +88,7 @@ void main() {
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
     // Spin speed tied to pulsar pulse so the wave hits the player each cycle.
-    float coneSpin = time * 2.199;
+    float coneSpin = time * 0.4398;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
     float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);

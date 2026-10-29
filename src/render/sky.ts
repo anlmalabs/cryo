@@ -386,7 +386,7 @@ export class Sky {
   const perp = new THREE.Vector3().crossVectors(this.sunDir, up).normalize();
   const perp2 = new THREE.Vector3().crossVectors(this.sunDir, perp);
   // At dir=sunDir, coneAngle = atan(0,0) = 0.
-  const coneSpin = time * 2.199;
+  const coneSpin = time * 0.4398;
   const cone1 = Math.cos(coneSpin);
   const cone2 = Math.cos(coneSpin + Math.PI);
   // Dark phase untouched (cos < 0.85 → 0). Bright ramp uses a
