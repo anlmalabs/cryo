@@ -137,8 +137,8 @@ void main() {
     vec3 filCol = mix(vec3(1.0, 0.416, 0.239), vec3(1.0, 0.541, 0.361), fil2);
     col += filCol * fil * 1.2;
 
-    // Faint all-sky haze.
-    col += vec3(0.04, 0.06, 0.10) * 0.35;
+    // Deep indigo-purple all-sky haze, matching the night sky.
+    col += vec3(0.012, 0.016, 0.045) * 0.35;
 
     // Far-field range.
     if (ridgeAmp > 1.0 && dir.y < 0.230 && dir.y > -0.050) {
