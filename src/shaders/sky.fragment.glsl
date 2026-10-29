@@ -79,22 +79,26 @@ void main() {
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.15, 0.35, 0.95) * ring;
 
-    // Spinning cones (jets) around the pulsar, rotating in sync with
-    // the pulse. Two opposing beams sweep around the star.
-    vec3 perp = normalize(cross(sunDir, vec3(0.0, 1.0, 0.001)));
+    // Spinning cones (jets) around the pulsar, rotating toward the player.
+    // The rotation plane is defined by sunDir and the camera position so
+    // the beams sweep through the player's view like a lighthouse.
+    vec3 toCam = normalize(cameraPosition);
+    vec3 rotAxis = normalize(cross(sunDir, toCam));
+    vec3 perp = normalize(cross(rotAxis, sunDir));
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
-    // Spin relative to player POV: offset the cone rotation by the
-    // camera's azimuth so the jets sweep in a way that reads from
-    // the viewer's perspective, not just world-space.
-    float camAzimuth = atan(cameraPosition.z, cameraPosition.x);
-    float coneSpin = time * 4.4 + camAzimuth;
+    // Spin speed tied to pulsar pulse so the wave hits the player each cycle.
+    float coneSpin = time * 4.4;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
-    float coneMask1 = smoothstep(0.92, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
-    float coneMask2 = smoothstep(0.92, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
+    float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
+    float coneMask2 = smoothstep(0.85, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
     float conePulse = 0.5 + 0.5 * pulse;
+    // Wave: bright flash when a cone aligns with the player's view.
+    float viewAngle = atan(dot(toCam, perp2), dot(toCam, perp));
+    float waveFlash = smoothstep(0.95, 1.0, cos(viewAngle - coneSpin)) * conePulse;
     col += vec3(0.6, 0.7, 1.0) * (coneMask1 + coneMask2) * conePulse * 2.0;
+    col += vec3(0.8, 0.85, 1.0) * waveFlash * 3.0;
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
