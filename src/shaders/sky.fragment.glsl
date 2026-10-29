@@ -94,11 +94,7 @@ void main() {
     float coneMask1 = smoothstep(0.85, 1.0, cone1) * smoothstep(0.0, 0.3, mu);
     float coneMask2 = smoothstep(0.85, 1.0, cone2) * smoothstep(0.0, 0.3, mu);
     float conePulse = 0.5 + 0.5 * pulse;
-    // Wave: bright flash when a cone aligns with the player's view.
-    float viewAngle = atan(dot(toCam, perp2), dot(toCam, perp));
-    float waveFlash = smoothstep(0.95, 1.0, cos(viewAngle - coneSpin)) * conePulse;
     col += vec3(0.6, 0.7, 1.0) * (coneMask1 + coneMask2) * conePulse * 2.0;
-    col += vec3(0.8, 0.85, 1.0) * waveFlash * 3.0;
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;
