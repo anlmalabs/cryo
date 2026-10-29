@@ -102,7 +102,7 @@ void main() {
     // 4.2 * 5.5 = 23.1 to get a unitless factor.
     const float PULSAR_SUN_REF = 23.1;
     float mu = dot(dir, sunDir);
-    float pulse = 0.5 + 0.5 * sin(time * 1.5);
+    float pulse = 0.5 + 0.5 * sin(time * 4.4);
     float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.05, 4.0);
     float expand = 0.6 + 0.4 * pulse;
     // Intense white center (pinprick star).
