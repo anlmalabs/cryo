@@ -25,7 +25,7 @@ const float H_MIE = 1200.0;
 
 // Sea-level scattering coefficients, per metre.
 const vec3 BETA_R = vec3(5.8e-6, 13.5e-6, 33.1e-6);
-const vec3 BETA_M = vec3(21e-6, 21e-6, 21e-6);
+const vec3 BETA_M = vec3(4e-6, 4e-6, 4e-6);
 const float MIE_G = 0.76;
 
 /// Strength of the isotropic multiple-scattering approximation, relative to
@@ -207,7 +207,7 @@ vec3 nishitaSky(vec3 rayDir, vec3 sunDir, float sunIntensity, vec3 groundBounce)
     // lobe are all added *after* this LUT.
     float grazing = 1.0 - smoothstep(0.0, 0.26, abs(rayDir.y));
     float pale = dot(col, vec3(0.30, 0.42, 0.28));
-    col = mix(col, vec3(pale) * vec3(0.97, 1.0, 1.06), grazing * 0.82);
+    col = mix(col, vec3(pale) * vec3(0.85, 0.90, 1.10), grazing * 0.35);
 
     return col;
 }
