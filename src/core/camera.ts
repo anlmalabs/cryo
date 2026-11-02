@@ -45,7 +45,7 @@ import {
  * reload. No settings write, no overlay row, nothing to get out of sync.
  */
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-const reducedMotionMQ = window.matchMedia?.(REDUCED_MOTION_QUERY) ?? null;
+const reducedMotionMQ = typeof window !== "undefined" ? window.matchMedia?.(REDUCED_MOTION_QUERY) ?? null : null;
 
 /**
  * The motion preference, live. True while the user has asked for less.

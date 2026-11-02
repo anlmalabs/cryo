@@ -32,6 +32,7 @@ import { CASCADE_COUNT } from "../render/shadows.js";
 
 import type { Gfx } from "../core/gfx.js";
 import type { Sky } from "../render/sky.js";
+import { pulsarClock } from "../render/pulsarClock.js";
 import type { ShadowSystem } from "../render/shadows.js";
 import type { SpellLights } from "./spellLights.js";
 import type { CameraRig } from "../core/camera.js";
@@ -429,7 +430,7 @@ export class WaterBody {
   u.ambientIntensity.value = S.ambientIntensity;
   u.sssStrength.value = S.sssStrength;
   // Pulsar shimmer: water glints pulse in step with the star.
-  const glintPulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(this._t * 3.0));
+  const glintPulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(pulsarClock.phase * 3.0));
   u.glintIntensity.value = (S.glintIntensity as number) * glintPulse;
   u.glintGrazing.value = S.glintGrazing;
   u.waterDepthTint.value = S.waterDepthTint;

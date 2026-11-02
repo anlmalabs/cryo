@@ -32,6 +32,7 @@ import { S } from "../core/settings.js";
 import { makeMaterial, FullscreenPass, bakeOnce, whenReady } from "../core/gpuUtil.js";
 import { getShader } from "../shaders/registry.js";
 import type { Sky } from "../render/sky.js";
+import { pulsarClock } from "../render/pulsarClock.js";
 import type { ShadowSystem } from "../render/shadows.js";
 
 const DETAIL_RES = 1024;
@@ -154,9 +155,7 @@ export class Terrain {
  _u!: TerrainUniforms;
  /** The deform texture currently bound, to catch the ping-pong swap. */
  _boundDeform!: THREE.Texture;
- /** Pulsar shimmer clock. */
- _clock: number = 0;
-
+ 
  /**
   * @param gfx the shared renderer handle
   * @param sky owning the sky LUT, sun and SH
@@ -276,6 +275,9 @@ export class Terrain {
    sunDir: { value: sky.sunDir || new THREE.Vector3(0, 1, 0) },
    sunRadiance: { value: sky.sunRadiance || new THREE.Color(1, 1, 1) },
    shR: { value: sky.sh || new Float32Array(36) },
+   uPulsarIntensity: pulsarClock.uniforms.uPulsarIntensity,
+   uPulsarPhase: pulsarClock.uniforms.uPulsarPhase,
+   uPulsarBeamDir: pulsarClock.uniforms.uPulsarBeamDir,
    ambientIntensity: { value: S.ambientIntensity },
 
    // ---- shadows ----------------------------------------------------
@@ -334,6 +336,9 @@ export class Terrain {
     sunDir: u.sunDir,
     sunRadiance: u.sunRadiance,
     shR: u.shR,
+    uPulsarIntensity: u.uPulsarIntensity,
+    uPulsarPhase: u.uPulsarPhase,
+    uPulsarBeamDir: u.uPulsarBeamDir,
     cascadeMatrices: u.cascadeMatrices,
     cascadeSplits: u.cascadeSplits,
     cascadeParams: u.cascadeParams,
@@ -521,7 +526,6 @@ export class Terrain {
   * @param {number} dt seconds
   */
  update(cameraPos: THREE.Vector3, focus: { x: number; z: number }, dt: number) {
-  this._clock += dt;
   const u = this._u;
   const windAngle = (/** @type {number} */ (S.windDirection) * Math.PI) / 180;
 
@@ -570,7 +574,7 @@ export class Terrain {
   u.detailStrength.value = S.detailNormalStrength;
   // Pulsar shimmer: glints pulse at the star's 3 rad/s cadence so the
   // field shimmers in step with the pulsar without strobing the whole scene.
-  const glintPulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(this._clock * 3.0));
+  const glintPulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(pulsarClock.phase * 3.0));
   u.glintIntensity.value = (S.glintIntensity as number) * glintPulse;
   u.glintGrazing.value = S.glintGrazing;
   u.sssStrength.value = S.sssStrength;

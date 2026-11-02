@@ -9,15 +9,18 @@
  * the gesture that lets audio start), `done()` (fade out), or `fail()`.
  */
 
-const bar = /** @type {HTMLElement} */ (document.getElementById("boot-bar"));
-const label = /** @type {HTMLElement} */ (document.getElementById("boot-phase"));
-const root = /** @type {HTMLElement} */ (document.getElementById("boot"));
-const hint = /** @type {HTMLElement} */ (document.getElementById("hint"));
+const bar = (typeof document !== "undefined" ? document.getElementById("boot-bar") : null) as HTMLElement | null;
+const label = (typeof document !== "undefined" ? document.getElementById("boot-phase") : null) as HTMLElement | null;
+const root = (typeof document !== "undefined" ? document.getElementById("boot") : null) as HTMLElement | null;
+const hint = (typeof document !== "undefined" ? document.getElementById("hint") : null) as HTMLElement | null;
 
 let progress = 0;
 
 /** Yield to the compositor so the loading screen repaints. */
 export function nextFrame() {
+ if (typeof requestAnimationFrame === "undefined") {
+  return new Promise((r) => setTimeout(r, 0));
+ }
  return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 }
 
@@ -52,6 +55,7 @@ export async function phase(text: string, to: number) {
  * @returns {Promise<boolean>} true once entered; false if there is no gate to show
  */
 export function gate(onEnter?: () => void): Promise<boolean> {
+ if (typeof document === "undefined") return Promise.resolve(false);
  const wrap = document.getElementById("boot-gate");
  const btn = document.getElementById("gate-enter");
 
@@ -103,6 +107,7 @@ export async function done() {
 }
 
 export function fail(message: string) {
+ if (typeof document === "undefined") return;
  root?.remove();
  const el = document.getElementById("nogpu");
  if (el) {

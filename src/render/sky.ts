@@ -16,6 +16,7 @@ import * as THREE from "three";
 import type { Gfx } from "../core/gfx.js";
 import type { CameraRig } from "../core/camera.js";
 import { S } from "../core/settings.js";
+import { pulsarClock } from "./pulsarClock.js";
 import { getShader } from "../shaders/registry.js";
 import { makeMaterial, FullscreenPass, whenReady } from "../core/gpuUtil.js";
 
@@ -178,6 +179,9 @@ export class Sky {
     cloudAmount: { value: CLOUD_AMOUNT },
     sunRadiance: { value: this.sunRadiance },
     shR: { value: this.sh },
+    uPulsarIntensity: pulsarClock.uniforms.uPulsarIntensity,
+    uPulsarPhase: pulsarClock.uniforms.uPulsarPhase,
+    uPulsarBeamDir: pulsarClock.uniforms.uPulsarBeamDir,
     ambientIntensity: { value: 1 },
     auroraStrength: { value: 1 },
     skyLUT: { value: this.lut },
@@ -394,26 +398,8 @@ export class Sky {
   u.skyScale.value = cam.maxZ * SKYBOX_HALF_FAR;
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
-  // Sunlight syncs with the cone jets: compute the cone mask at
-  // dir=sunDir (the planet's illumination direction) using the exact
-  // same formula as the shader, so peaks align perfectly.
-  const up = new THREE.Vector3(0, 1, 0.001);
-  const perp = new THREE.Vector3().crossVectors(this.sunDir, up).normalize();
-  const perp2 = new THREE.Vector3().crossVectors(this.sunDir, perp);
-  // At dir=sunDir, coneAngle = atan(0,0) = 0.
-  const coneSpin = time * 0.4398;
-  const cone1 = Math.cos(coneSpin);
-  const cone2 = Math.cos(coneSpin + Math.PI);
-  // Dark phase untouched (cos < 0.85 → 0). Bright ramp uses a
-  // quartic ease-in so intensity rises slowly at first, then
-  // accelerates — the light "creeps" in rather than snapping.
-  const quarticMask = (x: number) => {
-    const t = Math.max(0, Math.min(1, (x - 0.85) / 0.15));
-    return t * t * t * t;
-  };
-  const mask1 = quarticMask(cone1);
-  const mask2 = quarticMask(cone2);
-  const sunFactor = Math.max(mask1, mask2);
+  // Sunlight syncs with the pulsar cones via the centralized PulsarClock (SSOT).
+  const sunFactor = pulsarClock.pulsarIntensity;
   u.sunIntensity.value = this.sunScale * sunFactor;
   u.time.value = time;
 

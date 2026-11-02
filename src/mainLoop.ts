@@ -8,6 +8,7 @@ import type { FlightState } from "./mainContracts.js";
 import type { Gfx } from "./core/gfx.js";
 import type { CameraRig } from "./core/camera.js";
 import type { Sky } from "./render/sky.js";
+import { pulsarClock } from "./render/pulsarClock.js";
 import type { ShadowSystem } from "./render/shadows.js";
 import type { Terrain } from "./terrain/terrain.js";
 import type { CharacterController } from "./character/controller.js";
@@ -264,6 +265,7 @@ export function startFrameLoop(ctx: FrameContext): void {
   // The craft's streak when there is a craft: see `Speeder.streak01` for
   // why the character's is the wrong signal in the air.
   post.update(dt, (speeder && state.flying) ? speeder.streak01 : character.streak01, rig.distance);
+  pulsarClock.update(time, sky.sunDir);
   sky.update();
   sky.render(rig, time);
   shadows.update(rig.camera, sky.sunDir);

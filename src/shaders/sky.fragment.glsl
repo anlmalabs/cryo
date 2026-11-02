@@ -10,6 +10,9 @@ uniform vec3 sunDir;
 uniform vec3 sunColor;
 uniform float sunIntensity;
 uniform float time;
+uniform float uPulsarPhase;
+uniform float uPulsarIntensity;
+uniform vec3 uPulsarBeamDir;
 uniform vec2 windDir;
 uniform float cloudAmount;
 uniform vec3 cameraPosition;
@@ -115,7 +118,7 @@ void main() {
     // 4.2 * 5.5 = 23.1 to get a unitless factor.
     const float PULSAR_SUN_REF = 23.1;
     float mu = dot(dir, sunDir);
-    float pulse = 0.5 + 0.5 * sin(time * 0.4398);
+    float pulse = 0.5 + 0.5 * sin(uPulsarPhase);
     // Keep a 10% baseline glow even when the beam is away (sunIntensity=0).
     float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.1, 4.0);
     float expand = 0.6 + 0.4 * pulse;
@@ -166,7 +169,7 @@ void main() {
     vec3 perp2 = cross(sunDir, perp);
     float coneAngle = atan(dot(dir, perp2), dot(dir, perp));
     // Retain existing spin rate baseline.
-    float coneSpin = time * 0.4398;
+    float coneSpin = uPulsarPhase;
     float cone1 = cos(coneAngle - coneSpin);
     float cone2 = cos(coneAngle - coneSpin + PI);
     float sin1 = sin(coneAngle - coneSpin);
