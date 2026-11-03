@@ -11,6 +11,7 @@ import type { Sky } from "./render/sky.js";
 import { pulsarClock } from "./render/pulsarClock.js";
 import type { ShadowSystem } from "./render/shadows.js";
 import type { Terrain } from "./terrain/terrain.js";
+import type { Excavation } from "./mining/excavation.js";
 import type { CharacterController } from "./character/controller.js";
 import type { Character } from "./character/character.js";
 import type { SnowContact } from "./character/snowContact.js";
@@ -39,6 +40,7 @@ export type FrameContext = {
  sky: Sky;
  shadows: ShadowSystem;
  terrain: Terrain;
+ excavation: Excavation;
  character: CharacterController;
  figure: Character;
  contact: SnowContact;
@@ -65,8 +67,9 @@ export type FrameContext = {
 };
 
 export function startFrameLoop(ctx: FrameContext): void {
- const { gfx, rig, sky, shadows, terrain, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, state } = ctx;
+ const { gfx, rig, sky, shadows, terrain, excavation, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, state } = ctx;
  let prev = ctx.prev, time = ctx.time;
+ let mineCooldown = 0;
  // Loop-local clocks. These belong to the frame, not to the flight mode: they
  // count down inside the loop and nobody else reads them.
  /** Seconds into the player's crash, driving the camera's circle of the wreck. */
@@ -275,6 +278,16 @@ export function startFrameLoop(ctx: FrameContext): void {
   spells.update(dt, rig.camera.position);
   const tSpells = performance.now();
   terrain.update(rig.camera.position, character.position, dt);
+  excavation.update(rig.camera.position);
+  if (isDown("KeyX")) {
+   mineCooldown -= dt;
+   if (mineCooldown <= 0) {
+    excavation.excavate(character.position.x, character.position.z, Number(S.miningRadius), Number(S.miningDepth));
+    mineCooldown = 0.25;
+   }
+  } else {
+   mineCooldown = 0;
+  }
   const tTerrain = performance.now();
   // After the shadow refit, so the figure's uniforms carry this frame's
   // cascade matrices rather than last frame's.
@@ -331,6 +344,7 @@ export function startFrameLoop(ctx: FrameContext): void {
    (terrain.mesh && terrain.mesh.metadata ? terrain.mesh.metadata.triangles : 0) +
    (S.showCharacter && !state.flying ? figure.triangles : 0) +
    (speeder ? speeder.triangles : 0) +
+   (excavation ? excavation.triangles : 0) +
 
    (wake.mesh && wake.mesh.visible ? wake.mesh.metadata.triangles : 0) +
    spells.triangles +

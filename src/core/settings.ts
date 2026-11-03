@@ -447,7 +447,8 @@ export const S = {
  /** Multiplier on the yaw kick a glancing contact imparts. */
  impactSpin: 1.0,
 
- // --------------------------------------------------------------- systems
+ miningRadius: 2,
+ miningDepth: 3,
  showTerrain: true,
  showCharacter: true,
  showWake: true,
@@ -507,6 +508,8 @@ export const SCHEMA = [
   items: [
    { k: "deformDepth", l: "Depth", t: "f", min: 0, max: 3, step: 0.01 },
    { k: "deformBerm", l: "Berm mass", t: "f", min: 0, max: 3, step: 0.01 },
+   { k: "miningRadius", l: "Mining radius", t: "f", min: 0.5, max: 10, step: 0.5 },
+   { k: "miningDepth", l: "Mining depth", t: "f", min: 0.5, max: 10, step: 0.5 },
    { k: "refillRate", l: "Refill rate", t: "f", min: 0, max: 4, step: 0.01 },
   ],
  },

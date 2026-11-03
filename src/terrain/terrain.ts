@@ -131,7 +131,8 @@ export class Terrain {
  heightfield: Heightfield;
  /** The terrain state buffer. Feet, the surf wake and every spell write here. */
  deform: DeformationField;
- /** Generated snow grain, tiled at three world scales by the material. */
+ /** Optional excavation system; when wired, heightAt takes min with cavity floor. */
+ excavation: { floorAt(x: number, z: number): number | null } | null = null;
  _detailRT: THREE.WebGLRenderTarget;
  /** The grain texture, bound as `detailTex`. */
  detailTex: THREE.Texture;
@@ -155,7 +156,7 @@ export class Terrain {
  _u!: TerrainUniforms;
  /** The deform texture currently bound, to catch the ping-pong swap. */
  _boundDeform!: THREE.Texture;
- 
+
  /**
   * @param gfx the shared renderer handle
   * @param sky owning the sky LUT, sun and SH
@@ -596,7 +597,13 @@ export class Terrain {
 
  /** @param {number} x @param {number} z */
  heightAt(x: number, z: number) {
-  return this.heightfield.heightAt(x, z);
+  const base = this.heightfield.heightAt(x, z);
+  const ex = this.excavation;
+  if (ex) {
+   const f = ex.floorAt(x, z);
+   if (f !== null && f < base) return f;
+  }
+  return base;
  }
 
  /** @param {number} x @param {number} z @param {THREE.Vector3} out */

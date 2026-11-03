@@ -13,6 +13,7 @@ import { registerShaders } from "./shaders/registry.js";
 import { S, onChange, applyPreset, type SettingValue } from "./core/settings.js";
 import { installDrawCounter, stats } from "./core/perf.js";
 import { input } from "./core/input.js";
+import { Excavation } from "./mining/excavation.js";
 import { createGfx } from "./core/gfx.js";
 import { whenReady } from "./core/gpuUtil.js";
 import * as loading from "./core/loading.js";
@@ -173,6 +174,9 @@ export async function boot() {
  shadows.update(rig.camera, sky.sunDir);
  sky.render(rig, 0);
  await terrain.warmUp();
+ const excavation = new Excavation(gfx, terrain);
+ await excavation.init();
+ terrain.excavation = excavation;
  terrain.update(rig.camera.position, character.position, 0);
  figure.update(0);
  figure.sync(rig.camera.position);
@@ -234,7 +238,7 @@ export async function boot() {
  bootAssets.figure.setVisible(false);
 
  startFrameLoop({
-  gfx, rig, sky, shadows, terrain, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame,
+  gfx, rig, sky, shadows, terrain, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, excavation,
   state, prev, time,
  });
 
@@ -289,7 +293,7 @@ export async function boot() {
  const snowflowGlobal = window;
  snowflowGlobal.SNOWFLOW = {
   gfx, scene: gfx.scene, rig, character, figure, speeder, collision, contact, spray, wake, spells,
-  overlay, touchControls, terrain, sky, shadows, post, depthPass,
+  overlay, touchControls, terrain, excavation, sky, shadows, post, depthPass,
   audio,
   S, input, perfStats: stats,
   /** Fake a cannon burst at (x, z) — for testing the squad's reactions. */
