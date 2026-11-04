@@ -456,6 +456,11 @@ export const S = {
  wireframe: false,
  freezeTime: false,
 
+ shieldMaxHP: 2000,
+ shieldDrainPerFlash: 40,
+ radFlashesToDeath: 20,
+ radiationEnabled: true,
+
  // ----------------------------------------------------------------- debug
  debugView: "beauty", // beauty | deform | normals | depth | cascades | footprint | fineNormals
 };
@@ -657,6 +662,10 @@ export const SCHEMA = [
    { k: "showCharacter", l: "Character", t: "b" },
    { k: "wireframe", l: "Wireframe", t: "b" },
    { k: "freezeTime", l: "Freeze time", t: "b" },
+   { k: "radiationEnabled", l: "Radiation", t: "b" },
+   { k: "shieldMaxHP", l: "Shield max HP", t: "f", min: 200, max: 10000, step: 1 },
+   { k: "shieldDrainPerFlash", l: "Shield drain/flash", t: "f", min: 5, max: 500, step: 1 },
+   { k: "radFlashesToDeath", l: "Rad flashes to death", t: "f", min: 4, max: 100, step: 1 },
    { k: "resolutionScale", l: "Resolution", t: "f", min: 0.5, max: 1.5, step: 0.05 },
    {
     k: "debugView", l: "Debug view", t: "e",

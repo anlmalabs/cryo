@@ -14,6 +14,9 @@ import { S, onChange, applyPreset, type SettingValue } from "./core/settings.js"
 import { installDrawCounter, stats } from "./core/perf.js";
 import { input } from "./core/input.js";
 import { Excavation } from "./mining/excavation.js";
+import { RadiationSystem } from "./survival/radiation.js";
+import { ShieldBubble } from "./survival/shieldBubble.js";
+import { createStatusBars } from "./ui/statusBars.js";
 import { createGfx } from "./core/gfx.js";
 import { whenReady } from "./core/gpuUtil.js";
 import * as loading from "./core/loading.js";
@@ -23,6 +26,7 @@ import { loadModelAsset } from "./player/modelAsset.js";
 import { buildBootAssets } from "./mainBootAssets.js";
 import { buildUi } from "./mainUi.js";
 import { buildFlightMode } from "./mainFlightMode.js";
+import { pulsarClock } from "./render/pulsarClock.js";
 
 import { createFlightState, squadImpact, CLEAR_COLOR } from "./mainContracts.js";
 
@@ -174,7 +178,8 @@ export async function boot() {
  shadows.update(rig.camera, sky.sunDir);
  sky.render(rig, 0);
  await terrain.warmUp();
- const excavation = new Excavation(gfx, terrain);
+ const excavation = new Excavation(gfx, terrain, depthPass, shadows, sky);
+ await loading.phase("loading excavations", 0.82);
  await excavation.init();
  terrain.excavation = excavation;
  terrain.update(rig.camera.position, character.position, 0);
@@ -208,7 +213,27 @@ export async function boot() {
  // The one-draw effect systems compile here too — an eye band or a smoke
  // puff whose shader compiles on its first visible frame is a hitch in the
  // opening seconds, which reads as the speeder stuttering.
+ const radiation = new RadiationSystem({
+  onShieldHit: () => shieldBubble.hitFrom(pulsarClock.beamDir),
+  onShieldBroken: () => { },
+  onRadFlash: () => { },
+  onDeath: () => {
+   const ctrl = (state.flying && shipController) ? shipController : character;
+   ctrl.beginCrash();
+  },
+ });
+ const shieldBubble = new ShieldBubble(gfx);
+ const statusBars = createStatusBars();
+ document.body.appendChild(statusBars.el);
+ radiation.setShield(S.shieldMaxHP, S.shieldDrainPerFlash);
+ radiation.setRadBudget(S.radFlashesToDeath);
+ onChange("shieldMaxHP", () => radiation.setShield(S.shieldMaxHP, S.shieldDrainPerFlash));
+ onChange("shieldDrainPerFlash", () => radiation.setShield(S.shieldMaxHP, S.shieldDrainPerFlash));
+ onChange("radFlashesToDeath", () => radiation.setRadBudget(S.radFlashesToDeath));
+
  await whenReady(gfx, smoke.material, "smoke material");
+ // Shield bubble pipeline compiles here too — first-frame hitch otherwise.
+ await whenReady(gfx, shieldBubble.material, "shield material");
 
  await loading.phase("warming render targets", 0.92);
  // A few real frames so every render target is allocated and every pipeline
@@ -230,6 +255,7 @@ export async function boot() {
  // delta is measured from this instant, so the wait for the player to pick a
  // mode counts as the first frame's elapsed time (clamped to 100 ms). Moving
  // the seed into the loop would silently change that first frame's step.
+
  let prev = performance.now();
  let time = 0;
 
@@ -239,7 +265,7 @@ export async function boot() {
 
  startFrameLoop({
   gfx, rig, sky, shadows, terrain, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, excavation,
-  state, prev, time,
+  state, prev, time, radiation, shieldBubble, statusBars,
  });
 
  // ------------------------------------------------------- audio + the gate
@@ -293,6 +319,7 @@ export async function boot() {
  const snowflowGlobal = window;
  snowflowGlobal.SNOWFLOW = {
   gfx, scene: gfx.scene, rig, character, figure, speeder, collision, contact, spray, wake, spells,
+  radiation, shieldBubble,
   overlay, touchControls, terrain, excavation, sky, shadows, post, depthPass,
   audio,
   S, input, perfStats: stats,

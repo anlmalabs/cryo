@@ -1,4 +1,5 @@
 import { S } from "./core/settings.js";
+import * as THREE from "three";
 import { isDown, input, pollInput, endFrame } from "./core/input.js";
 import { expDamp } from "./core/camera.js";
 import { emitBurnTrail } from "./physics/collisionPass.js";
@@ -24,6 +25,9 @@ import type { MuzzleMarkers } from "./vfx/muzzleMarkers.js";
 import type { Speeder } from "./player/speeder.js";
 import type { PostChain } from "./post/postChain.js";
 import type { Overlay } from "./ui/overlay.js";
+import type { RadiationSystem } from "./survival/radiation.js";
+import type { ShieldBubble } from "./survival/shieldBubble.js";
+import { createStatusBars } from "./ui/statusBars.js";
 import type { FpsMeter } from "./ui/fpsMeter.js";
 import type { PerfHud } from "./ui/perfHud.js";
 
@@ -56,6 +60,9 @@ export type FrameContext = {
  fpsMeter: FpsMeter;
  perfHud: PerfHud;
  post: PostChain;
+ radiation: RadiationSystem;
+ shieldBubble: ShieldBubble;
+ statusBars: ReturnType<typeof createStatusBars>;
  toggleMode: () => void;
  renderFrame: () => void;
  /** The one shared flight state, read live every frame. */
@@ -66,8 +73,12 @@ export type FrameContext = {
  time: number;
 };
 
+const _radInputs = { flying: false, piercing: false };
+const _bubbleCenter = new THREE.Vector3();
+const _bubbleState = { active: false, center: _bubbleCenter, shield01: 1, hitPulse: 0 };
+const _barState = { flying: false, rad01: 0, shield01: 1, shieldBroken: false, flashAt: -1 };
 export function startFrameLoop(ctx: FrameContext): void {
- const { gfx, rig, sky, shadows, terrain, excavation, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, toggleMode, renderFrame, state } = ctx;
+ const { gfx, rig, sky, shadows, terrain, excavation, character, figure, contact, speeder, shipController, collision, spells, smoke, wake, spray, muzzleMarkers, overlay, fpsMeter, perfHud, post, radiation, shieldBubble, statusBars, toggleMode, renderFrame, state } = ctx;
  let prev = ctx.prev, time = ctx.time;
  let mineCooldown = 0;
  // Loop-local clocks. These belong to the frame, not to the flight mode: they
@@ -269,6 +280,24 @@ export function startFrameLoop(ctx: FrameContext): void {
   // why the character's is the wrong signal in the air.
   post.update(dt, (speeder && state.flying) ? speeder.streak01 : character.streak01, rig.distance);
   pulsarClock.update(time, sky.sunDir);
+  // pulsar flash -> radiation -> bubble -> bars
+  if (S.radiationEnabled) {
+    _radInputs.flying = state.flying;
+    _radInputs.piercing = pulsarClock.isPiercing;
+    const before = radiation.flashes;
+    radiation.update(dt, _radInputs);
+    if (radiation.flashes !== before) _barState.flashAt = time;
+  }
+  _bubbleState.active = state.flying && !!speeder;
+  if (speeder) _bubbleState.center.copy(speeder.position); else _bubbleState.center.set(0,0,0);
+  _bubbleState.shield01 = radiation.shield01;
+  _bubbleState.hitPulse = 0;
+  shieldBubble.update(dt, _bubbleState);
+  _barState.flying = state.flying;
+  _barState.rad01 = radiation.rad01;
+  _barState.shield01 = radiation.shield01;
+  _barState.shieldBroken = radiation.shieldBroken;
+  statusBars.sync(_barState);
   sky.update();
   sky.render(rig, time);
   shadows.update(rig.camera, sky.sunDir);

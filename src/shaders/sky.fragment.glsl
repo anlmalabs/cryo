@@ -10,8 +10,14 @@ uniform vec3 sunDir;
 uniform vec3 sunColor;
 uniform float sunIntensity;
 uniform float time;
+// Pulsar pulsing flow contract (PulsarClock is the single source of truth):
+// uPulsarPhase drives coneSpin (beam rotation); uFlash1/uFlash2 are the
+// per-beam gamma envelopes from PulsarClock; flashTotal = max(f1,f2) drives
+// core/ring/jet glow; uPulsarBeamDir is current beam direction.
+// Palette + geometry frozen.
 uniform float uPulsarPhase;
-uniform float uPulsarIntensity;
+uniform float uFlash1;
+uniform float uFlash2;
 uniform vec3 uPulsarBeamDir;
 uniform vec2 windDir;
 uniform float cloudAmount;
@@ -118,10 +124,10 @@ void main() {
     // 4.2 * 5.5 = 23.1 to get a unitless factor.
     const float PULSAR_SUN_REF = 23.1;
     float mu = dot(dir, sunDir);
-    float pulse = 0.5 + 0.5 * sin(uPulsarPhase);
+    float flashTotal = max(uFlash1, uFlash2);
     // Keep a 10% baseline glow even when the beam is away (sunIntensity=0).
     float sunNorm = clamp(sunIntensity / PULSAR_SUN_REF, 0.1, 4.0);
-    float expand = 0.6 + 0.4 * pulse;
+    float expand = 0.6 + 0.4 * flashTotal;
     // Intense white center (pinprick star).
     float exponent = 10000.0 / sqrt(sunNorm);
     float brightness = 20.0 * expand * sunNorm;
@@ -129,7 +135,7 @@ void main() {
     // Synchrotron radiation: bluish-white/UV at core.
     col += vec3(0.7, 0.85, 1.0) * core;
     // Blue nitrogen bloom ring (N2+ emission ~427.8 nm).
-    float ringExp = (400.0 / sqrt(sunNorm)) / mix(1.0, 1.6, pulse);
+    float ringExp = (400.0 / sqrt(sunNorm)) / mix(1.0, 1.6, flashTotal);
     float ringBright = 6.0 * expand * sunNorm;
     float ring = pow(max(mu, 0.0), ringExp) * ringBright;
     col += vec3(0.15, 0.35, 0.95) * ring;
@@ -174,10 +180,11 @@ void main() {
     float cone2 = cos(coneAngle - coneSpin + PI);
     float sin1 = sin(coneAngle - coneSpin);
     float sin2 = sin(coneAngle - coneSpin + PI);
-    float conePulse = 0.5 + 0.5 * pulse;
+    float conePulse1 = 0.5 + 0.5 * uFlash1;
+    float conePulse2 = 0.5 + 0.5 * uFlash2;
     float theta = acos(clamp(mu, -1.0, 1.0));
-    col += jetBeam(cone1, sin1, mu, theta, time, pulse, conePulse);
-    col += jetBeam(cone2, sin2, mu, theta, time, pulse, conePulse);
+    col += jetBeam(cone1, sin1, mu, theta, time, flashTotal, conePulse1);
+    col += jetBeam(cone2, sin2, mu, theta, time, flashTotal, conePulse2);
     // Nebula filaments (bounded 4-octave fbmd). Sampled in 3D from dir so
     // the phi wrap seam is invisible (same fix as the aurora layer).
     vec3 qn = dir * 1.6;

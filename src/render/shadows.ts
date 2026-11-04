@@ -294,7 +294,16 @@ export class ShadowSystem {
    const mat = makeMaterial(i);
    if (!mat) continue;
    this._casters[i].push({ mesh, material: mat });
-   this.materials.push(mat);
+   if (!this.materials.includes(mat)) this.materials.push(mat);
+  }
+ }
+
+ unregisterCaster(mesh: THREE.Mesh) {
+  for (let c = 0; c < CASCADE_COUNT; c++) {
+   const list = this._casters[c];
+   for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].mesh === mesh) list.splice(i, 1);
+   }
   }
  }
 

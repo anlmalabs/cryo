@@ -109,7 +109,13 @@ export class DepthPass {
  registerCaster(mesh: THREE.Mesh, material: THREE.Material) {
   if (!mesh || !material) return;
   this.casters.push({ mesh, material });
-  this.materials.push(material);
+  if (!this.materials.includes(material)) this.materials.push(material);
+ }
+
+ removeCaster(mesh: THREE.Mesh) {
+  for (let i = this.casters.length - 1; i >= 0; i--) {
+   if (this.casters[i].mesh === mesh) this.casters.splice(i, 1);
+  }
  }
 
  /**

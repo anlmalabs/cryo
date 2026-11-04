@@ -96,17 +96,23 @@ export class VoxelGrid {
  }
 
  private fillChunk(c: Uint8Array, cx: number, cy: number, cz: number) {
-  for (let ly = 0; ly < CHUNK; ly++) {
-   for (let lz = 0; lz < CHUNK; lz++) {
-    for (let lx = 0; lx < CHUNK; lx++) {
-     const wx = (cx * CHUNK + lx) * VOXEL;
+  for (let lz = 0; lz < CHUNK; lz++) {
+   for (let lx = 0; lx < CHUNK; lx++) {
+    const wx = (cx * CHUNK + lx) * VOXEL;
+    const wz = (cz * CHUNK + lz) * VOXEL;
+    let surf = 0;
+    let surfVoxel = 0;
+    let baseVoxel = 0;
+    let hasHeight = !!this.heightQuery;
+    if (hasHeight) {
+     surf = this.heightQuery!.heightAt(wx, wz);
+     surfVoxel = Math.floor(surf / VOXEL);
+     baseVoxel = surfVoxel - BASE_DEPTH;
+    }
+    for (let ly = 0; ly < CHUNK; ly++) {
      const wy = (cy * CHUNK + ly) * VOXEL;
-     const wz = (cz * CHUNK + lz) * VOXEL;
      let mat = MAT_EMPTY;
-     if (this.heightQuery) {
-      const surf = this.heightQuery.heightAt(wx, wz);
-      const surfVoxel = Math.floor(surf / VOXEL);
-      const baseVoxel = surfVoxel - BASE_DEPTH;
+     if (hasHeight) {
       const iy = cy * CHUNK + ly;
       if (iy <= surfVoxel && iy >= baseVoxel) {
        mat = iy === baseVoxel ? MAT_ROCK : MAT_SNOW;

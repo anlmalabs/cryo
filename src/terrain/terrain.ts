@@ -276,9 +276,6 @@ export class Terrain {
    sunDir: { value: sky.sunDir || new THREE.Vector3(0, 1, 0) },
    sunRadiance: { value: sky.sunRadiance || new THREE.Color(1, 1, 1) },
    shR: { value: sky.sh || new Float32Array(36) },
-   uPulsarIntensity: pulsarClock.uniforms.uPulsarIntensity,
-   uPulsarPhase: pulsarClock.uniforms.uPulsarPhase,
-   uPulsarBeamDir: pulsarClock.uniforms.uPulsarBeamDir,
    ambientIntensity: { value: S.ambientIntensity },
 
    // ---- shadows ----------------------------------------------------
@@ -337,9 +334,6 @@ export class Terrain {
     sunDir: u.sunDir,
     sunRadiance: u.sunRadiance,
     shR: u.shR,
-    uPulsarIntensity: u.uPulsarIntensity,
-    uPulsarPhase: u.uPulsarPhase,
-    uPulsarBeamDir: u.uPulsarBeamDir,
     cascadeMatrices: u.cascadeMatrices,
     cascadeSplits: u.cascadeSplits,
     cascadeParams: u.cascadeParams,

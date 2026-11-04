@@ -607,6 +607,22 @@
         }
     }
 
+
+/* status bars */
+.sb-root { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 85; display: flex; gap: 14px; pointer-events: none; user-select: none; font: 400 10px/1.4 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace; color: #cddaea; }
+.sb-bar { display: flex; align-items: center; gap: 6px; background: rgba(8,12,19,0.72); backdrop-filter: blur(18px) saturate(1.2); border: 1px solid rgba(143,196,232,0.14); border-radius: 4px; padding: 4px 8px; min-width: 150px; }
+.sb-label { flex: 0 0 auto; letter-spacing: 0.18em; color: #6f8296; font-size: 9px; }
+.sb-track { flex: 1; height: 6px; background: rgba(143,196,232,0.16); border-radius: 3px; overflow: hidden; }
+.sb-fill { height: 100%; width: 0%; border-radius: 3px; transition: width 80ms linear; }
+.sb-rad .sb-fill { background: rgb(80,220,120); }
+.sb-shield .sb-fill { background: #5fd4e8; }
+.sb-shield.sb-broken .sb-fill { background: #3a3f48; }
+.sb-shield.sb-broken { border-color: rgba(120,120,120,0.3); }
+.sb-bar.sb-flash { animation: sb-shake 350ms ease-out; }
+.sb-bar.sb-flash .sb-fill { animation: sb-flash-anim 350ms ease-out; }
+@keyframes sb-flash-anim { 0% { filter: brightness(2.5); background: #fff; } 40% { filter: brightness(1.6); background: #ff3b3b; } 100% { filter: brightness(1); } }
+@keyframes sb-shake { 0% { transform: translate(0,0); } 20% { transform: translate(-3px,-1px); } 40% { transform: translate(3px,1px); } 60% { transform: translate(-2px,0); } 80% { transform: translate(2px,0); } 100% { transform: translate(0,0); } }
+
 </style>
 </head>
 <body>

@@ -1,3 +1,7 @@
+// NOTE: this craft currently serves as the debug flight mode; it will be
+// generalized into the player's actual vehicle later. Keep its systems (hover,
+// streak, burn) structured for that generalization.
+
 /**
  * The airspeeder — the thing the player is, when they are not the figure.
  *

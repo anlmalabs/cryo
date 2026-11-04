@@ -1,3 +1,7 @@
+// Tidal-locked pulsar lighting (see pulsarClock.ts): no day/night cycle; sunDir
+// is the fixed mean direction to the pulsar. Static lighting + pulsing flow is
+// COMPLETE AND FINAL. sunDir computed in syncFromSettings below.
+
 /**
  * Procedural sky, image-based lighting, and the sun's own colour.
  *
@@ -179,7 +183,10 @@ export class Sky {
     cloudAmount: { value: CLOUD_AMOUNT },
     sunRadiance: { value: this.sunRadiance },
     shR: { value: this.sh },
-    uPulsarIntensity: pulsarClock.uniforms.uPulsarIntensity,
+    // Pulsar uniform bindings: aliased to pulsarClock (the flash source of truth
+    // — isPiercing). Drive the sky pulsing flow; see pulsarClock.ts.
+    uFlash1: pulsarClock.uniforms.uFlash1,
+    uFlash2: pulsarClock.uniforms.uFlash2,
     uPulsarPhase: pulsarClock.uniforms.uPulsarPhase,
     uPulsarBeamDir: pulsarClock.uniforms.uPulsarBeamDir,
     ambientIntensity: { value: 1 },
@@ -399,7 +406,7 @@ export class Sky {
   u.sunDir.value = this.sunDir;
   u.sunColor.value = this.sunColor;
   // Sunlight syncs with the pulsar cones via the centralized PulsarClock (SSOT).
-  const sunFactor = pulsarClock.pulsarIntensity;
+  const sunFactor = pulsarClock.flashTotal;
   u.sunIntensity.value = this.sunScale * sunFactor;
   u.time.value = time;
 

@@ -1,3 +1,6 @@
+// NOTE: the G-key walk/fly switch is a permanent debug affordance, intentionally
+// kept. Do not remove.
+
 import { S } from "./core/settings.js";
 import type { CharacterController } from "./character/controller.js";
 import type { Character } from "./character/character.js";

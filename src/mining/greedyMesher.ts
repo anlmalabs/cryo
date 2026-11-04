@@ -15,19 +15,16 @@ export interface MeshResult {
  indices: Uint32Array;
 }
 
+// PALETTE is authored sRGB but consumed as linear by voxel.fragment.glsl
+// (vColor/255.0) — linearize once here so the AgX composite sees correct light.
 const PALETTE: number[][] = [
- [0, 0, 0],
- [230, 230, 240],
- [200, 220, 240],
- [120, 120, 130],
+ [Math.round(255 * Math.pow(0 / 255, 2.2)), Math.round(255 * Math.pow(0 / 255, 2.2)), Math.round(255 * Math.pow(0 / 255, 2.2))],
+ [Math.round(255 * Math.pow(230 / 255, 2.2)), Math.round(255 * Math.pow(230 / 255, 2.2)), Math.round(255 * Math.pow(240 / 255, 2.2))],
+ [Math.round(255 * Math.pow(200 / 255, 2.2)), Math.round(255 * Math.pow(220 / 255, 2.2)), Math.round(255 * Math.pow(240 / 255, 2.2))],
+ [Math.round(255 * Math.pow(120 / 255, 2.2)), Math.round(255 * Math.pow(120 / 255, 2.2)), Math.round(255 * Math.pow(130 / 255, 2.2))],
 ];
 
 export function meshChunk(voxels: Uint8Array, originX: number, originY: number, originZ: number): MeshResult {
- // collect faces
- const faces: { axis: number; slice: number; u: number; v: number; w: number; du: number; dv: number; mat: number; sign: number }[] = [];
- // We'll do a simplified greedy: for each axis, for each slice, scan 2D grid, merge runs.
- // Axis 0 = X faces (normal +/- X), slices along X
- // For performance and correctness, implement standard greedy mesher.
 
  // Helper to index voxel
  const idx = (x: number, y: number, z: number) => (y * CHUNK + z) * CHUNK + x;
@@ -36,30 +33,6 @@ export function meshChunk(voxels: Uint8Array, originX: number, originY: number, 
  interface Quad { x: number; y: number; z: number; du: number; dv: number; axis: number; sign: number; mat: number; }
  const quads: Quad[] = [];
 
- // Axis X (faces perpendicular to X): for each x slice boundary between x-1 and x
- for (let x = 0; x <= CHUNK; x++) {
-  // for each y,z cell
-  for (let y = 0; y < CHUNK; y++) {
-   for (let z = 0; z < CHUNK; z++) {
-    const a = (x > 0) ? voxels[idx(x - 1, y, z)] : 0;
-    const b = (x < CHUNK) ? voxels[idx(x, y, z)] : 0;
-    if (a === b) continue;
-    if (a === MAT_EMPTY && b === MAT_EMPTY) continue;
-    if (a !== MAT_EMPTY && b !== MAT_EMPTY) continue; // internal, no face
-    // face exists between empty and solid
-    const solid = a !== MAT_EMPTY ? a : b;
-    const sign = a !== MAT_EMPTY ? 1 : -1; // solid on -x side -> normal +x? 
-    // normal points from solid to empty
-    const normalSign = a !== MAT_EMPTY ? 1 : -1;
-    quads.push({ x, y, z, du: 1, dv: 1, axis: 0, sign: normalSign, mat: solid });
-   }
-  }
- }
- // This naive per-voxel won't merge; need greedy merge. Given time, implement merge for X axis only partially.
- // To satisfy tests (1 voxel -> 12 tris; 2 adjacent -> 10), we need merging. Let's implement greedy properly.
-
- // Reset quads; do greedy per axis.
- quads.length = 0;
 
  // We'll implement greedy merging for each axis using a mask grid.
  // Axis 0: faces in YZ plane, varying x.
